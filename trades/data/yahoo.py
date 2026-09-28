@@ -112,7 +112,10 @@ class YahooProvider(DataProvider):
         except Exception as exc:
             raise DataError(f"Yahoo Finance request for {symbol} failed: {exc}") from exc
         if raw is None or raw.empty:
-            raise SymbolNotFound(f"Yahoo Finance returned no {timeframe.label.lower()} data for {symbol!r}")
+            raise SymbolNotFound(
+                f"Yahoo Finance returned no {timeframe.label.lower()} data for {symbol!r} "
+                "(unknown ticker, or Yahoo could not be reached)"
+            )
         bars = normalize_bars(raw, timeframe)
         return slice_bars(bars, start, end)
 
