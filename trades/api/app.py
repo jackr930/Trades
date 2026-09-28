@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from trades import __version__
 from trades.advisor import Recommender
 from trades.api.security import DEV_ORIGINS, LocalGuard
+from trades.arena.run import RunManager
 from trades.config import SettingsStore, trades_home
 from trades.data.base import DataError, ProviderNotConfigured, SymbolNotFound
 from trades.data.service import DataService
@@ -34,6 +35,7 @@ class AppContext:
     recommender: Recommender
     live: LiveService
     sims: SessionStore
+    runs: RunManager
 
 
 def create_app(
@@ -45,13 +47,15 @@ def create_app(
     recommender = Recommender()
     live = LiveService(data, store, recommender)
     sims = SessionStore(history_path=home / "sim_history.jsonl")
-    ctx = AppContext(store, data, recommender, live, sims)
+    runs = RunManager()
+    ctx = AppContext(store, data, recommender, live, sims, runs)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if start_live:
             await live.start()
         yield
+        await runs.shutdown()
         await live.stop()
 
     app = FastAPI(
@@ -89,10 +93,13 @@ def create_app(
     async def _data_error(_: Request, exc: DataError):
         return JSONResponse({"detail": str(exc), "code": "data_error"}, status_code=502)
 
+    from trades.api import arena_routes  # noqa: PLC0415
     from trades.api.routes import router, ws_router  # noqa: PLC0415
 
     app.include_router(router, prefix="/api")
+    app.include_router(arena_routes.router, prefix="/api")
     app.include_router(ws_router)
+    app.include_router(arena_routes.ws_router)
 
     dist = web_dist or WEB_DIST
     if (dist / "index.html").exists():

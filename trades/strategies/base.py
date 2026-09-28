@@ -315,13 +315,11 @@ class SingleAssetStrategy(Strategy):
 
 def signal_since(sig: pd.Series, t: int) -> tuple[pd.Timestamp | None, bool]:
     """When the current signal value started, and whether it changed on bar ``t``."""
-    vals = sig.to_numpy()[: t + 1]
+    vals = sig.to_numpy(dtype=float)[: t + 1]
     if len(vals) == 0:
         return None, False
-    cur = vals[-1]
-    k = len(vals) - 1
-    while k > 0 and abs(vals[k - 1] - cur) <= 1e-12:
-        k -= 1
+    different = np.flatnonzero(np.abs(vals[:-1] - vals[-1]) > 1e-12)
+    k = int(different[-1]) + 1 if len(different) else 0
     fresh = k == len(vals) - 1 and k > 0
     return sig.index[k], fresh
 

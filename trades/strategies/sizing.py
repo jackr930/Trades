@@ -20,6 +20,7 @@ Gross exposure is capped at ``max_leverage``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
@@ -149,26 +150,41 @@ def _lock(sig: np.ndarray, target: np.ndarray, per_column: bool, every: int) -> 
     periodic re-size). NaN targets (e.g. no volatility estimate yet) mean 'flat for now'."""
     T, N = sig.shape
     out = np.zeros((T, N))
-    groups = [[j] for j in range(N)] if per_column else [list(range(N))]
-    for g in groups:
-        last_sig: np.ndarray | None = None
-        last_t = -(10**9)
-        for t in range(T):
-            s = sig[t, g]  # fancy indexing -> copy
-            if not np.any(s):
-                out[t, g] = 0.0
-                last_sig, last_t = s, t
-                continue
-            changed = last_sig is None or bool(np.any(np.abs(s - last_sig) > 1e-12))
+    if T == 0 or N == 0:
+        return out
+    if per_column:
+        for j in range(N):
+            out[:, j] = _lock_group(sig[:, [j]], target[:, [j]], every)[:, 0]
+        return out
+    return _lock_group(sig, target, every)
+
+
+def _lock_group(sig: np.ndarray, target: np.ndarray, every: int) -> np.ndarray:
+    # Plain Python floats: this loop runs on every bar of every live strategy agent, and
+    # per-element numpy calls would dominate its cost.
+    S, W = sig.tolist(), target.tolist()
+    zero = [0.0] * sig.shape[1]
+    rows: list[list[float]] = []
+    last_sig: list[float] | None = None
+    last_t = -(10**9)
+    prev = zero
+    for t, s in enumerate(S):
+        if not any(s):
+            row = zero
+            last_sig, last_t = s, t
+        else:
+            changed = last_sig is None or any(abs(a - b) > 1e-12 for a, b in zip(s, last_sig, strict=True))
             due = every > 0 and t - last_t >= every
             if changed or due:
-                tgt = target[t, g]
-                if not np.all(np.isfinite(tgt)):
-                    out[t, g] = 0.0
+                w = W[t]
+                if all(math.isfinite(x) for x in w):
+                    row = w
+                    last_sig, last_t = s, t
+                else:
+                    row = zero
                     last_sig = None  # no size available yet: try again next bar
-                    continue
-                out[t, g] = tgt
-                last_sig, last_t = s, t
             else:
-                out[t, g] = out[t - 1, g]
-    return out
+                row = prev
+        rows.append(row)
+        prev = row
+    return np.array(rows, dtype=float)
