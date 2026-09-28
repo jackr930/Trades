@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 import httpx
 import pandas as pd
 
+from trades.core.calendar import NY, regular_session_date, session_bounds
 from trades.core.timeframes import Timeframe
 from trades.data.base import (
     DataError,
@@ -47,6 +48,27 @@ TIMEFRAMES = {
 
 def _rfc3339(ts: pd.Timestamp) -> str:
     return ts.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _regular_session_price(trade: dict, daily: dict) -> tuple[float | None, datetime]:
+    """Latest regular-session price and its time.
+
+    The latest trade may be a pre-market or after-hours print; those are not part of
+    the daily bar, so fall back to the daily bar's close, stamped at its session close
+    (or now, if that session is still trading).
+    """
+    now = datetime.now(timezone.utc)
+    if trade.get("p") is not None and trade.get("t"):
+        ts = pd.Timestamp(trade["t"]).to_pydatetime(warn=False)
+        if regular_session_date(ts) is not None:
+            return float(trade["p"]), ts
+    if daily.get("c") is None:
+        return None, now
+    if daily.get("t"):
+        session = pd.Timestamp(daily["t"]).tz_convert(NY).date()
+        close_dt = session_bounds(session)[1].astimezone(timezone.utc)
+        return float(daily["c"]), min(now, close_dt)
+    return float(daily["c"]), now
 
 
 class AlpacaProvider(DataProvider):
@@ -162,11 +184,9 @@ class AlpacaProvider(DataProvider):
             quote = snap.get("latestQuote") or {}
             daily = snap.get("dailyBar") or {}
             prev = snap.get("prevDailyBar") or {}
-            price = trade.get("p") or daily.get("c")
+            price, ts = _regular_session_price(trade, daily)
             if price is None:
                 continue
-            ts_raw = trade.get("t") or daily.get("t")
-            ts = pd.Timestamp(ts_raw).to_pydatetime(warn=False) if ts_raw else datetime.now(timezone.utc)
             out[sym] = Quote(
                 symbol=sym,
                 price=float(price),

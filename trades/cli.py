@@ -129,6 +129,8 @@ def cmd_backtest(args) -> int:
 def cmd_recommend(args) -> int:
     from trades.advisor import AdvisorSettings, Recommender
     from trades.config import SettingsStore
+    from trades.core.timeframes import Timeframe
+    from trades.data.base import last_bar_forming
     from trades.data.service import DataService
 
     store = SettingsStore()
@@ -140,7 +142,9 @@ def cmd_recommend(args) -> int:
     for sym, err in errors.items():
         print(f"{sym}: {err}", file=sys.stderr)
     adv = AdvisorSettings.from_settings(s)
-    res = Recommender().recommend(frames, adv, namespace=provider)
+    adv.pairs = s.active_pairs(list(frames))
+    forming = {k: provider != "synthetic" and last_bar_forming(df, Timeframe.D1) for k, df in frames.items()}
+    res = Recommender().recommend(frames, adv, provisional=forming, namespace=provider)
     print(f"\nRecommendations (provider: {provider}) -- educational, not investment advice\n")
     for r in res["recommendations"]:
         c = r["consensus"]

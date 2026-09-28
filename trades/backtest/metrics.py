@@ -225,7 +225,7 @@ def performance_metrics(
         closed = [t for t in trades if not t.is_open]
         out["n_trades"] = len(closed)
         pnls = np.array([t.pnl for t in closed], dtype=float)
-        wins, losses = pnls[pnls > 0], pnls[pnls <= 0]
+        wins, losses = pnls[pnls > 0], pnls[pnls < 0]  # break-even trades are neither
         out["win_rate"] = float(len(wins) / len(pnls)) if len(pnls) else None
         gross_loss = -losses.sum()
         out["profit_factor"] = float(wins.sum() / gross_loss) if gross_loss > 0 else None

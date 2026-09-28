@@ -25,15 +25,13 @@ from trades.advisor import AdvisorSettings, Recommender
 from trades.backtest.runner import sanitize
 from trades.config import SettingsStore
 from trades.core.calendar import (
-    NY,
-    is_trading_day,
     market_status,
     next_trading_day,
-    previous_trading_day,
+    regular_session_date,
     session_bounds,
 )
 from trades.core.timeframes import SESSION_MINUTES, Timeframe
-from trades.data.base import DataError, Quote
+from trades.data.base import DataError, Quote, last_bar_forming
 from trades.data.service import DataService
 from trades.data.synthetic import SyntheticProvider, universe_info
 
@@ -48,20 +46,15 @@ HISTORY_BARS = {
 }
 
 
-def quote_session_date(ts: datetime):
-    """Trading day a quote belongs to (pre-market quotes belong to the previous session)."""
-    ny = ts.astimezone(NY)
-    d = ny.date()
-    if not is_trading_day(d):
-        return previous_trading_day(d)
-    if ny < session_bounds(d)[0]:
-        return previous_trading_day(d)
-    return d
-
-
 def merge_quote(df: pd.DataFrame, q: Quote) -> pd.DataFrame:
-    """Fold a quote into daily bars: update the session's bar or start a new one."""
-    day = quote_session_date(q.timestamp)
+    """Fold a quote into daily bars: update the session's bar or start a new one.
+
+    Only regular-session quotes count (daily bars cover 09:30-16:00 ET): pre-market and
+    after-hours prints are ignored, and bars of earlier sessions are never modified.
+    """
+    day = regular_session_date(q.timestamp)
+    if day is None:
+        return df
     ts = pd.Timestamp(day).tz_localize("UTC")
     price = float(q.price)
     if len(df) and df.index[-1] == ts:
@@ -348,16 +341,16 @@ class LiveService:
             self._errors["_stream"] = f"Real-time stream stopped ({exc}); falling back to polling."
 
     async def _on_trade(self, symbol: str, price: float, size: float, ts: datetime) -> None:
+        if regular_session_date(ts) is None:
+            return  # extended-hours trade: not part of the daily bar
         self._streamed[symbol.upper()] = (price, ts)
 
     async def _tick(self, s) -> None:
         tf = Timeframe.parse(s.timeframe)
-        provisional = False
         if self._demo is not None:
             for sym in s.watchlist():
                 df, tau = self._demo.bars(sym)
                 self._bars[sym] = df
-            provisional = True
         elif tf is Timeframe.D1:
             symbols = list(self._bars) or s.watchlist()
             try:
@@ -372,14 +365,17 @@ class LiveService:
                         q.price, q.timestamp = price, ts
                 if sym in self._bars:
                     self._bars[sym] = merge_quote(self._bars[sym], q)
-            provisional = market_status().is_open
         else:
             frames, errors = await asyncio.to_thread(
                 self.data.bars_many, s.watchlist(), tf, None, None, None, count=HISTORY_BARS[tf]
             )
             self._bars.update(frames)
             self._errors.update(errors)
-            provisional = market_status().is_open
+        # Which symbols' last bar is still forming (the demo's current bar always is).
+        now = datetime.now(timezone.utc)
+        provisional = {
+            sym: self._demo is not None or last_bar_forming(df, tf, now) for sym, df in self._bars.items()
+        }
 
         for sym, df in self._bars.items():
             if len(df) >= 2:

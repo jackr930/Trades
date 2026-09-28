@@ -22,7 +22,7 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
-from trades.core.calendar import NY
+from trades.core.calendar import NY, is_trading_day, session_bounds
 from trades.core.timeframes import Timeframe
 
 BAR_COLUMNS = ("open", "high", "low", "close", "volume")
@@ -224,6 +224,27 @@ def lookback_start(timeframe: Timeframe, bars: int, end: datetime | None = None)
     else:
         days = int(math.ceil(bars / timeframe.bars_per_day) * 7 / 5 * 1.1) + 4
     return end - timedelta(days=days)
+
+
+def last_bar_forming(df: pd.DataFrame | None, timeframe: Timeframe, now: datetime | None = None) -> bool:
+    """Is the last bar still forming at ``now`` (its session or interval not yet over)?
+
+    A forming bar's close is only the latest price: signals computed on it can change
+    before the bar completes, so it must not feed cached statistics.
+    """
+    if df is None or len(df) == 0:
+        return False
+    now = now or datetime.now(timezone.utc)
+    last = pd.Timestamp(df.index[-1])
+    if timeframe is Timeframe.D1:
+        d = last.date()  # daily bars are stamped 00:00 UTC of their trading date
+        return is_trading_day(d) and now < session_bounds(d)[1]
+    start = last.to_pydatetime()
+    end = start + timedelta(minutes=timeframe.minutes)
+    d = start.astimezone(NY).date()
+    if is_trading_day(d):
+        end = min(end, session_bounds(d)[1])  # the last hourly bar ends at the close
+    return now < end
 
 
 def align_bars(frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:

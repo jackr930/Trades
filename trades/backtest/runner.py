@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -100,13 +100,18 @@ def backtest_strategy(
             f"{strategy.name} is designed to short, but short selling is disabled; shorts are skipped."
         )
 
+    # Fills may not push gross exposure past the sizing's leverage cap (e.g. after an opening gap).
+    cfg = cfg.capped(sizing.max_leverage)
     result = run_backtest(aligned, weights, cfg, start)
     bench = None
     bench_metrics = None
     if with_benchmark:
         bsyms = benchmark_symbols(strategy, symbols)
         bench = run_backtest(
-            {s: aligned[s] for s in bsyms}, buy_and_hold_weights(index, bsyms, start), cfg, start
+            {s: aligned[s] for s in bsyms},
+            buy_and_hold_weights(index, bsyms, start),
+            replace(cfg, max_gross_leverage=1.0),  # a buy-and-hold investor uses no margin
+            start,
         )
         bench_metrics = performance_metrics(
             bench.equity.iloc[start:], cfg.periods_per_year, bench.trades, bench.fills, bench.gross_exposure

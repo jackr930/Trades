@@ -143,6 +143,20 @@ def session_bounds(d: date) -> tuple[datetime, datetime]:
     return datetime.combine(d, REGULAR_OPEN, NY), datetime.combine(d, close, NY)
 
 
+def regular_session_date(ts: datetime) -> date | None:
+    """The trading day whose regular session (open to close, inclusive) contains ``ts``.
+
+    None for pre-market, after-hours, weekend and holiday timestamps: extended-hours
+    prints must not overwrite a regular-session bar.
+    """
+    ny = ts.astimezone(NY)
+    d = ny.date()
+    if not is_trading_day(d):
+        return None
+    open_dt, close_dt = session_bounds(d)
+    return d if open_dt <= ny <= close_dt else None
+
+
 @dataclass(frozen=True)
 class MarketStatus:
     is_open: bool

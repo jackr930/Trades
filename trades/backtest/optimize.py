@@ -28,6 +28,13 @@ from trades.strategies.sizing import SizingConfig, apply_sizing
 
 MAX_COMBOS = 400
 OBJECTIVES = ("sharpe", "cagr", "calmar", "sortino", "total_return")
+OBJECTIVE_LABELS = {
+    "sharpe": "Sharpe ratio",
+    "cagr": "CAGR",
+    "calmar": "Calmar ratio",
+    "sortino": "Sortino ratio",
+    "total_return": "total return",
+}
 SUMMARY_KEYS = (
     "sharpe",
     "cagr",
@@ -67,6 +74,11 @@ def _objective(m: dict[str, float | None], objective: str) -> float:
     return -math.inf if v is None or not math.isfinite(v) else float(v)
 
 
+def _capped(cfg: BacktestConfig, strategy_id: str, sizing: dict[str, Any] | None) -> BacktestConfig:
+    cls = get_strategy_class(strategy_id)
+    return cfg.capped(SizingConfig.from_dict(sizing, cls.default_sizing).max_leverage)
+
+
 def _prepare(strategy_id, base_params, combos, data, sizing, config):
     """Build (combo, strategy, weights) for every valid combination on aligned data."""
     cls = get_strategy_class(strategy_id)
@@ -99,7 +111,7 @@ def grid_search(
 ) -> dict[str, Any]:
     if objective not in OBJECTIVES:
         raise ValueError(f"objective must be one of {OBJECTIVES}")
-    cfg = config or BacktestConfig()
+    cfg = _capped(config or BacktestConfig(), strategy_id, sizing)
     combos = expand_grid(grid)
     aligned, prepared, rejected = _prepare(strategy_id, base_params, combos, data, sizing, cfg)
     if not prepared:
@@ -197,7 +209,7 @@ def walk_forward(
         raise ValueError(f"objective must be one of {OBJECTIVES}")
     if train_bars < 60 or test_bars < 20:
         raise ValueError("training window must be >= 60 bars and test window >= 20 bars")
-    cfg = config or BacktestConfig()
+    cfg = _capped(config or BacktestConfig(), strategy_id, sizing)
     combos = expand_grid(grid, limit=200)
     aligned, prepared, rejected = _prepare(strategy_id, base_params, combos, data, sizing, cfg)
     if not prepared:
@@ -273,9 +285,12 @@ def walk_forward(
     d_res = run_backtest(sub, d_w.iloc[oos_start - 1 : oos_end], cfg, 0)
     d_m = performance_metrics(d_res.equity, cfg.periods_per_year, d_res.trades, d_res.fills)
 
-    is_scores = [w["in_sample"].get(objective) for w in windows if w["in_sample"].get(objective) is not None]
+    # Compare like with like: a total return over a 3-year training window and one over the whole
+    # stitched test period differ in length, so the total-return objective is compared annualised.
+    compare = "cagr" if objective == "total_return" else objective
+    is_scores = [w["in_sample"].get(compare) for w in windows if w["in_sample"].get(compare) is not None]
     is_mean = float(np.mean(is_scores)) if is_scores else None
-    oos_score = oos_m.get(objective)
+    oos_score = oos_m.get(compare)
     efficiency = oos_score / is_mean if (is_mean and oos_score is not None and is_mean > 0) else None
     return {
         "objective": objective,
@@ -287,14 +302,19 @@ def walk_forward(
         "default_metrics": d_m,
         "in_sample_mean": is_mean,
         "efficiency": efficiency,
-        "interpretation": wf_interpretation(objective, is_mean, oos_score, d_m.get(objective)),
+        "compared_on": compare,
+        "interpretation": wf_interpretation(compare, is_mean, oos_score, d_m.get(compare)),
     }
 
 
 def wf_interpretation(objective: str, is_mean, oos, default_oos) -> str:
     if is_mean is None or oos is None:
         return "Not enough data to compare in-sample and out-of-sample results."
-    parts = [f"Average in-sample {objective}: {is_mean:.2f}; stitched out-of-sample {objective}: {oos:.2f}."]
+    label = OBJECTIVE_LABELS.get(objective, objective)
+    fmt = "{:.1%}" if objective in ("cagr", "total_return") else "{:.2f}"
+    parts = [
+        f"Average in-sample {label}: {fmt.format(is_mean)}; stitched out-of-sample {label}: {fmt.format(oos)}."
+    ]
     if is_mean > 0 and oos < 0.5 * is_mean:
         parts.append(
             "Out-of-sample performance fell by more than half: much of the in-sample result was curve-fitting."
@@ -305,6 +325,6 @@ def wf_interpretation(objective: str, is_mean, oos, default_oos) -> str:
         better = oos > default_oos
         parts.append(
             f"Re-optimising {'beat' if better else 'did not beat'} simply keeping the default parameters "
-            f"({default_oos:.2f}) over the same unseen periods."
+            f"({fmt.format(default_oos)}) over the same unseen periods."
         )
     return " ".join(parts)

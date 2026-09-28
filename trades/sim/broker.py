@@ -3,13 +3,17 @@
 Fill model (per bar, orders become eligible on the bar *after* they are placed):
 
 * market: fills at the bar's open, plus adverse slippage;
-* limit buy: fills at the open if the bar gaps below the limit, else at the limit if
-  the low touches it (sells mirror this); limits get no slippage;
+* limit buy: fills at the open if the bar opens below the limit, else at the limit if
+  the low trades *through* it (merely touching the limit is not enough: other orders
+  were queued at that price first); sells mirror this; limits get no slippage;
 * stop sell: triggers at the open on a gap below the stop, else at the stop if the low
   reaches it, then suffers slippage (buy stops mirror this);
 * if a bar could trigger both a stop-loss and a take-profit of the same bracket, the
   stop-loss is assumed to fill first (the conservative choice, since the intrabar path
-  is unknown).
+  is unknown);
+* bracket children are armed when their parent fills; a parent filled at the open can
+  have its children trigger later in the same bar;
+* when a parent is canceled, expires or is rejected, its waiting children are canceled.
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ class Order:
     fill_price: float | None = None
     filled_qty: float = 0.0
     reason: str = ""
+    closed_index: int | None = None  # bar at which it was canceled, expired or rejected
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -102,6 +107,9 @@ class PaperBroker:
         allow_short: bool = False,
         max_leverage: float = 1.0,
         fractional: bool = False,
+        borrow_bps_annual: float = 25.0,
+        margin_rate_annual: float = 0.02,
+        periods_per_year: int = 252,
     ):
         self.ledger = Ledger(cash)
         self.commission_bps = commission_bps
@@ -111,10 +119,15 @@ class PaperBroker:
         self.allow_short = allow_short
         self.max_leverage = max_leverage
         self.fractional = fractional
+        # Same financing model as the backtester: shorts pay a borrow fee, borrowed cash pays interest.
+        self._borrow = borrow_bps_annual / 1e4 / periods_per_year
+        self._margin = margin_rate_annual / periods_per_year
         self.orders: dict[str, Order] = {}
         self.last_prices: dict[str, float] = {}
         self._ids = itertools.count(1)
         self.events: list[dict[str, Any]] = []
+        # symbol -> direction ("up"/"down") the price crossed to fill an entry mid-bar this bar
+        self._intrabar_entries: dict[str, str] = {}
 
     # -- helpers -----------------------------------------------------------------------
     def _new_id(self) -> str:
@@ -261,18 +274,22 @@ class PaperBroker:
                 self.orders[child.id] = child
         return order
 
-    def cancel(self, order_id: str, reason: str = "canceled by user") -> Order:
+    def _close(self, o: Order, status: Status, reason: str, index: int | None) -> None:
+        """Cancel, expire or reject ``o``; bracket children still waiting for it go with it."""
+        o.status, o.reason, o.closed_index = status, reason, index
+        for child in self.orders.values():
+            if child.parent_id == o.id and child.status is Status.PENDING:
+                child.status = Status.CANCELED
+                child.reason = f"parent order {status.value}"
+                child.closed_index = index
+
+    def cancel(self, order_id: str, reason: str = "canceled by user", index: int | None = None) -> Order:
         order = self.orders.get(order_id)
         if order is None:
             raise OrderError(f"no order {order_id}")
         if order.status not in (Status.OPEN, Status.PENDING):
             raise OrderError(f"order {order_id} is already {order.status.value}")
-        order.status = Status.CANCELED
-        order.reason = reason
-        for child in self.orders.values():
-            if child.parent_id == order_id and child.status in (Status.OPEN, Status.PENDING):
-                child.status = Status.CANCELED
-                child.reason = "parent order canceled"
+        self._close(order, Status.CANCELED, reason, index)
         return order
 
     @staticmethod
@@ -283,20 +300,27 @@ class PaperBroker:
             trade.tags.append(o.tag)
 
     # -- bar processing -------------------------------------------------------------
-    def _trigger_price(self, o: Order, bar: Bar) -> float | None:
+    def _trigger_price(self, o: Order, bar: Bar) -> tuple[float, bool] | None:
+        """(fill price, filled at the open?) if ``o`` executes on ``bar``, else None."""
         if o.type is OrderType.MARKET:
-            return bar.open * (1 + self.slip if o.side is Side.BUY else 1 - self.slip)
+            return bar.open * (1 + self.slip if o.side is Side.BUY else 1 - self.slip), True
         if o.type is OrderType.LIMIT:
             lim = o.limit_price
             if o.side is Side.BUY:
-                return bar.open if bar.open <= lim else (lim if bar.low <= lim else None)
-            return bar.open if bar.open >= lim else (lim if bar.high >= lim else None)
+                if bar.open < lim:
+                    return bar.open, True
+                return (lim, False) if bar.low < lim else None
+            if bar.open > lim:
+                return bar.open, True
+            return (lim, False) if bar.high > lim else None
         stop = o.stop_price
         if o.side is Side.BUY:
-            px = bar.open if bar.open >= stop else (stop if bar.high >= stop else None)
-            return None if px is None else px * (1 + self.slip)
-        px = bar.open if bar.open <= stop else (stop if bar.low <= stop else None)
-        return None if px is None else px * (1 - self.slip)
+            if bar.open >= stop:
+                return bar.open * (1 + self.slip), True
+            return (stop * (1 + self.slip), False) if bar.high >= stop else None
+        if bar.open <= stop:
+            return bar.open * (1 - self.slip), True
+        return (stop * (1 - self.slip), False) if bar.low <= stop else None
 
     @staticmethod
     def _priority(o: Order) -> tuple[int, int]:
@@ -306,7 +330,8 @@ class PaperBroker:
     def process_bar(self, index: int, time: Any, bars: dict[str, Bar]) -> list[dict[str, Any]]:
         """Fill eligible orders against this bar, then mark positions to its close."""
         fills: list[dict[str, Any]] = []
-        for _pass in range(2):  # second pass: bracket children activated by a market fill at the open
+        self._intrabar_entries = {}
+        for _pass in range(2):  # second pass: bracket children armed by a fill at the open
             eligible = sorted(
                 (
                     o
@@ -321,23 +346,47 @@ class PaperBroker:
                 if o.status is not Status.OPEN:
                     continue  # canceled by an OCO sibling earlier in this bar
                 bar = bars[o.symbol]
-                price = self._trigger_price(o, bar)
-                if price is None:
+                hit = self._trigger_price(o, bar)
+                if hit is None:
                     continue
-                fill = self._execute(o, price, index, time, bar)
+                fill = self._execute(o, hit[0], hit[1], index, time)
                 if fill:
                     fills.append(fill)
-        for o in self.orders.values():
+        for o in list(self.orders.values()):
             if o.status is Status.OPEN and o.tif == "day" and o.created_index < index:
-                o.status = Status.EXPIRED
-                o.reason = "day order not filled"
+                self._close(o, Status.EXPIRED, "day order not filled", index)
         for sym, bar in bars.items():
             self.last_prices[sym] = bar.close
-            if abs(self.position(sym)) > EPS:
+            if abs(self.position(sym)) <= EPS:
+                continue
+            trade = self.ledger.open_trades.get(sym)
+            crossing = self._intrabar_entries.get(sym)
+            if crossing and trade is not None and trade.entry_index == index:
+                # Entered mid-bar. Only the extreme beyond the fill in the direction the price was
+                # crossing is known to come after the fill; the other side may predate the trade.
+                if crossing == "down":
+                    self.ledger.mark_excursions(sym, bar.close, bar.low)
+                else:
+                    self.ledger.mark_excursions(sym, bar.high, bar.close)
+            else:
                 self.ledger.mark_excursions(sym, bar.high, bar.low)
+        self._finance()
         return fills
 
-    def _execute(self, o: Order, price: float, index: int, time: Any, bar: Bar) -> dict[str, Any] | None:
+    def _finance(self) -> None:
+        led = self.ledger
+        if self._borrow > 0:
+            short_value = sum(
+                -pos.qty * self.last_prices.get(sym, pos.avg_price)
+                for sym, pos in led.positions.items()
+                if pos.qty < -EPS
+            )
+            if short_value > 0:
+                led.charge(short_value * self._borrow)
+        if led.cash < 0 and self._margin > 0:
+            led.charge(-led.cash * self._margin)
+
+    def _execute(self, o: Order, price: float, at_open: bool, index: int, time: Any) -> dict[str, Any] | None:
         pos = self.position(o.symbol)
         qty = o.qty
         if o.tag in ("stop_loss", "take_profit"):
@@ -345,12 +394,12 @@ class PaperBroker:
             held = abs(pos) if (pos > 0) == (o.side is Side.SELL) else 0.0
             qty = min(qty, held)
             if qty <= EPS:
-                o.status, o.reason = Status.CANCELED, "position already closed"
+                self._close(o, Status.CANCELED, "position already closed", index)
                 return None
         if o.side is Side.SELL and not self.allow_short:
             qty = min(qty, max(pos, 0.0))
             if qty <= EPS:
-                o.status, o.reason = Status.REJECTED, "short selling disabled and no shares to sell"
+                self._close(o, Status.REJECTED, "short selling disabled and no shares to sell", index)
                 return None
         signed = qty if o.side is Side.BUY else -qty
         # Buying-power check for exposure-increasing fills, using prices at the fill.
@@ -368,7 +417,7 @@ class PaperBroker:
                 )
                 allowed = allowed if self.fractional else float(int(allowed))
                 if allowed <= EPS:
-                    o.status, o.reason = Status.REJECTED, "insufficient buying power at fill"
+                    self._close(o, Status.REJECTED, "insufficient buying power at fill", index)
                     return None
                 qty = min(qty, allowed)
                 signed = qty if o.side is Side.BUY else -qty
@@ -398,6 +447,9 @@ class PaperBroker:
         if after_open is not None:
             same_direction = (after_open.direction == "long") == (signed > 0)
             self._annotate(after_open, o, exit_leg=not same_direction and after_open is before_open)
+            if after_open is not before_open and not at_open:
+                buy_limit_or_sell_stop = (o.side is Side.BUY) == (o.type is OrderType.LIMIT)
+                self._intrabar_entries[o.symbol] = "down" if buy_limit_or_sell_stop else "up"
         o.status = Status.FILLED
         o.filled_index, o.filled_time, o.fill_price, o.filled_qty = index, time, price, qty
         # One-cancels-other siblings and activation of bracket children.
@@ -409,21 +461,24 @@ class PaperBroker:
                     and sib.status in (Status.OPEN, Status.PENDING)
                 ):
                     sib.status, sib.reason = Status.CANCELED, f"OCO: {o.tag.replace('_', '-')} filled"
+                    sib.closed_index = index
         for child in self.orders.values():
             if child.parent_id == o.id and child.status is Status.PENDING:
                 child.status = Status.OPEN
                 child.qty = qty
                 # Children of an order filled at the open can trigger later in the same bar.
-                child.created_index = index - 1 if o.type is OrderType.MARKET else index
+                child.created_index = index - 1 if at_open else index
         if abs(self.position(o.symbol)) <= EPS:
+            # Working exit legs have nothing left to protect. Children still waiting for an
+            # unfilled entry (PENDING) belong to a future position and stay.
             for other in self.orders.values():
                 if (
                     other.symbol == o.symbol
                     and other.tag in ("stop_loss", "take_profit")
-                    and other.status in (Status.OPEN, Status.PENDING)
+                    and other.status is Status.OPEN
                     and other.parent_id != o.id
                 ):
-                    other.status, other.reason = Status.CANCELED, "position closed"
+                    self._close(other, Status.CANCELED, "position closed", index)
         return {
             "order_id": o.id,
             "symbol": o.symbol,

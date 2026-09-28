@@ -62,6 +62,15 @@ class AdvisorSettings:
         )
 
 
+def fingerprint(df: pd.DataFrame) -> tuple:
+    """Cheap identity of a bar history for cache keys: a different source, seed or price
+    adjustment (dividends rescale all past prices) changes it."""
+    if len(df) == 0:
+        return (0,)
+    c = df["close"]
+    return (len(df), str(df.index[0]), str(df.index[-1]), float(c.iloc[0]), float(c.iloc[-1]))
+
+
 def consensus_label(score: float, allow_short: bool) -> tuple[str, str]:
     """Map a consensus score in [-1, 1] to (action, label)."""
     if score >= 0.5:
@@ -80,6 +89,11 @@ class Recommender:
         self._evidence: OrderedDict[tuple, dict] = OrderedDict()
         self._lock = threading.Lock()
         self._cache_size = cache_size
+
+    def clear(self) -> None:
+        """Forget cached evidence (e.g. after the data source or costs change)."""
+        with self._lock:
+            self._evidence.clear()
 
     # -- evidence ------------------------------------------------------------------
     def _evidence_for(
@@ -120,14 +134,19 @@ class Recommender:
         data: dict[str, pd.DataFrame],
         settings: AdvisorSettings,
         *,
-        provisional: bool = False,
+        provisional: bool | dict[str, bool] = False,
         namespace: str = "",
         names: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """``data``: full bar history per symbol (the last bar may still be forming when
-        ``provisional``). Evidence is computed on completed bars only."""
+        """``data``: full bar history per symbol. ``provisional`` says whose last bar is
+        still forming (one flag for all, or per symbol); evidence uses completed bars only."""
         symbols = [s for s, df in data.items() if len(df) >= 3]
-        completed = {s: (df.iloc[:-1] if provisional else df) for s, df in data.items() if s in symbols}
+        forming = (
+            {s: bool(provisional.get(s, False)) for s in symbols}
+            if isinstance(provisional, dict)
+            else dict.fromkeys(symbols, bool(provisional))
+        )
+        completed = {s: (data[s].iloc[:-1] if forming[s] else data[s]) for s in symbols}
         votes: dict[str, list[dict]] = {s: [] for s in symbols}
         notes: list[str] = []
 
@@ -151,11 +170,11 @@ class Recommender:
                         self._group_vote(spec, [a, b], data, completed, settings, namespace, votes)
 
         recs = [
-            self._summarise(sym, data[sym], votes[sym], settings, provisional, (names or {}).get(sym))
+            self._summarise(sym, data[sym], votes[sym], settings, forming[sym], (names or {}).get(sym))
             for sym in symbols
         ]
         recs.sort(key=lambda r: -abs(r["consensus"]["score"]))
-        return {"recommendations": recs, "notes": notes, "provisional": provisional}
+        return {"recommendations": recs, "notes": notes, "provisional": any(forming.values())}
 
     def _single_vote(self, spec, sym, df, done_df, settings, namespace, votes):
         try:
@@ -169,7 +188,7 @@ class Recommender:
             namespace,
             sym,
             spec.key(),
-            str(done_df.index[-1]) if len(done_df) else "",
+            fingerprint(done_df),
             settings.evidence_bars,
             settings.allow_short,
             settings.slippage_bps,
@@ -188,12 +207,11 @@ class Recommender:
                 votes[s].append(self._error_vote(spec, str(exc)))
             return
         done = align_bars({s: completed[s] for s in group})
-        last = str(next(iter(done.values())).index[-1]) if done and len(next(iter(done.values()))) else ""
         key = (
             namespace,
             tuple(group),
             spec.key(),
-            last,
+            tuple(fingerprint(df) for df in done.values()),
             settings.evidence_bars,
             settings.allow_short,
             settings.slippage_bps,

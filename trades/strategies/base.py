@@ -326,6 +326,21 @@ def signal_since(sig: pd.Series, t: int) -> tuple[pd.Timestamp | None, bool]:
     return sig.index[k], fresh
 
 
+def check_bars(raw: pd.Series, every: int) -> np.ndarray:
+    """Boolean mask of the bars on which ``hold_every`` re-samples ``raw``."""
+    arr = raw.to_numpy(dtype=float)
+    out = np.zeros(len(arr), dtype=bool)
+    valid = np.flatnonzero(~np.isnan(arr))
+    if len(valid):
+        first = valid[0]
+        out[first:] = (np.arange(len(arr) - first) % max(every, 1)) == 0
+    return out
+
+
+def held_position_text(value: float) -> str:
+    return "long" if value > 1e-12 else "short" if value < -1e-12 else "flat"
+
+
 def hold_every(raw: pd.Series, every: int) -> pd.Series:
     """Sample ``raw`` every ``every`` bars from its first valid value and hold in between
     (e.g. monthly rebalancing of a daily signal). Before the first valid value -> NaN."""
