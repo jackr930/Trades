@@ -428,6 +428,10 @@ class StrategyRun:
 
     # -- summary ---------------------------------------------------------------------------
     def _summarise(self) -> dict[str, Any]:
+        with self._lock:  # a cancelled loop's last bar may still be finishing in a worker
+            return self._summary_locked()
+
+    def _summary_locked(self) -> dict[str, Any]:
         bench = next((a for a in self.agents if a.benchmark), None)
         bench_eq = bench.equity_series() if bench is not None else None
         rows = []
@@ -564,6 +568,13 @@ class StrategyRun:
             raise RunError("events can only be injected into a simulated market")
         if self.status in ("finished", "error"):
             raise RunError(f"this simulation is {self.status}")
+        # Taking the lock can wait for a bar in progress: do it off the event loop.
+        record = await asyncio.to_thread(self._inject, kind, params)
+        await self._broadcast({**self._update(self.cursor + 1, self.cursor, [record])})
+        return record
+
+    def _inject(self, kind: str, params: dict[str, Any]) -> dict[str, Any]:
+        assert isinstance(self.feed, SimulatedFeed)
         with self._lock:
             at = self.cursor + 1
             try:
@@ -583,8 +594,7 @@ class StrategyRun:
             }
             self.market_events.append(record)
             self._log([record])
-        await self._broadcast({**self._update(self.cursor + 1, self.cursor, [record])})
-        return record
+            return record
 
     async def close(self) -> None:
         if self._task is not None:

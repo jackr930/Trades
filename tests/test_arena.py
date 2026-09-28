@@ -317,3 +317,30 @@ def test_arena_replay_run(client):
     step = client.post(f"/api/arena/runs/{run_id}/control", json={"action": "step", "n": 100}).json()
     assert step["status"] == "finished" and step["cursor"] == st["start_index"] + 30
     assert client.post(f"/api/arena/runs/{run_id}/inject", json={"kind": "crash"}).status_code == 400
+
+
+def test_piled_up_events_stay_finite_and_consistent():
+    """Spamming events must give a wild market, never a numeric overflow or a half-built bar."""
+    m = SimulatedMarket(SYMS, "whipsaw", seed=5, warmup=100)
+    for i in range(40):
+        at = 100 + i
+        m.inject("vol_spike", at, size=6.0, bars=200)
+        m.inject("crash" if i % 2 else "rally", at, size=-0.6 if i % 2 else 1.0, bars=200)
+        m.inject("gap", at, size=1.0, symbol="SIMTEC")
+    m.generate_until(700)
+    f = m.frames()
+    assert len(m) == 700 and all(len(df) == 700 for df in f.values())
+    for df in f.values():
+        assert np.isfinite(df[["open", "high", "low", "close", "volume"]].to_numpy()).all()
+        assert (df["close"] > 0).all()
+    run = create_run(RunConfig(seed=5, symbols=SYMS, length=60, warmup=280))
+
+    async def go():
+        for _ in range(15):
+            await run.inject("vol_spike", size=6.0, bars=100)
+            await run.inject("crash", size=-0.6, bars=100)
+        await run._run_bars(60)
+
+    asyncio.run(go())
+    assert run.status == "finished" and run.error is None
+    json.dumps(run.state(), allow_nan=False)

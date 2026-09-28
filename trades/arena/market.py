@@ -41,6 +41,12 @@ from trades.data.synthetic import (
 DT = 1.0 / TRADING_DAYS_PER_YEAR
 GAP_FRACTION = 0.25
 BRIDGE_STEPS = 16
+# Guards so that any pile-up of injected events stays a (wild) market rather than a numeric
+# overflow: overlapping volatility spikes multiply, and crashes compound the GARCH state.
+MAX_VOL_MULT = 6.0
+MAX_GARCH = 30.0
+MAX_BAR_MOVE = 0.7  # |log return| per bar (about -50% / +100%)
+LOG_PRICE_BOUNDS = (math.log(0.01), math.log(1e7))
 
 # Regimes an event can force, whatever the scenario's own regimes are.
 ARCHETYPES = {
@@ -362,13 +368,23 @@ class SimulatedMarket:
         if missing <= 0:
             return
         first = len(self)
-        rows = [self._step(first + i) for i in range(missing)]
+        prev = self._states[-1] if self._states else self._initial
+        rows, states, names, paths = [], [], [], {}
+        for i in range(missing):  # build everything first: a failure leaves the market unchanged
+            row, prev, name, path = self._step(first + i, prev)
+            rows.append(row)
+            states.append(prev)
+            names.append(name)
+            paths[first + i] = path
         o, h, l, c, v = (np.array([r[k] for r in rows]) for k in range(5))
         self._o = np.vstack([self._o, o])
         self._h = np.vstack([self._h, h])
         self._l = np.vstack([self._l, l])
         self._c = np.vstack([self._c, c])
         self._v = np.vstack([self._v, v])
+        self._states.extend(states)
+        self._regimes.extend(names)
+        self._paths.update(paths)
         for k in [k for k in self._paths if k < len(self) - 64]:
             del self._paths[k]  # keep intrabar paths of recent bars only
 
@@ -401,9 +417,10 @@ class SimulatedMarket:
                 name = f"{arche} ({'forced' if ev.kind == 'regime' else 'injected'})"
         return regime, name, chain
 
-    def _step(self, t: int) -> tuple[list[float], ...]:
+    def _step(self, t: int, prev: _State) -> tuple[tuple[list[float], ...], _State, str, np.ndarray]:
+        """Bar ``t`` from the state after bar ``t-1``: (OHLCV row, new state, regime, paths)."""
         m = self.model
-        st = (self._states[-1] if self._states else self._initial).copy()
+        st = prev.copy()
         rng = np.random.default_rng([self.seed, stable_seed("arena-market"), t])
         u = rng.random()
         dof = m.t_dof
@@ -430,15 +447,19 @@ class SimulatedMarket:
                 st.g *= 2.5  # a crash raises volatility, which then decays at the GARCH pace
             if t == ev.start and ev.kind == "break_pair":
                 st.spread_mean += float(ev.size or 0.0)
+        vol_mult = min(vol_mult, MAX_VOL_MULT)
+        open_jump = _clip(open_jump, MAX_BAR_MOVE)
 
         a, b = m.garch_alpha, m.garch_beta
         if t > 0:
             st.g = (1.0 - a - b) + (a * st.z_prev**2 + b) * st.g
+        st.g = min(st.g, MAX_GARCH)
         st.z_prev = z
         s_m = math.sqrt(regime.vol**2 * DT * st.g) * vol_mult
         r_m = (regime.drift - 0.5 * regime.vol**2) * DT + s_m * z + jump
         if regime.mean_reversion > 0:
             r_m += regime.mean_reversion * DT * (st.anchor - st.x)
+        r_m = _clip(r_m, MAX_BAR_MOVE)
         st.x += r_m + open_jump
 
         # Pair spread (Ornstein-Uhlenbeck, 15-day half-life) -- drawn every bar for stable streams.
@@ -457,7 +478,9 @@ class SimulatedMarket:
             zi = float(srng.standard_t(5)) * math.sqrt(3 / 5)
             ni = int(srng.poisson(asset.jump_intensity * DT))
             ji = math.sqrt(ni) * asset.jump_std * float(srng.standard_normal())  # zero-mean jumps
-            ss.g = (1.0 - 0.05 - 0.93) + (0.05 * ss.z_prev**2 + 0.93) * ss.g if t > 0 else ss.g
+            ss.g = min(
+                (1.0 - 0.05 - 0.93) + (0.05 * ss.z_prev**2 + 0.93) * ss.g if t > 0 else ss.g, MAX_GARCH
+            )
             ss.z_prev = zi
             s_i = math.sqrt(asset.idio_vol**2 * DT * ss.g) * vol_mult
             gap = sum(
@@ -475,9 +498,9 @@ class SimulatedMarket:
                 r = asset.beta * r_m + (asset.alpha - 0.5 * asset.idio_vol**2) * DT + s_i * zi + ji
                 sigma = math.sqrt((asset.beta * s_m) ** 2 + s_i**2)
                 j_open = asset.beta * open_jump + gap
+            r, j_open = _clip(r, MAX_BAR_MOVE), _clip(j_open, MAX_BAR_MOVE)
             diffusive[sym] = (r, sigma, j_open)
-            bar, path = _ohlcv(ss.log_close, r, j_open, sigma, srng, asset)
-            ss.log_close += r + j_open
+            bar, path, ss.log_close = _ohlcv(ss.log_close, r, j_open, sigma, srng, asset)
             k = self._simulated.index(sym)
             opens.append((k, bar[0]))
             highs.append((k, bar[1]))
@@ -489,10 +512,12 @@ class SimulatedMarket:
         def ordered(items):
             return [v for _, v in sorted(items, key=lambda kv: kv[0])]
 
-        self._states.append(st)
-        self._regimes.append(name)
-        self._paths[t] = np.array(ordered(paths))
-        return ordered(opens), ordered(highs), ordered(lows), ordered(closes), ordered(vols)
+        row = (ordered(opens), ordered(highs), ordered(lows), ordered(closes), ordered(vols))
+        return row, st, name, np.array(ordered(paths))
+
+
+def _clip(x: float, bound: float) -> float:
+    return max(-bound, min(bound, x))
 
 
 def _ohlcv(
@@ -502,18 +527,20 @@ def _ohlcv(
     sigma: float,
     rng: np.random.Generator,
     asset: SyntheticAsset,
-) -> tuple[tuple[float, float, float, float, float], np.ndarray]:
+) -> tuple[tuple[float, float, float, float, float], np.ndarray, float]:
     """One OHLCV bar from its log return: an overnight gap (a share of the return, plus any
-    event jump at the open), then a Brownian bridge from the open to the close."""
+    event jump at the open), then a Brownian bridge from the open to the close. Returns the
+    bar, its intrabar log-price path and the new log close."""
     f = GAP_FRACTION
+    lo_bound, hi_bound = LOG_PRICE_BOUNDS
     gap = f * r + math.sqrt(f * (1 - f)) * sigma * float(rng.standard_normal()) + j_open
-    lo = prev_log_close + gap
-    lc = prev_log_close + r + j_open
+    lo = min(max(prev_log_close + gap, lo_bound), hi_bound)
+    lc = min(max(prev_log_close + r + j_open, lo_bound), hi_bound)
     k = BRIDGE_STEPS
     incr = rng.standard_normal(k) * sigma * math.sqrt((1 - f) / k)
     walk = np.concatenate([[0.0], np.cumsum(incr)])
     frac = np.linspace(0.0, 1.0, k + 1)
-    path = lo + walk - frac * walk[-1] + frac * (lc - lo)
+    path = np.clip(lo + walk - frac * walk[-1] + frac * (lc - lo), lo_bound, hi_bound)
     typical = math.sqrt(asset.beta**2 * 0.16**2 + asset.idio_vol**2) * math.sqrt(DT)
     surprise = min(abs(r + j_open) / sigma, 6.0) if sigma > 0 else 0.0
     log_v = (
@@ -527,6 +554,6 @@ def _ohlcv(
         math.exp(path.max()),
         math.exp(path.min()),
         math.exp(lc),
-        float(round(math.exp(log_v))),
+        float(round(math.exp(min(log_v, 40.0)))),
     )
-    return bar, path
+    return bar, path, lc

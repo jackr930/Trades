@@ -513,6 +513,12 @@ function useRun(runId: string) {
           void load();
           return;
         }
+        if (msg.type === "finished") {
+          // The final state (summary and any last bar) in one consistent snapshot.
+          queue.current = [];
+          void load();
+          return;
+        }
         if (msg.type === "error") {
           setError(msg.detail ?? "simulation not found");
           return;
