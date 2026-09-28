@@ -314,6 +314,12 @@ p {
   gap: 16px;
   align-items: start;
 }
+.split.side-right {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+}
+.split.halves {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .split.wide-left {
   grid-template-columns: minmax(400px, 480px) minmax(0, 1fr);
 }
@@ -1430,7 +1436,9 @@ table.leaderboard tbody tr.selected {
 
 @media (max-width: 1100px) {
   .split,
-  .split.wide-left {
+  .split.wide-left,
+  .split.side-right,
+  .split.halves {
     grid-template-columns: minmax(0, 1fr);
   }
 }

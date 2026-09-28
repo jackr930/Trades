@@ -595,7 +595,7 @@ function RunView({ runId, onNew, onOpen }: { runId: string; onNew: () => void; o
       {finished && run.summary ? (
         <SummaryCard run={run} colors={agentColors} onNew={onNew} onOpen={onOpen} />
       ) : null}
-      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 400px)" }}>
+      <div className="split side-right">
         <div className="stack">
           <EquityRace run={run} agentColors={agentColors} />
           <div className="card">
@@ -623,7 +623,7 @@ function RunView({ runId, onNew, onOpen }: { runId: string; onNew: () => void; o
           ) : null}
         </div>
       </div>
-      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
+      <div className="split halves">
         <EventFeed run={run} agentColors={agentColors} />
         {agentId ? <AgentPanel run={run} agentId={agentId} color={agentColors[agentId]} onReload={reload} /> : null}
       </div>

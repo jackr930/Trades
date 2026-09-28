@@ -512,7 +512,7 @@ function SessionView({ state, bars, accept }: { state: SimState; bars: Bars; acc
       <ErrorBox error={error} />
       {lastFills ? <div className="callout info">Filled: {lastFills}</div> : null}
 
-      <div className="split" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 360px)" }}>
+      <div className="split side-right">
         <div className="stack">
           <div className="card">
             <PriceChart bars={bars} markers={markers} priceLines={priceLines} height={380} follow initialBars={180} label="Simulator price chart" />
