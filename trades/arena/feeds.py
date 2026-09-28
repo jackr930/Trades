@@ -12,7 +12,6 @@ never shown or traded on before the cursor reaches them.
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
@@ -57,6 +56,10 @@ class Feed(ABC):
     def regime(self, t: int) -> str | None:
         return None
 
+    def regime_drift(self) -> dict[str, float]:
+        """Annual drift of each hidden regime label (simulated markets only)."""
+        return {}
+
     def bars_payload(self, first: int, last: int) -> dict[str, Any]:
         """Bars ``first..last`` (inclusive) as compact arrays per symbol."""
         frames = self.frames()
@@ -72,14 +75,6 @@ class Feed(ABC):
                 "v": np.round(df["volume"].to_numpy(float), 0).tolist(),
             }
         return out
-
-    async def wait_for(self, n: int) -> bool:
-        """Wait until bar ``n`` is known. False if it never will be (the run is over)."""
-        last = self.last_index()
-        if last is not None and n > last:
-            return False
-        self.ensure(n + 1)
-        return self.known() > n
 
     def info(self) -> dict[str, Any]:
         return {"source": self.source, "symbols": self.symbols, "timeframe": self.timeframe.value}
@@ -157,6 +152,9 @@ class SimulatedFeed(Feed):
     def regime(self, t: int) -> str | None:
         return self.market.regime(t)
 
+    def regime_drift(self) -> dict[str, float]:
+        return dict(self.market.regime_drift)
+
     def inject(self, kind: str, at: int, **kw) -> MarketEvent:
         ev = self.market.inject(kind, at, **kw)
         self._frames = None
@@ -232,28 +230,25 @@ class RealtimeFeed(_FrameFeed):
     def _completed(self, df: pd.DataFrame) -> pd.DataFrame:
         return df.iloc[:-1] if last_bar_forming(df, self.timeframe) else df
 
+    def interval(self) -> float:
+        """Seconds between polls: frequent during the session, relaxed while it is closed."""
+        return self.poll_seconds if market_status().is_open else 60.0
+
     def last_index(self) -> int | None:
         return None
 
-    async def wait_for(self, n: int) -> bool:
-        while self.known() <= n:
-            try:
-                await asyncio.to_thread(self.poll)
-                self.error = None
-            except DataError as exc:
-                self.error = str(exc)
-            if self.known() > n:
-                break
-            await asyncio.sleep(self.poll_seconds if market_status().is_open else 60.0)
-        return True
-
     def poll(self) -> int:
-        """Fetch recent bars; append newly completed ones. Returns how many were added."""
+        """Fetch recent bars and append newly completed ones. Returns how many were added."""
+        return self.apply(self.fetch())
+
+    def fetch(self) -> dict[str, pd.DataFrame]:
+        """Recent bars from the provider (network I/O; changes nothing)."""
         prov = self.data.provider(self.provider)
-        recent = {}
         start = self._index[-1] - pd.Timedelta(days=5 if self.timeframe is Timeframe.D1 else 1)
-        for s in self.symbols:
-            recent[s] = prov.history(s, self.timeframe, start.to_pydatetime(), None)
+        return {s: prov.history(s, self.timeframe, start.to_pydatetime(), None) for s in self.symbols}
+
+    def apply(self, recent: dict[str, pd.DataFrame]) -> int:
+        """Append the completed bars in ``recent`` that are newer than the last known one."""
         self.last_poll = datetime.now(timezone.utc).isoformat()
         self.forming = {}
         for s, df in recent.items():
@@ -277,7 +272,7 @@ class RealtimeFeed(_FrameFeed):
                     r = done.loc[ts]
                     rows.append([r["open"], r["high"], r["low"], r["close"], r["volume"]])
                     prev_close = float(r["close"])
-                else:
+                else:  # no trade in this interval: a flat bar keeps every symbol in step
                     rows.append([prev_close, prev_close, prev_close, prev_close, 0.0])
             add = pd.DataFrame(
                 rows, columns=["open", "high", "low", "close", "volume"], index=pd.DatetimeIndex(new_times)

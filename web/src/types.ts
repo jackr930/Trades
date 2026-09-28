@@ -531,3 +531,198 @@ export interface SimHistoryRow {
   process_score: number | null;
   rank: number | null;
 }
+
+// ---- strategy simulations (arena) ---------------------------------------------------------
+
+export interface ArenaEventKind {
+  kind: string;
+  label: string;
+  size?: number;
+  bars?: number;
+  regime?: string;
+  help: string;
+}
+
+export interface ArenaOptions {
+  scenarios: Scenario[];
+  symbols: { symbol: string; name: string; beta: number | null; idio_vol: number | null }[];
+  default_symbols: string[];
+  default_strategies: { id: string }[];
+  events: ArenaEventKind[];
+  regimes: string[];
+  max_speed: number;
+  provider: string;
+  realtime_available: boolean;
+  watchlist: string[];
+}
+
+export interface ArenaBars {
+  t: number[];
+  o: number[];
+  h: number[];
+  l: number[];
+  c: number[];
+  v: number[];
+}
+
+export interface ArenaAgentSnap {
+  id: string;
+  equity: number;
+  return: number;
+  drawdown: number;
+  cash: number;
+  gross: number;
+  positions: Record<string, number>;
+  weights: Record<string, number>;
+  signals: Record<string, string>;
+  pending: Record<string, number>;
+  trades: number;
+  unrealized: number;
+  stopped: boolean;
+}
+
+export interface ArenaAgent extends ArenaAgentSnap {
+  name: string;
+  strategy_id: string;
+  kind: "strategy" | "benchmark";
+  category: string;
+  evidence: EvidenceLevel;
+  symbols: string[];
+  params: Record<string, unknown>;
+  sizing: Record<string, unknown>;
+  pair: boolean;
+  error: string | null;
+  equity_curve: { t: number[]; v: number[] };
+}
+
+export interface ArenaEvent {
+  t: number;
+  time: number;
+  agent: string | null;
+  type: "fill" | "signal" | "regime" | "injected";
+  symbol?: string;
+  side?: "buy" | "sell";
+  qty?: number;
+  price?: number;
+  cost?: number;
+  position?: number;
+  reason?: string;
+  from?: string | null;
+  to?: string;
+  headline?: string;
+  kind?: string;
+}
+
+export interface ArenaSummaryRow {
+  id: string;
+  name: string;
+  kind: "strategy" | "benchmark";
+  total_return: Num;
+  cagr: Num;
+  sharpe: Num;
+  max_drawdown: Num;
+  psr: Num;
+  trades: Num;
+  win_rate: Num;
+  exposure: Num;
+  total_costs: Num;
+  beta: Num;
+}
+
+export interface ArenaSummary {
+  leaderboard: ArenaSummaryRow[];
+  bars: number;
+  regimes: { regime: string; bars: number; drift: Num; returns: Record<string, Num> }[] | null;
+  cautions: string[];
+}
+
+export interface ArenaFeedStatus {
+  market?: { is_open: boolean; phase: string; next_open: string; next_close: string };
+  forming?: Record<string, { t: number; o: number; h: number; l: number; c: number; v: number }>;
+  last_poll?: string | null;
+  error?: string | null;
+}
+
+export type ArenaStatus = "ready" | "running" | "paused" | "finished" | "error";
+
+export interface ArenaState {
+  id: string;
+  created_at: number;
+  status: ArenaStatus;
+  error: string | null;
+  config: Record<string, unknown> & { source: string; symbols: string[]; strategies: { id: string }[] };
+  feed: {
+    source: "simulated" | "replay" | "realtime";
+    symbols: string[];
+    timeframe: string;
+    scenario?: string;
+    scenario_label?: string;
+    scenario_description?: string;
+    seed?: number;
+    provider?: string;
+    poll_seconds?: number;
+    events_available?: ArenaEventKind[];
+  };
+  feed_status: ArenaFeedStatus;
+  notes: string[];
+  cursor: number;
+  start_index: number;
+  first_index: number;
+  progress: { done: number; total: number | null };
+  speed: number;
+  bars: Record<string, ArenaBars>;
+  regimes: (string | null)[] | null;
+  regime_drift: Record<string, number>;
+  agents: ArenaAgent[];
+  events: ArenaEvent[];
+  market_events: ArenaEvent[];
+  summary: ArenaSummary | null;
+}
+
+export interface ArenaUpdate {
+  type: "update" | "finished" | "resync" | "error";
+  status: ArenaStatus;
+  cursor: number;
+  progress: { done: number; total: number | null };
+  bars: Record<string, ArenaBars>;
+  regimes: (string | null)[];
+  regime_drift?: Record<string, number>;
+  equity: Record<string, number[]>;
+  agents: ArenaAgentSnap[];
+  events: ArenaEvent[];
+  feed_status: ArenaFeedStatus;
+  speed: number;
+  summary: ArenaSummary | null;
+  error: string | null;
+  detail?: string;
+}
+
+export interface ArenaRunBrief {
+  id: string;
+  created_at: number;
+  status: ArenaStatus;
+  source: string;
+  title: string;
+  symbols: string[];
+  strategies: number;
+  progress: { done: number; total: number | null };
+  leader: { name: string; return: number };
+}
+
+export interface ArenaExplanation {
+  state: string;
+  signal: number;
+  headline: string;
+  rules: { label: string; value: string; passed: boolean | null }[];
+  since: number | null;
+  fresh: boolean;
+  exit_rule: string;
+}
+
+export interface ArenaAgentDetail extends ArenaAgent {
+  explanations: Record<string, ArenaExplanation>;
+  trades_list: Trade[];
+  events: ArenaEvent[];
+  financing: number;
+  costs: number;
+}

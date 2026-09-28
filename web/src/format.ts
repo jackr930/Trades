@@ -3,6 +3,7 @@ import type { MetricInfo, Num } from "./types";
 const MINUS = "−";
 
 function signed(text: string, value: number, showPlus: boolean): string {
+  if (!/[1-9]/.test(text)) return text; // rounds to zero: no sign ("0.0%", not "−0.0%")
   if (value < 0) return MINUS + text.replace(/^-/, "");
   return (showPlus && value > 0 ? "+" : "") + text;
 }

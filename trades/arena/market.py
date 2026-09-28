@@ -47,6 +47,10 @@ ARCHETYPES = {
     "bull": Regime("bull", 0.25, 0.14),
     "bear": Regime("bear", -0.40, 0.32),
     "range": Regime("range", 0.0, 0.18, mean_reversion=8.0),
+    # Drift strong enough that an injected crash reliably keeps falling instead of being
+    # swamped by its own (boosted) volatility: over 30 bars the median move including a 10%
+    # gap is about -27%, and fewer than 1 in 20 paths end down less than 10%.
+    "crash": Regime("crash", -1.50, 0.28),
 }
 
 EVENT_KINDS: dict[str, dict[str, Any]] = {
@@ -54,8 +58,8 @@ EVENT_KINDS: dict[str, dict[str, Any]] = {
         "label": "Crash",
         "size": -0.10,
         "bars": 30,
-        "help": "The market gaps down by `size` at the next open, volatility jumps, and a bear regime "
-        "follows for `bars` bars. Stocks move with their beta.",
+        "help": "The market gaps down by `size` at the next open, then keeps falling with high volatility "
+        "for `bars` bars (typically another 15-20% over 30 bars). Stocks move with their beta.",
     },
     "rally": {
         "label": "Rally",
@@ -73,7 +77,7 @@ EVENT_KINDS: dict[str, dict[str, Any]] = {
         "label": "Force a regime",
         "regime": "range",
         "bars": 60,
-        "help": "Replace the hidden regime with bull, bear or range-bound for `bars` bars.",
+        "help": "Replace the hidden regime with bull, bear, range-bound or crash for `bars` bars.",
     },
     "gap": {
         "label": "Earnings gap",
@@ -113,7 +117,7 @@ class MarketEvent:
 
 def describe_event(kind: str, size: float | None, bars: int, symbol: str | None, regime: str | None) -> str:
     if kind == "crash":
-        return f"Crash: market gaps {size:+.0%}, then a high-volatility bear regime for {bars} bars."
+        return f"Crash: market gaps {size:+.0%}, then a high-volatility crash regime for {bars} bars."
     if kind == "rally":
         return f"Rally: market gaps {size:+.0%}, then a bull regime for {bars} bars."
     if kind == "vol_spike":
@@ -204,6 +208,7 @@ class SimulatedMarket:
         self._paths: dict[int, np.ndarray] = {}  # intrabar log-price paths of recent bars
         self._dates: list = []
         self.events: list[MarketEvent] = []
+        self.regime_drift: dict[str, float] = {}  # regime label -> annual drift (for display)
         self._next_event_id = 1
         start = _State(
             chain=model.initial_regime,
@@ -391,9 +396,9 @@ class SimulatedMarket:
         regime, name = m.regimes[k], m.regimes[k].name
         for ev in self.events:
             if ev.active(t) and ev.kind in ("crash", "rally", "regime"):
-                arche = {"crash": "bear", "rally": "bull"}.get(ev.kind, ev.regime or "range")
+                arche = {"crash": "crash", "rally": "bull"}.get(ev.kind, ev.regime or "range")
                 regime = ARCHETYPES[arche]
-                name = f"{arche} ({EVENT_KINDS[ev.kind]['label'].lower()})"
+                name = f"{arche} ({'forced' if ev.kind == 'regime' else 'injected'})"
         return regime, name, chain
 
     def _step(self, t: int) -> tuple[list[float], ...]:
@@ -408,6 +413,7 @@ class SimulatedMarket:
         jump = n_jumps * m.jump_mean + math.sqrt(n_jumps) * m.jump_std * float(rng.standard_normal())
 
         regime, name, st.chain = self._regime_for(t, st, u)
+        self.regime_drift[name] = regime.drift
         if name != st.effective:
             st.anchor = st.x
             st.effective = name
@@ -421,7 +427,7 @@ class SimulatedMarket:
             if t == ev.start and ev.kind in ("crash", "rally"):
                 open_jump += math.log1p(float(ev.size or 0.0))
             if t == ev.start and ev.kind == "crash":
-                st.g *= 4.0  # a crash raises volatility, which then decays at the GARCH pace
+                st.g *= 2.5  # a crash raises volatility, which then decays at the GARCH pace
             if t == ev.start and ev.kind == "break_pair":
                 st.spread_mean += float(ev.size or 0.0)
 

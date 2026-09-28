@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type OrderRequest } from "../api";
 import { useApp, type Route } from "../state";
+import StrategySim from "./StrategySim";
 import type { Bars, Meta, Settings, SimHistoryRow, SimState } from "../types";
 import PriceChart, { type PriceLineSpec, type PriceMarker } from "../components/PriceChart";
 import LineChart, { type LineSpec } from "../components/LineChart";
@@ -19,6 +20,34 @@ import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtPrice, isNum, pnlClass } from "..
 import { useChartColors } from "../theme";
 
 export default function Simulator({ route }: { route: Route }) {
+  const { navigate } = useApp();
+  const practice = route.params.get("mode") === "practice" || route.params.has("symbol");
+  const runId = route.params.get("run");
+  return (
+    <div className="stack">
+      <Tabs
+        tabs={[
+          ["strategies", "Test strategies"],
+          ["practice", "Practice trading yourself"],
+        ]}
+        value={practice ? "practice" : "strategies"}
+        onChange={(m) => navigate("/sim", m === "practice" ? { mode: "practice" } : {})}
+      />
+      {practice ? (
+        <PracticeSimulator route={route} />
+      ) : (
+        <StrategySim
+          runId={runId}
+          initialSource={route.params.get("source")}
+          onOpen={(id) => navigate("/sim", { run: id })}
+          onClose={() => navigate("/sim")}
+        />
+      )}
+    </div>
+  );
+}
+
+function PracticeSimulator({ route }: { route: Route }) {
   const [state, setState] = useState<SimState | null>(null);
   const [bars, setBars] = useState<Bars | null>(null);
   const [lastConfig, setLastConfig] = useState<Record<string, unknown> | null>(null);
@@ -154,7 +183,7 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
       <div className="card">
         <div className="card-header">
           <div>
-            <h1>Trading simulator</h1>
+            <h1>Practice trading yourself</h1>
             <p className="secondary" style={{ marginTop: 4 }}>
               Practise decisions one bar at a time with a paper account. The future stays hidden. Race the strategies, then get a
               scorecard that grades your <b>process</b> separately from your <b>outcome</b>.

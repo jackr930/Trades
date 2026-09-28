@@ -291,6 +291,7 @@ class StrategyRun:
         """Reveal bar ``cursor + 1``: every agent fills, marks and decides."""
         with self._lock:
             t = self.cursor + 1
+            self.feed.ensure(t + 1)  # the simulated market generates ahead (under the lock)
             self._prepare(t)
             o, h, l, c = self.feed.arrays(t)
             ts = self.feed.time(t)
@@ -348,6 +349,7 @@ class StrategyRun:
             "progress": self.progress(),
             "bars": self.feed.bars_payload(first, last) if n > 0 else {},
             "regimes": [self.feed.regime(t) for t in range(first, last + 1)] if n > 0 else [],
+            "regime_drift": self.feed.regime_drift(),
             "equity": {a.id: [round(v, 2) for v in a.equity[-n:]] for a in self.agents} if n > 0 else {},
             "agents": [a.snapshot(prices) for a in self.agents],
             "events": events,
@@ -382,6 +384,7 @@ class StrategyRun:
                     "speed": self.speed,
                     "bars": self.feed.bars_payload(first, self.cursor),
                     "regimes": regimes,
+                    "regime_drift": self.feed.regime_drift(),
                     "agents": [
                         {
                             **a.describe(),
@@ -472,11 +475,16 @@ class StrategyRun:
         start = self.feed.start_index
         if self.feed.regime(start) is None or self.cursor <= start:
             return None
-        labels = [self.feed.regime(t).split(" ")[0] for t in range(start + 1, self.cursor + 1)]
+        labels = [self.feed.regime(t) for t in range(start + 1, self.cursor + 1)]
         out = []
         for label in dict.fromkeys(labels):
             mask = np.array([x == label for x in labels])
-            row = {"regime": label, "bars": int(mask.sum()), "returns": {}}
+            row = {
+                "regime": label,
+                "bars": int(mask.sum()),
+                "drift": self.feed.regime_drift().get(label),
+                "returns": {},
+            }
             for a in self.agents:
                 eq = np.asarray(a.equity, float)
                 growth = eq[1:] / eq[:-1]
@@ -588,13 +596,17 @@ class StrategyRun:
         self._subscribers.clear()
 
     # -- loops ---------------------------------------------------------------------------
+    def _has_next(self) -> bool:
+        last = self.feed.last_index()
+        return last is None or self.cursor < last
+
     async def _run_bars(self, n: int) -> int:
         """Advance up to ``n`` bars and broadcast them as one update."""
         first = self.cursor + 1
         events: list[dict[str, Any]] = []
         done = 0
         for _ in range(n):
-            if not await self.feed.wait_for(self.cursor + 1):
+            if not self._has_next():
                 await self._broadcast(self._update(first, self.cursor, events))
                 await self._finish()
                 return done
@@ -630,7 +642,8 @@ class StrategyRun:
         try:
             while self.status == "running":
                 try:
-                    await asyncio.to_thread(feed.poll)
+                    recent = await asyncio.to_thread(feed.fetch)  # network I/O, outside the lock
+                    await asyncio.to_thread(self._apply_bars, recent)
                     feed.error = None
                 except Exception as exc:  # keep polling; surface the problem
                     feed.error = f"{type(exc).__name__}: {exc}"
@@ -639,15 +652,18 @@ class StrategyRun:
                 while self.status == "running" and feed.known() > self.cursor + 1:
                     events += await asyncio.to_thread(self._advance)
                 await self._broadcast(self._update(first, self.cursor, events))
-                from trades.core.calendar import market_status  # noqa: PLC0415
-
-                await asyncio.sleep(feed.poll_seconds if market_status().is_open else 60.0)
+                await asyncio.sleep(feed.interval())
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.exception("real-time simulation %s failed", self.id)
             self.status, self.error = "error", f"{type(exc).__name__}: {exc}"
             await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+
+    def _apply_bars(self, recent: dict[str, pd.DataFrame]) -> int:
+        with self._lock:
+            assert isinstance(self.feed, RealtimeFeed)
+            return self.feed.apply(recent)
 
     async def _finish(self) -> None:
         self.status = "finished"

@@ -146,6 +146,13 @@ export default function LiveDesk() {
         <button className="btn small" onClick={() => navigate("/settings")}>
           Data source
         </button>
+        <button
+          className="btn small"
+          title="Let each strategy trade its own paper account on this market as bars complete"
+          onClick={() => navigate("/sim", { source: snap.demo ? "simulated" : "realtime" })}
+        >
+          Forward-test strategies
+        </button>
       </div>
 
       {snap.demo ? (

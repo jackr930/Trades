@@ -40,6 +40,33 @@ export const CONCEPTS: Concept[] = [
     ],
   },
   {
+    id: "forward",
+    title: "Forward testing: the only truly unseen data",
+    body: [
+      "However carefully a backtest is built, you chose the strategy after seeing the history it is tested on. A forward test (paper trading) runs the rule on data that did not exist when you chose it, which makes it the cleanest out-of-sample test there is.",
+      "Its weakness is time. The uncertainty of an annualised Sharpe ratio estimated from daily returns is roughly 1 / sqrt(years): after one year, a strategy with a true Sharpe ratio of 0.5 can easily show anything from -0.5 to 1.5. Months of good forward results prove little on their own.",
+      "The strategy simulator trades each strategy bar by bar with the same engine as the backtester. In the simulated market the future is generated as you go and the shocks you inject are ones no parameter was tuned for; the real-time mode is a genuine forward test on live data.",
+    ],
+    refs: [
+      R("Lo, A. W.", 2002, "The Statistics of Sharpe Ratios", "Financial Analysts Journal 58(4), 36-52", "https://doi.org/10.2469/faj.v58.n4.2453"),
+      R("Bailey, D. H., Borwein, J. M., Lopez de Prado, M. & Zhu, Q. J.", 2014, "Pseudo-Mathematics and Financial Charlatanism: The Effects of Backtest Overfitting on Out-of-Sample Performance", "Notices of the AMS 61(5), 458-471", "https://doi.org/10.1090/noti1105"),
+    ],
+  },
+  {
+    id: "regimes",
+    title: "Market regimes: why no strategy wins everywhere",
+    body: [
+      "Markets alternate between trending and range-bound phases, and between calm and turbulent ones. Hamilton's regime-switching model formalises this: prices are driven by a hidden state with its own mean and volatility, which you can only infer from prices, and only with a lag.",
+      "Each strategy is a bet on a kind of regime. Trend followers earn in persistent moves (historically including crises) and pay a small premium in choppy markets; mean-reversion rules do the opposite and suffer when dips keep dipping. Cross-sectional momentum is known for sudden crashes when beaten-down stocks rebound sharply after a bear market.",
+      "The simulator's per-regime table shows this directly. Judge a strategy by whether it behaved as its logic predicts in each regime, not just by its total return on one path, and remember that the regime mix of the next few years is unknown.",
+    ],
+    refs: [
+      R("Hamilton, J. D.", 1989, "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle", "Econometrica 57(2), 357-384", "https://doi.org/10.2307/1912559"),
+      R("Hurst, B., Ooi, Y. H. & Pedersen, L. H.", 2017, "A Century of Evidence on Trend-Following Investing", "Journal of Portfolio Management 44(1), 15-29", "https://doi.org/10.3905/jpm.2017.44.1.015"),
+      R("Daniel, K. & Moskowitz, T. J.", 2016, "Momentum Crashes", "Journal of Financial Economics 122(2), 221-247", "https://doi.org/10.1016/j.jfineco.2015.12.002"),
+    ],
+  },
+  {
     id: "decay",
     title: "Why published edges shrink",
     body: [

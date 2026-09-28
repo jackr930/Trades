@@ -69,7 +69,7 @@ function baseSizing(s: StrategyMeta): Partial<Sizing> {
 }
 
 export default function StrategyLab({ route }: { route: Route }) {
-  const { meta, settings } = useApp() as { meta: Meta; settings: Settings };
+  const { meta, settings, navigate } = useApp() as ReturnType<typeof useApp> & { meta: Meta; settings: Settings };
   const byId = useMemo(() => new Map(meta.strategies.map((s) => [s.id, s])), [meta]);
   const initial = byId.get(route.params.get("strategy") ?? "") ?? byId.get("tsmom") ?? meta.strategies[0];
   const [strategyId, setStrategyId] = useState(initial.id);
@@ -135,6 +135,26 @@ export default function StrategyLab({ route }: { route: Route }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Replay the same test bar by bar in the strategy simulator, where it trades live next to others.
+  const replay = async () => {
+    const req = request();
+    const s = await api.arenaCreate({
+      source: "replay",
+      provider: req.provider,
+      symbols: req.symbols,
+      timeframe: req.timeframe,
+      start: req.start ?? (result ? fmtDate(result.start_time) : undefined),
+      end: req.end ?? undefined,
+      strategies: [req.strategy],
+      initial_cash: config.initial_cash,
+      slippage_bps: config.slippage_bps,
+      commission_bps: config.commission_bps,
+      allow_short: config.allow_short,
+      speed: 16,
+    });
+    navigate("/sim", { run: s.id });
   };
 
   const grouped = useMemo(() => {
@@ -311,7 +331,7 @@ export default function StrategyLab({ route }: { route: Route }) {
               {loading && !result ? <Spinner label="Running backtest..." /> : null}
               {result ? (
                 <div className={loading ? "refetching stack" : "stack"}>
-                  <BacktestView res={result} meta={meta} />
+                  <BacktestView res={result} meta={meta} onReplay={replay} />
                 </div>
               ) : !loading ? (
                 <div className="card empty">
@@ -336,8 +356,10 @@ export default function StrategyLab({ route }: { route: Route }) {
   );
 }
 
-function BacktestView({ res, meta }: { res: BacktestResult; meta: Meta }) {
+function BacktestView({ res, meta, onReplay }: { res: BacktestResult; meta: Meta; onReplay: () => Promise<void> }) {
   const colors = useChartColors();
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState(false);
   const equityLines = useMemo(
     () => [
       { id: "strategy", label: res.strategy.name, data: res.equity, color: colors.series[0] },
@@ -369,6 +391,30 @@ function BacktestView({ res, meta }: { res: BacktestResult; meta: Meta }) {
         benchmark={res.benchmark?.metrics}
         info={meta.metrics}
       />
+      <div className="callout info row" style={{ justifyContent: "space-between" }}>
+        <span>
+          Watch this test unfold: replay it bar by bar in the strategy simulator and see every decision with its reason as it
+          happens.
+        </span>
+        <button
+          className="btn small"
+          disabled={replaying}
+          onClick={async () => {
+            setReplaying(true);
+            setReplayError(null);
+            try {
+              await onReplay();
+            } catch (e) {
+              setReplayError((e as Error).message);
+            } finally {
+              setReplaying(false);
+            }
+          }}
+        >
+          {replaying ? "Preparing..." : "Replay bar by bar"}
+        </button>
+      </div>
+      <ErrorBox error={replayError} />
       <div className="card">
         <div className="card-header">
           <h2>Equity</h2>

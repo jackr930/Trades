@@ -54,7 +54,16 @@ def test_injected_events_change_only_the_future():
     # The crash gaps the index down ~10% at the open (plus that bar's own noise).
     gap = h["SIMIDX"]["open"].iloc[200] / h["SIMIDX"]["close"].iloc[199] - 1
     assert -0.14 < gap < -0.06
-    assert hit.regime(205).startswith("bear")
+    assert hit.regime(205) == "crash (injected)"
+    # A crash reliably falls over its window: drift dominates its noise.
+    moves = []
+    for seed in range(12):
+        m = SimulatedMarket(["SIMIDX"], "steady_bull", seed=seed, warmup=120)
+        m.inject("crash", 130, size=-0.10, bars=30)
+        m.generate_until(161)
+        c = m.frames()["SIMIDX"]["close"]
+        moves.append(c.iloc[159] / c.iloc[129] - 1)
+    assert np.median(moves) < -0.2 and max(moves) < -0.05
     # Pair break: the log-spread settles around a level 20% higher.
     brk = SimulatedMarket(SYMS, "random", seed=9, warmup=120)
     brk.inject("break_pair", 150, size=0.2)
@@ -193,6 +202,40 @@ def test_realtime_feed_appends_completed_bars_and_fills_gaps(daily):
     row = tec.loc[missing]
     assert row["volume"] == 0 and row["open"] == row["close"] == tec["close"].shift(1).loc[missing]
     assert feed.poll() == 0
+
+
+def test_realtime_run_trades_bars_as_they_complete(daily):
+    from trades.arena.run import StrategyRun, build_agents
+    from trades.backtest.engine import BacktestConfig
+
+    frames = {s: daily[s].iloc[-400:] for s in ("SIMIDX", "SIMTEC")}
+    prov = GrowingProvider(frames)
+    prov.visible = 330
+    feed = RealtimeFeed(FakeService(prov), ["SIMIDX", "SIMTEC"], Timeframe.D1, "fake", warmup=280)
+    feed.interval = lambda: 0.01  # poll continuously in the test
+    config = RunConfig(source="realtime", symbols=["SIMIDX", "SIMTEC"], strategies=[{"id": "ma_crossover"}])
+    agents, _ = build_agents(config, feed.symbols, BacktestConfig())
+    run = StrategyRun(config, feed, agents, [])
+    start = run.cursor
+
+    async def go():
+        with pytest.raises(RunError, match="cannot be stepped"):
+            await run.step(1)  # a live run moves with the market, not on demand
+        q = run.subscribe()
+        await run.play()
+        await asyncio.sleep(0.05)
+        prov.visible = 360  # thirty sessions complete while we watch
+        for _ in range(200):
+            await asyncio.sleep(0.02)
+            if run.cursor >= start + 30:
+                break
+        await run.stop()
+        return q
+
+    q = asyncio.run(go())
+    assert run.cursor == start + 30 and run.status == "finished"
+    assert all(len(a.equity) == 31 for a in run.agents)
+    assert not q.empty()
 
 
 def test_realtime_needs_a_real_provider(tmp_path):

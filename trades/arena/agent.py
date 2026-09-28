@@ -56,6 +56,7 @@ class StrategyAgent:
         self._valid: np.ndarray | None = None
         self.prepared_until = -1
         self.start_index: int | None = None
+        self.t = -1  # last bar processed
         self.times: list[int] = []
         self.equity: list[float] = []
         self.gross: list[float] = []
@@ -99,7 +100,7 @@ class StrategyAgent:
         Like the first bar of a backtest: nothing is pending, so this only marks the flat
         account to bar ``t``'s close, then decides the orders for bar ``t+1``.
         """
-        self.start_index = t
+        self.start_index = self.t = t
         self.engine.execute(t, time, o, h, l, c)
         self.times.append(int(time.timestamp()))
         self.equity.append(self.engine.equity)
@@ -126,6 +127,7 @@ class StrategyAgent:
                     "reason": self._reasons.pop(f.symbol, ""),
                 }
             )
+        self.t = t
         self.times.append(int(time.timestamp()))
         self.equity.append(self.engine.equity)
         self.gross.append(sum(abs(w) for w in self.engine.weights().values()))
@@ -230,10 +232,16 @@ class StrategyAgent:
             )
             for t in led.all_trades()
         ][-100:]
+        # Re-explain at the latest bar: stored explanations date from the last signal change.
+        current = (
+            {s: self.explain(s, self.t) for s in self.symbols}
+            if self._out is not None and self.t >= 0
+            else {}
+        )
         return {
             **self.describe(),
             **self.snapshot(prices),
-            "explanations": self.explanations,
+            "explanations": current,
             "trades_list": trades,
             "events": self.events[-150:],
             "financing": led.total_financing,
