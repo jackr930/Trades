@@ -1,0 +1,14 @@
+services:
+  trades:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000" # local machine only: the API stores your settings and keys
+    volumes:
+      - trades-data:/data # settings, CSV data folder and simulator history
+    environment:
+      # Optional: Alpaca market-data keys (can also be entered in the Settings page)
+      - APCA_API_KEY_ID=${APCA_API_KEY_ID:-}
+      - APCA_API_SECRET_KEY=${APCA_API_SECRET_KEY:-}
+
+volumes:
+  trades-data:

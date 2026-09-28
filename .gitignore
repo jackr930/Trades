@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+
+# Local runtime data (settings with API keys, cached data, sim history)
+.trades/
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
