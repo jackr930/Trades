@@ -840,9 +840,9 @@ function WalkForwardView({ res }: { res: WalkForwardResult }) {
                 <th>Train</th>
                 <th>Test</th>
                 <th>Chosen parameters</th>
-                <th className="num">In-sample {res.objective}</th>
-                <th className="num">Out-of-sample Sharpe</th>
-                <th className="num">Out-of-sample return</th>
+                <th className="num">Train {OBJECTIVE_LABELS[res.objective] ?? res.objective}</th>
+                <th className="num">Test Sharpe</th>
+                <th className="num">Test return</th>
               </tr>
             </thead>
             <tbody>

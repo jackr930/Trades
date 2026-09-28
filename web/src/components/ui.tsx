@@ -2,11 +2,16 @@ import { useState, type ReactNode } from "react";
 import type { EvidenceLevel, MetricInfo, Metrics, ParamSpec, Reference, Sizing, Trade } from "../types";
 import { evidenceLabel, fmtDate, fmtMetric, fmtMoney, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 
+/** Hover/focus tooltip. Deliberately not a <button>: inside a <label> a button would become
+ *  the label's control and steal the input's accessible name. */
 export function Help({ text }: { text: string }) {
   return (
-    <button type="button" className="help" aria-label={text}>
-      ?<span className="tip" role="tooltip">{text}</span>
-    </button>
+    <span className="help" tabIndex={0} role="note" aria-label={text}>
+      ?
+      <span className="tip" role="tooltip" aria-hidden="true">
+        {text}
+      </span>
+    </span>
   );
 }
 

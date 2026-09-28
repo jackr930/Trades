@@ -126,7 +126,7 @@ trades/
   live/        live service: quotes -> forming bars -> recommendations -> WebSocket
   api/         FastAPI REST + WebSocket, serves the built UI
 web/           React + TypeScript + Vite UI (charts: TradingView lightweight-charts)
-tests/         pytest suite (123 tests)
+tests/         pytest suite
 ```
 
 Data flows one way. A provider supplies bars; a strategy turns them into signals; the sizing layer turns signals

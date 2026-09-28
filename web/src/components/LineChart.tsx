@@ -62,7 +62,8 @@ export default function LineChart({ lines, height = 240, format, legend, label, 
       autoSize: true,
       crosshair: { mode: CrosshairMode.Magnet },
       rightPriceScale: { borderVisible: true },
-      timeScale: { borderVisible: true, rightOffset: 2 },
+      // Allow very dense series (10+ years of daily points) to fit the width entirely.
+      timeScale: { borderVisible: true, rightOffset: 2, minBarSpacing: 0.01 },
       handleScroll: { mouseWheel: false, pressedMouseMove: true },
       handleScale: { mouseWheel: false },
       localization: {
