@@ -133,6 +133,45 @@ Data flows one way. A provider supplies bars; a strategy turns them into signals
 into target weights. The same target weights drive the backtester, the live recommender and the simulator's
 strategy "ghosts", so what you research is exactly what gets recommended.
 
+## Adding your own strategy
+
+A single-symbol strategy is a small class: declare its parameters and metadata, then compute a `signal` column
+(+1 long, -1 short, 0 flat) using only data up to each bar. Register it in `trades/strategies/__init__.py`, and it
+appears in the Lab, the Live Desk and the Simulator.
+
+```python
+import numpy as np
+import pandas as pd
+
+from trades.core import indicators as ind
+from trades.strategies.base import Evidence, Param, Reference, SingleAssetStrategy
+
+
+class RSITrend(SingleAssetStrategy):
+    id = "rsi_trend"
+    name = "RSI trend (example)"
+    category = "Trend following"
+    summary = "Long while 14-bar RSI is above 55, flat below 45."
+    rules_text = ("RSI(14) > 55 -> long", "RSI(14) < 45 -> flat")
+    rationale = "Momentum persists over short horizons."
+    failure_modes = "Choppy markets."
+    evidence = Evidence.PRACTITIONER
+    evidence_text = "Illustrative example, not a researched strategy."
+    references = (Reference("Wilder, J. W.", 1978, "New Concepts in Technical Trading Systems", "Trend Research"),)
+    params_spec = (Param("length", "RSI length", 14, "int", 2, 50),)
+
+    def warmup(self) -> int:
+        return self.params["length"] + 1
+
+    def compute(self, df: pd.DataFrame) -> pd.DataFrame:
+        r = ind.rsi(df["close"], self.params["length"])
+        raw = pd.Series(np.where(r > 55, 1.0, np.where(r < 45, 0.0, np.nan)), index=df.index)
+        return pd.DataFrame({"signal": raw.ffill(), "rsi": r}, index=df.index)
+```
+
+The parametrised no-look-ahead test in `tests/test_strategies.py` runs against every registered strategy
+automatically, so a rule that peeks at future bars fails the test suite.
+
 ## Development
 
 ```bash
