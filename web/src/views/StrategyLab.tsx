@@ -34,14 +34,22 @@ import { useChartColors } from "../theme";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const REAL_SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"];
+// Stock-level methods want stocks, not a mix of index and bond funds.
+const REAL_BANKS = ["JPM", "BAC", "WFC", "C", "GS", "MS", "USB", "PNC"];
+const REAL_LARGE_CAPS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "JPM", "XOM", "JNJ", "PG", "KO", "WMT"];
+const SIM_STOCKS = ["SIMTEC", "SIMBNK", "SIMNRG", "SIMUTL", "SIMHLC"];
+const STOCK_UNIVERSE = new Set(["stat_arb", "residual_momentum", "ml_ranker"]);
 
 function defaultSymbols(s: StrategyMeta, provider: string, settings: Settings): string[] {
   const synthetic = provider === "synthetic";
   if (s.kind === "pair") return synthetic ? ["SIMPRA", "SIMPRB"] : ["KO", "PEP"];
   if (s.id === "dual_momentum") return synthetic ? ["SIMIDX", "SIMGLD", "SIMBND"] : ["SPY", "EFA", "AGG"];
+  if (s.id === "cta_trend") return synthetic ? ["SIMIDX", "SIMBND", "SIMGLD"] : ["SPY", "TLT", "GLD"]; // diversify across markets
+  if (s.id === "stat_arb") return synthetic ? SIM_STOCKS : REAL_BANKS; // one sector: stocks that share a factor
   if (s.kind === "cross_sectional") {
-    const wl = settings.watchlists[provider] ?? [];
-    return synthetic ? wl.filter((x) => !["SIMPRA", "SIMPRB"].includes(x)) : wl.length >= 3 ? wl : REAL_SECTORS;
+    const wl = (settings.watchlists[provider] ?? []).filter((x) => !["SIMPRA", "SIMPRB"].includes(x));
+    if (STOCK_UNIVERSE.has(s.id)) return synthetic ? [...SIM_STOCKS, "SIMIDX", "SIMGLD", "SIMBND"] : REAL_LARGE_CAPS;
+    return wl.length >= Math.max(s.min_symbols, 3) ? wl : synthetic ? [...SIM_STOCKS, "SIMIDX", "SIMGLD", "SIMBND"] : REAL_SECTORS;
   }
   return synthetic ? ["SIMIDX"] : ["SPY"];
 }
@@ -137,8 +145,11 @@ export default function StrategyLab({ route }: { route: Route }) {
     }
   };
 
-  // Replay the same test bar by bar in the strategy simulator, where it trades live next to others.
-  const replay = async () => {
+  const counterpart = byId.get(strategy.counterpart);
+
+  // Replay the same test bar by bar in the strategy simulator, where it trades live next to others
+  // (optionally next to the classic rule a modern method refines).
+  const replay = async (compare: boolean) => {
     const req = request();
     const s = await api.arenaCreate({
       source: "replay",
@@ -147,7 +158,7 @@ export default function StrategyLab({ route }: { route: Route }) {
       timeframe: req.timeframe,
       start: req.start ?? (result ? fmtDate(result.start_time) : undefined),
       end: req.end ?? undefined,
-      strategies: [req.strategy],
+      strategies: [req.strategy, ...(compare && counterpart ? [{ id: counterpart.id }] : [])],
       initial_cash: config.initial_cash,
       slippage_bps: config.slippage_bps,
       commission_bps: config.commission_bps,
@@ -158,9 +169,13 @@ export default function StrategyLab({ route }: { route: Route }) {
   };
 
   const grouped = useMemo(() => {
-    const m = new Map<string, StrategyMeta[]>();
-    meta.strategies.forEach((s) => m.set(s.category, [...(m.get(s.category) ?? []), s]));
-    return [...m.entries()];
+    // Modern quant methods first, in their own group; classic rules grouped by category.
+    const m = new Map<string, StrategyMeta[]>([["Modern quant methods", []]]);
+    meta.strategies.forEach((s) => {
+      const key = s.family === "modern" ? "Modern quant methods" : s.category;
+      m.set(key, [...(m.get(key) ?? []), s]);
+    });
+    return [...m.entries()].filter(([, list]) => list.length);
   }, [meta]);
 
   const provInfo = meta.providers.find((p) => p.id === provider);
@@ -250,6 +265,20 @@ export default function StrategyLab({ route }: { route: Route }) {
               <EvidenceBadge level={strategy.evidence} />
             </div>
             <p className="secondary">{strategy.summary}</p>
+            {strategy.needs ? (
+              <p className="small" style={{ marginTop: 6 }}>
+                <strong>Works best with:</strong> {strategy.needs}
+              </p>
+            ) : null}
+            {counterpart ? (
+              <p className="small secondary" style={{ marginTop: 6 }}>
+                A modern refinement of{" "}
+                <button type="button" className="linklike" onClick={() => chooseStrategy(counterpart.id)}>
+                  {counterpart.name}
+                </button>
+                . Backtest both on the same symbols, or race them bar by bar from the results.
+              </p>
+            ) : null}
             <a className="small" href={`#/library?strategy=${strategy.id}`}>
               Rules, research and caveats
             </a>
@@ -331,7 +360,7 @@ export default function StrategyLab({ route }: { route: Route }) {
               {loading && !result ? <Spinner label="Running backtest..." /> : null}
               {result ? (
                 <div className={loading ? "refetching stack" : "stack"}>
-                  <BacktestView res={result} meta={meta} onReplay={replay} />
+                  <BacktestView res={result} meta={meta} counterpart={counterpart} onReplay={replay} />
                 </div>
               ) : !loading ? (
                 <div className="card empty">
@@ -356,10 +385,26 @@ export default function StrategyLab({ route }: { route: Route }) {
   );
 }
 
-function BacktestView({ res, meta, onReplay }: { res: BacktestResult; meta: Meta; onReplay: () => Promise<void> }) {
+function BacktestView({ res, meta, counterpart, onReplay }: {
+  res: BacktestResult;
+  meta: Meta;
+  counterpart?: StrategyMeta;
+  onReplay: (compare: boolean) => Promise<void>;
+}) {
   const colors = useChartColors();
   const [replayError, setReplayError] = useState<string | null>(null);
-  const [replaying, setReplaying] = useState(false);
+  const [replaying, setReplaying] = useState<"alone" | "compare" | null>(null);
+  const startReplay = async (compare: boolean) => {
+    setReplaying(compare ? "compare" : "alone");
+    setReplayError(null);
+    try {
+      await onReplay(compare);
+    } catch (e) {
+      setReplayError((e as Error).message);
+    } finally {
+      setReplaying(null);
+    }
+  };
   const equityLines = useMemo(
     () => [
       { id: "strategy", label: res.strategy.name, data: res.equity, color: colors.series[0] },
@@ -396,23 +441,16 @@ function BacktestView({ res, meta, onReplay }: { res: BacktestResult; meta: Meta
           Watch this test unfold: replay it bar by bar in the strategy simulator and see every decision with its reason as it
           happens.
         </span>
-        <button
-          className="btn small"
-          disabled={replaying}
-          onClick={async () => {
-            setReplaying(true);
-            setReplayError(null);
-            try {
-              await onReplay();
-            } catch (e) {
-              setReplayError((e as Error).message);
-            } finally {
-              setReplaying(false);
-            }
-          }}
-        >
-          {replaying ? "Preparing..." : "Replay bar by bar"}
-        </button>
+        <span className="row tight">
+          <button className="btn small" disabled={replaying !== null} onClick={() => void startReplay(false)}>
+            {replaying === "alone" ? "Preparing..." : "Replay bar by bar"}
+          </button>
+          {counterpart ? (
+            <button className="btn small" disabled={replaying !== null} onClick={() => void startReplay(true)}>
+              {replaying === "compare" ? "Preparing..." : `Race it against ${counterpart.name}`}
+            </button>
+          ) : null}
+        </span>
       </div>
       <ErrorBox error={replayError} />
       <div className="card">

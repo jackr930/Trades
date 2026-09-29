@@ -224,7 +224,8 @@ class Recommender:
 
     @staticmethod
     def _vote(strat, ex, evidence, group=None) -> dict[str, Any]:
-        direction = 0 if ex.state in ("flat", "warming_up") else (1 if ex.signal > 0 else -1)
+        # A hedge leg (e.g. in statistical arbitrage) offsets other positions: it is no view on the symbol.
+        direction = 0 if ex.state in ("flat", "warming_up", "hedge") else (1 if ex.signal > 0 else -1)
         return {
             "strategy_id": strat.id,
             "strategy_name": strat.name,

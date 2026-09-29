@@ -195,7 +195,8 @@ def overlays_payload(strategy: Strategy, diag: pd.DataFrame) -> list[dict[str, A
     out = []
     for ov in strategy.overlays:
         if ov.column in diag:
-            out.append({**ov.to_dict(), "values": _vals(diag[ov.column].astype(float), 6)})
+            levels = [float(x) for x in strategy.overlay_levels(ov)]
+            out.append({**ov.to_dict(), "levels": levels, "values": _vals(diag[ov.column].astype(float), 6)})
     return out
 
 

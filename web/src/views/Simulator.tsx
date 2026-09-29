@@ -39,6 +39,7 @@ export default function Simulator({ route }: { route: Route }) {
         <StrategySim
           runId={runId}
           initialSource={route.params.get("source")}
+          initialStrategies={route.params.get("strategies")}
           onOpen={(id) => navigate("/sim", { run: id })}
           onClose={() => navigate("/sim")}
         />

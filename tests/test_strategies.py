@@ -66,7 +66,7 @@ def test_explanations_available(sid, daily):
     out = strat.run(data)
     for sym in data:
         ex = strat.explain(out, sym)
-        assert ex.state in ("long", "short", "flat")
+        assert ex.state in ("long", "short", "flat", "hedge")
         assert ex.headline
         d = ex.to_dict()
         assert set(d) >= {"state", "headline", "rules", "since", "fresh"}

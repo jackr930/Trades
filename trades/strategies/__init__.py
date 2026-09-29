@@ -14,7 +14,15 @@ from trades.strategies.cross_sectional import (
     ShortTermReversal,
 )
 from trades.strategies.mean_reversion import BollingerReversion, RSI2Reversion
+from trades.strategies.ml import MLRanker
 from trades.strategies.pairs import PairsTrading
+from trades.strategies.quant import (
+    KalmanPairs,
+    MultiHorizonTrend,
+    RegimeSwitching,
+    ResidualMomentum,
+    ResidualReversion,
+)
 from trades.strategies.trend import DonchianBreakout, FaberTrend, MovingAverageCrossover, TimeSeriesMomentum
 
 REGISTRY: dict[str, type[Strategy]] = {
@@ -32,6 +40,12 @@ REGISTRY: dict[str, type[Strategy]] = {
         FiftyTwoWeekHigh,
         LowVolatility,
         ShortTermReversal,
+        MultiHorizonTrend,
+        ResidualReversion,
+        ResidualMomentum,
+        KalmanPairs,
+        RegimeSwitching,
+        MLRanker,
         BuyAndHold,
     )
 }

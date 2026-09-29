@@ -179,8 +179,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a {
+a,
+.linklike {
   color: var(--accent-strong);
+}
+.linklike {
+  /* A button that reads as an inline link (in-app navigation inside text). */
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 button,
@@ -593,9 +603,19 @@ textarea.input {
   background: var(--ramp-100);
   color: var(--text-primary);
 }
+.badge.ev-experimental {
+  /* Off the evidence ramp: promising, but too new (or too flexible) to rate yet. */
+  background: transparent;
+  border: 1px dashed var(--ramp-600);
+  color: var(--text-primary);
+}
 .badge.ev-benchmark {
   background: var(--surface-3);
   color: var(--text-secondary);
+}
+.badge.family-modern {
+  background: var(--surface-3);
+  color: var(--text-primary);
 }
 :root[data-theme="dark"] .badge.ev-strong {
   color: #0b0b0b;
@@ -1349,6 +1369,12 @@ table.leaderboard tbody tr.selected {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .lib-card:hover {
   border-color: var(--border-strong);

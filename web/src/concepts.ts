@@ -67,6 +67,46 @@ export const CONCEPTS: Concept[] = [
     ],
   },
   {
+    id: "neutral",
+    title: "Beta, residuals and market-neutral books",
+    body: [
+      "Most of a stock's daily move is the market carrying it along. Regress a stock's returns on the market's and you split them in two: beta times the market's move, plus a residual that belongs to the stock alone. A long position in one stock is therefore mostly a bet on the market.",
+      "Statistical arbitrage and residual momentum work on the residual. Buying a stock and shorting beta times as much of the market leaves only the stock-specific part, so the book barely moves with the index. That is how stat-arb funds can earn in bear markets, and why their risk is different: in August 2007 many funds holding similar trades unwound at once and lost together for days.",
+      "Neutral in beta is not neutral in dollars. Hedging a low-beta stock takes little of the market, so a beta-neutral book can be net long or net short in dollar terms, and a beta estimated on the past can be wrong in the future.",
+    ],
+    refs: [
+      R("Avellaneda, M. & Lee, J.-H.", 2010, "Statistical Arbitrage in the US Equities Market", "Quantitative Finance 10(7), 761-782", "https://doi.org/10.1080/14697680903124632"),
+      R("Khandani, A. E. & Lo, A. W.", 2011, "What Happened to the Quants in August 2007? Evidence from Factors and Transactions Data", "Journal of Financial Markets 14(1), 1-46", "https://doi.org/10.1016/j.finmar.2010.07.005"),
+    ],
+  },
+  {
+    id: "filters",
+    title: "Filtering: tracking what you cannot observe",
+    body: [
+      "Some quantities that matter are never observed: the true hedge ratio between two stocks today, or whether the market is in a calm or a turbulent state. A filter keeps a running estimate and updates it with every bar, moving it more when the new bar is more surprising.",
+      "The Kalman filter does this for continuous quantities. Its gain decides how far each forecast error moves the estimate: adapt quickly and it follows real changes but also chases noise; adapt slowly and it is stable but late. A hidden Markov model does the same for discrete states, turning each return into evidence for calm or turbulent and weighing it against how persistent each state has been.",
+      "Both strategies here use the filtered estimate, which only looks backwards. A smoothed estimate uses the whole sample, future included, and would be look-ahead bias in a backtest.",
+    ],
+    refs: [
+      R("Kalman, R. E.", 1960, "A New Approach to Linear Filtering and Prediction Problems", "Journal of Basic Engineering 82(1), 35-45", "https://doi.org/10.1115/1.3662552"),
+      R("Hamilton, J. D.", 1989, "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle", "Econometrica 57(2), 357-384", "https://doi.org/10.2307/1912559"),
+    ],
+  },
+  {
+    id: "ml",
+    title: "Machine learning without fooling yourself",
+    body: [
+      "Flexible models find patterns in noise easily, and markets offer little data: one history, a few thousand days, noisy and changing. A model with many parameters can fit the past perfectly and predict nothing.",
+      "Three habits matter most. Train only on data available at the time and retrain as you go (walk-forward). Leave a gap between the last training target and the prediction date, because a 21-day return that ends after today leaks the future into training (purging). And judge the model by its out-of-sample information coefficient, the rank correlation between its predictions and what actually happened, not by how well it fits.",
+      "Expect small numbers: an information coefficient of 0.05 is useful across hundreds of stocks. On eight stocks a single month's rank correlation has a standard error of about 0.38, so one good month means little. Shrinkage (ridge regression) keeps the model's weights small and stable, trading a little bias for much less variance.",
+    ],
+    refs: [
+      R("Lopez de Prado, M.", 2018, "Advances in Financial Machine Learning", "Wiley"),
+      R("Gu, S., Kelly, B. & Xiu, D.", 2020, "Empirical Asset Pricing via Machine Learning", "Review of Financial Studies 33(5), 2223-2273", "https://doi.org/10.1093/rfs/hhaa009"),
+      R("Grinold, R. C. & Kahn, R. N.", 2000, "Active Portfolio Management (2nd ed.)", "McGraw-Hill"),
+    ],
+  },
+  {
     id: "decay",
     title: "Why published edges shrink",
     body: [

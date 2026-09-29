@@ -48,9 +48,12 @@ DEFAULT_STRATEGIES = [
     )
 ]
 MAX_SPEED = 200.0  # bars per second
+MIN_LOOKAHEAD = 48  # simulated bars generated ahead of the cursor
 UPDATES_PER_SECOND = 10.0
 MAX_EVENTS = 1500
 HISTORY_SHOWN = 150  # warm-up bars included in the chart
+MAX_WARMUP = 1500
+WARMUP_MARGIN = 5  # extra history beyond a strategy's first possible signal
 
 
 @dataclass
@@ -91,8 +94,8 @@ class RunConfig:
             raise ValueError("initial cash must be between 1,000 and 1,000,000,000")
         if not 0 <= self.slippage_bps <= 200 or not 0 <= self.commission_bps <= 200:
             raise ValueError("costs must be between 0 and 200 bps")
-        if not 60 <= int(self.warmup) <= 1500:
-            raise ValueError("warm-up must be between 60 and 1500 bars")
+        if not 60 <= int(self.warmup) <= MAX_WARMUP:
+            raise ValueError(f"warm-up must be between 60 and {MAX_WARMUP} bars")
         self.speed = min(max(float(self.speed), 0.1), MAX_SPEED)
         self.length = int(self.length)
         self.warmup = int(self.warmup)
@@ -163,10 +166,31 @@ def build_agents(
     return agents, notes
 
 
+def fit_warmup(config: RunConfig) -> list[str]:
+    """Lengthen the warm-up so every chosen strategy can signal from the first live bar."""
+    need, slowest = 0, ""
+    for d in config.strategies:
+        try:
+            strat, _ = StrategySpec.from_dict(d).build()
+        except (KeyError, TypeError, ValueError):
+            continue  # reported when the agents are built
+        if strat.warmup() > need:
+            need, slowest = strat.warmup(), strat.name
+    if need + WARMUP_MARGIN <= config.warmup:
+        return []
+    config.warmup = min(need + WARMUP_MARGIN, MAX_WARMUP)
+    if need + WARMUP_MARGIN > MAX_WARMUP:
+        return [
+            f"{slowest} needs {need} bars of history, more than the {MAX_WARMUP}-bar warm-up; "
+            "it stays in cash until it has enough."
+        ]
+    return [f"Warm-up lengthened to {config.warmup} bars: {slowest} needs {need} bars of history to start."]
+
+
 def create_run(config: RunConfig, data_service=None) -> StrategyRun:
     tf = Timeframe.parse(config.timeframe)
     seed = config.seed if config.seed is not None else int(np.random.default_rng().integers(1, 1_000_000))
-    notes: list[str] = []
+    notes: list[str] = fit_warmup(config)
     feed: Feed
     if config.source == "simulated":
         market = SimulatedMarket(config.symbols, config.scenario, seed, config.warmup)
@@ -269,6 +293,7 @@ class StrategyRun:
         self._cols = {a.id: [feed.symbols.index(s) for s in a.symbols] for a in agents}
         self.cursor = feed.start_index
         self._regime: str | None = None
+        self._fit_lookahead()
         self._prepare(self.cursor)
         t0 = feed.time(self.cursor)
         o, h, l, c = feed.arrays(self.cursor)
@@ -278,6 +303,13 @@ class StrategyRun:
         self._note_regime(self.cursor, initial=True)
 
     # -- bar processing (worker thread) ---------------------------------------------------
+    def _fit_lookahead(self) -> None:
+        """Generate about a second of play ahead of the cursor. Agents recompute their signals
+        when the market grows, so fast runs recompute less often (signals are causal, so the
+        unrevealed bars never change what an agent sees)."""
+        if isinstance(self.feed, SimulatedFeed):
+            self.feed.lookahead = int(min(max(self.speed, MIN_LOOKAHEAD), MAX_SPEED))
+
     def _prepare(self, t: int) -> None:
         stale = [a for a in self.agents if a.prepared_until < t]
         if not stale:
@@ -549,6 +581,7 @@ class StrategyRun:
 
     async def set_speed(self, speed: float) -> None:
         self.speed = min(max(float(speed), 0.1), MAX_SPEED)
+        self._fit_lookahead()
         await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
 
     async def stop(self) -> None:

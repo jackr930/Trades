@@ -28,15 +28,25 @@ type Source = "simulated" | "replay" | "realtime";
 const SPEEDS = [0.5, 1, 2, 4, 8, 16, 32, 64, 200];
 const MAX_EVENTS = 600;
 
-export default function StrategySim({ runId, initialSource, onOpen, onClose }: {
+export default function StrategySim({ runId, initialSource, initialStrategies, onOpen, onClose }: {
   runId: string | null;
   initialSource?: string | null;
+  /** Comma-separated strategy ids to preselect (e.g. from the Library's race button). */
+  initialStrategies?: string | null;
   onOpen: (id: string) => void;
   onClose: () => void;
 }) {
   if (!runId) {
     const src = (["simulated", "replay", "realtime"] as const).find((x) => x === initialSource) ?? "simulated";
-    return <Setup key={src} initialSource={src} onStarted={(s) => onOpen(s.id)} onOpen={onOpen} />;
+    return (
+      <Setup
+        key={`${src}:${initialStrategies ?? ""}`}
+        initialSource={src}
+        initialStrategies={initialStrategies}
+        onStarted={(s) => onOpen(s.id)}
+        onOpen={onOpen}
+      />
+    );
   }
   return <RunView key={runId} runId={runId} onNew={onClose} onOpen={onOpen} />;
 }
@@ -45,8 +55,11 @@ export default function StrategySim({ runId, initialSource, onOpen, onClose }: {
 // Set-up
 // ------------------------------------------------------------------------------------
 
-function Setup({ initialSource, onStarted, onOpen }: {
+const MAX_STRATEGIES = 16;
+
+function Setup({ initialSource, initialStrategies, onStarted, onOpen }: {
   initialSource: Source;
+  initialStrategies?: string | null;
   onStarted: (s: ArenaState) => void;
   onOpen: (id: string) => void;
 }) {
@@ -82,7 +95,8 @@ function Setup({ initialSource, onStarted, onOpen }: {
       .then((o) => {
         setOptions(o);
         setSimSymbols(o.default_symbols);
-        setChosen(o.default_strategies.map((s) => s.id));
+        const wanted = (initialStrategies ?? "").split(",").filter((id) => strategies.some((s) => s.id === id));
+        setChosen(wanted.length ? wanted : o.default_strategies.map((s) => s.id));
       })
       .catch((e) => setError((e as Error).message));
     api.arenaRuns().then(setRuns).catch(() => undefined);
@@ -126,6 +140,14 @@ function Setup({ initialSource, onStarted, onOpen }: {
 
   const editingMeta = editing ? strategies.find((s) => s.id === editing) : undefined;
   const realProviders = meta.providers.filter((p) => p.id !== "synthetic");
+  const modern = strategies.filter((s) => s.family === "modern");
+  const presets: [string, string[]][] = [
+    ["Classic rules", options.default_strategies.map((s) => s.id)],
+    ["Modern quant", modern.map((s) => s.id)],
+    ["Modern vs classic", [...new Set(modern.flatMap((s) => [s.id, s.counterpart].filter(Boolean)))]],
+  ];
+  const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+  const shorters = strategies.filter((s) => s.uses_short && chosen.includes(s.id)).map((s) => s.name);
 
   return (
     <div className="stack">
@@ -261,22 +283,43 @@ function Setup({ initialSource, onStarted, onOpen }: {
         <div className="card-header">
           <h2>Strategies</h2>
           <span className="sub">
-            {chosen.length} selected, plus buy-and-hold as the benchmark
+            {chosen.length} selected (up to {MAX_STRATEGIES}), plus buy-and-hold as the benchmark
           </span>
         </div>
-        <div className="strategy-picks">
-          {strategies.map((s) => (
-            <StrategyPick
-              key={s.id}
-              s={s}
-              checked={chosen.includes(s.id)}
-              customised={Object.keys(params[s.id] ?? {}).length > 0}
-              editing={editing === s.id}
-              onToggle={(on) => setChosen(on ? [...chosen, s.id] : chosen.filter((x) => x !== s.id))}
-              onEdit={() => setEditing(editing === s.id ? null : s.id)}
-            />
+        <div className="chips" role="group" aria-label="Quick picks">
+          <span className="small muted">Quick picks:</span>
+          {presets.map(([label, ids]) => (
+            <button key={label} type="button" className="chip toggle" aria-pressed={sameSet(chosen, ids)} onClick={() => setChosen(ids)}>
+              {label}
+              <span className="muted">{ids.length}</span>
+            </button>
           ))}
+          <button type="button" className="chip toggle" aria-pressed={false} onClick={() => setChosen([])}>
+            Clear
+          </button>
         </div>
+        {(["modern", "classic"] as const).map((fam) => (
+          <div key={fam}>
+            <h3 className="section-title" style={{ marginTop: 14 }}>
+              {fam === "modern" ? "Modern quant methods" : "Classic published rules"}
+            </h3>
+            <div className="strategy-picks">
+              {strategies
+                .filter((s) => s.family === fam)
+                .map((s) => (
+                  <StrategyPick
+                    key={s.id}
+                    s={s}
+                    checked={chosen.includes(s.id)}
+                    customised={Object.keys(params[s.id] ?? {}).length > 0}
+                    editing={editing === s.id}
+                    onToggle={(on) => setChosen(on ? [...chosen, s.id] : chosen.filter((x) => x !== s.id))}
+                    onEdit={() => setEditing(editing === s.id ? null : s.id)}
+                  />
+                ))}
+            </div>
+          </div>
+        ))}
         {editingMeta ? (
           <div className="subcard" style={{ marginTop: 12 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
@@ -320,13 +363,18 @@ function Setup({ initialSource, onStarted, onOpen }: {
         </div>
         <label className="check" style={{ marginTop: 10 }}>
           <input type="checkbox" checked={allowShort} onChange={(e) => setAllowShort(e.target.checked)} />
-          Allow short selling (time-series momentum and pairs trading are designed to short)
+          Allow short selling
         </label>
         <p className="small muted" style={{ marginTop: 8 }}>
+          {shorters.length ? `Designed to short: ${shorters.join(", ")}. ` : ""}
           Shorts pay a 0.25%/yr borrow fee and borrowed cash costs 2%/yr above cash, as in the Strategy Lab.
         </p>
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="btn primary" disabled={busy || !chosen.length || !syms.length} onClick={() => void start_()}>
+          <button
+            className="btn primary"
+            disabled={busy || !chosen.length || chosen.length > MAX_STRATEGIES || !syms.length}
+            onClick={() => void start_()}
+          >
             {busy ? "Preparing..." : "Start simulation"}
           </button>
           {busy ? <Spinner label={source === "simulated" ? "Generating the warm-up history..." : "Downloading history..."} /> : null}

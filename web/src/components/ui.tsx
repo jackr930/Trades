@@ -52,6 +52,7 @@ export function DirectionBadge({ score, label }: { score: number; label: string 
 export function VoteGlyph({ vote, state }: { vote: number; state?: string }) {
   if (state === "warming_up") return <span className="badge neutral">Warming up</span>;
   if (state === "error") return <span className="badge neutral">Error</span>;
+  if (state === "hedge") return <span className="badge neutral">Hedge</span>;
   if (vote > 0)
     return (
       <span className="badge up">

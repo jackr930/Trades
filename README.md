@@ -2,10 +2,13 @@
 
 **Quant strategy research, live strategy simulations, and real-time trade recommendations, in one local web app.**
 
-Trades runs statistical strategies from published quantitative-finance research (time-series momentum, trend
-filters, Turtle breakouts, pairs trading, cross-sectional momentum, low volatility and more). In the **strategy
-simulator**, every strategy trades its own paper account and reacts bar by bar as the market moves, either a
-simulated market you can shock (crash, rally, volatility spike, broken pair) or the connected real-time feed.
+Trades runs statistical strategies from published quantitative-finance research: classic rules (time-series
+momentum, trend filters, Turtle breakouts, pairs trading, cross-sectional momentum, low volatility and more) and
+the modern methods of quant funds and prop desks (a multi-horizon CTA trend signal, factor-neutral statistical
+arbitrage, residual momentum, Kalman-filter pairs, a hidden Markov regime model and a walk-forward
+machine-learning ranker). In the **strategy simulator**, every strategy trades its own paper account and reacts
+bar by bar as the market moves, either a simulated market you can shock (crash, rally, volatility spike, broken
+pair) or the connected real-time feed.
 The Live Desk turns the same strategies into plain-language recommendations, the Strategy Lab backtests and
 optimises them honestly, and a practice mode lets you trade yourself and get a scorecard on your *process*.
 
@@ -22,7 +25,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. |
 | **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns and trade lists. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
-| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing and behavioural biases. |
+| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing and behavioural biases. |
 
 | Strategy simulator: results by hidden regime | Strategy Lab |
 | --- | --- |
@@ -51,6 +54,10 @@ Open **Simulator -> Test strategies**, pick a market and a set of strategies, an
   200 bars per second, or use **Replay bar by bar** on any Strategy Lab backtest.
 - **Forward-test in real time.** Connect Yahoo Finance or Alpaca and choose a bar size (1 minute to daily): the
   strategies trade each bar as it completes on the live market, while the chart shows the bar still forming.
+- **Pit modern methods against classic rules.** Quick picks load the classic rules, the modern quant methods, or
+  each modern method next to the classic rule it refines ("Modern vs classic"). The warm-up lengthens
+  automatically when a strategy needs more history (the machine-learning ranker needs about two years) so every
+  strategy can trade from the first live bar.
 - **See why.** The event feed lists every signal change and trade with the strategy's own reasoning ("Holding long
   from the last check 5 bars ago...", "Spread is rich (z = 2.36): short SIMPRA, long SIMPRB"), and the strategy
   panel shows each rule's current value.
@@ -60,6 +67,8 @@ Open **Simulator -> Test strategies**, pick a market and a set of strategies, an
   whether a ranking survives.
 
 ## Strategy library
+
+### Classic published rules
 
 | Strategy | Category | Evidence | Key reference |
 | --- | --- | --- | --- |
@@ -76,6 +85,25 @@ Open **Simulator -> Test strategies**, pick a market and a set of strategies, an
 | Low-volatility anomaly | Defensive factor | Strong | Ang et al. (2006), *JF*; Frazzini & Pedersen (2014), *JFE* |
 | Short-term reversal | Mean reversion | Moderate | Lehmann (1990); Jegadeesh (1990); Avramov, Chordia & Goyal (2006) |
 | Buy and hold | Benchmark | — | Sharpe (1991), *FAJ* |
+
+### Modern quant methods
+
+The tools of today's systematic funds and prop desks. They adapt where the classic rules are fixed, and that
+flexibility makes them easier to overfit, so each one names the classic rule it refines: race the two in the
+simulator and see whether the extra machinery pays for itself.
+
+| Strategy | What it adds | Refines | Evidence | Key reference |
+| --- | --- | --- | --- | --- |
+| Multi-horizon trend (CTA signal) | Three fast/slow EMA gaps, volatility-normalised and passed through a response curve that fades overstretched moves; a continuous position | Time-series momentum | Moderate | Baz et al. (2015), Man Group; Lim, Zohren & Roberts (2019), *JFDS* |
+| Statistical arbitrage (factor residuals) | Strips out each stock's market-driven moves, models the residual as an Ornstein-Uhlenbeck process, trades s-scores market-neutral with beta hedges | Short-term reversal | Moderate | Avellaneda & Lee (2010), *Quant. Finance*; Khandani & Lo (2011) |
+| Residual momentum | Ranks stocks by the t-statistic of their stock-specific return, so a high-beta rally doesn't count as momentum | Cross-sectional momentum | Moderate | Blitz, Huij & Martens (2011), *J. Empirical Finance* |
+| Pairs trading (Kalman filter) | The hedge ratio is a hidden state updated every bar; trades when the one-step forecast error is unusually large | Pairs trading (cointegration) | Practitioner | Chan (2013); Elliott, van der Hoek & Malcolm (2005), *Quant. Finance* |
+| Regime switching (hidden Markov model) | Two-state Gaussian HMM fitted by EM (Baum-Welch), refitted monthly, filtered forward; invested while the calm regime is likely | Trend filter (10-month SMA) | Moderate | Hamilton (1989), *Econometrica*; Ang & Bekaert (2002), *RFS*; Nystrup et al. (2018) |
+| Machine-learning ranker (walk-forward ridge) | Pooled cross-sectional ridge regression on ten price features, purged walk-forward retraining, live information coefficient | Cross-sectional momentum | Experimental | Gu, Kelly & Xiu (2020), *RFS*; Krauss, Do & Huck (2017); López de Prado (2018) |
+
+The strategy panels explain each decision in the method's own terms: the s-score and mean-reversion time of a
+residual, the filter's current hedge ratio and forecast error, the probability of the calm regime, or the model's
+predicted relative return with the features driving it.
 
 Position sizing is a separate, swappable layer: fixed allocation, **volatility targeting** (Moreira & Muir 2017),
 or **ATR risk units** (the Turtles' fixed-fractional sizing).
@@ -132,6 +160,10 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
 - **Statistics that tell you how much to trust a number.** Each backtest reports the Probabilistic Sharpe Ratio
   (Bailey & López de Prado 2012) alongside the Sharpe ratio. Parameter searches report the Deflated Sharpe Ratio
   (2014), and walk-forward analysis compares in-sample with out-of-sample results.
+- **Models only learn from the past.** The hidden Markov model is refitted on trailing returns and run forward
+  between refits. The machine-learning ranker trains only on rows whose target return was fully known before the
+  prediction date (the purge gap), retrains on a rolling schedule, and reports its live out-of-sample information
+  coefficient next to every prediction. The no-look-ahead test covers these models like every other strategy.
 - **Plain-language warnings** for too few trades, short samples, probably-overfit results, synthetic data, and
   survivorship bias when you pick today's symbols to test the past.
 - **Benchmarks everywhere.** Every backtest and simulator session is compared with buy-and-hold over the same period.

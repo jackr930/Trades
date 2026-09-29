@@ -93,8 +93,12 @@ export function titleCase(s: string): string {
 
 export function evidenceLabel(level: string): string {
   return (
-    { strong: "Strong evidence", moderate: "Moderate evidence", practitioner: "Practitioner rule", benchmark: "Benchmark" }[
-      level
-    ] ?? level
+    {
+      strong: "Strong evidence",
+      moderate: "Moderate evidence",
+      practitioner: "Practitioner rule",
+      experimental: "Experimental",
+      benchmark: "Benchmark",
+    }[level] ?? level
   );
 }

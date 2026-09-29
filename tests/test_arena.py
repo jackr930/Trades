@@ -130,6 +130,22 @@ def test_agents_stay_consistent_after_an_injected_event():
     assert "injected" in kinds and "fill" in kinds and "regime" in kinds
 
 
+def test_modern_strategies_get_the_warmup_they_need_and_trade_like_backtests():
+    modern = ("cta_trend", "stat_arb", "residual_momentum", "kalman_pairs", "hmm_regime", "ml_ranker")
+    run = create_run(
+        RunConfig(seed=5, symbols=[*SYMS, "SIMGLD"], length=60, strategies=[{"id": s} for s in modern])
+    )
+    need = max(a.strategy.warmup() for a in run.agents)
+    assert run.config.warmup == need + 5 and any("Warm-up lengthened" in n for n in run.notes)
+    assert run.feed.start_index == run.config.warmup - 1
+    asyncio.run(run._run_bars(60))
+    _assert_agents_match_backtests(run)
+    for a in run.agents:  # every strategy can act from the first live bar
+        assert a._valid[run.feed.start_index].all(), a.id
+    # The usual strategies fit in the default warm-up, which is left alone.
+    assert create_run(RunConfig(seed=5, symbols=SYMS)).config.warmup == 300
+
+
 def test_summary_has_leaderboard_and_regime_attribution():
     run = create_run(
         RunConfig(seed=2, scenario="crash", symbols=["SIMIDX", "SIMBND"], strategies=[{"id": "tsmom"}])

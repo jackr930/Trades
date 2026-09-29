@@ -22,7 +22,7 @@ from trades.backtest.engine import BacktestConfig, ExecutionEngine
 from trades.backtest.metrics import performance_metrics
 from trades.backtest.runner import StrategySpec, trade_payload
 from trades.core.ledger import EPS
-from trades.strategies.base import Kind, StrategyOutput, held_position_text
+from trades.strategies.base import Kind, StrategyOutput
 from trades.strategies.sizing import apply_sizing
 
 MAX_EVENTS = 400
@@ -52,7 +52,7 @@ class StrategyAgent:
         self.ppy = config.periods_per_year
         self._out: StrategyOutput | None = None
         self._weights: np.ndarray | None = None
-        self._signals: np.ndarray | None = None
+        self._states: np.ndarray | None = None  # long | short | flat | hedge per bar and symbol
         self._valid: np.ndarray | None = None
         self.prepared_until = -1
         self.start_index: int | None = None
@@ -74,7 +74,7 @@ class StrategyAgent:
         weights = apply_sizing(out.signals, sub, self.sizing, self.strategy.kind, self.ppy)
         self._out = out
         self._weights = weights[self.symbols].to_numpy(float)
-        self._signals = out.signals[self.symbols].to_numpy(float)
+        self._states = np.column_stack([self.strategy.position_states(out, s) for s in self.symbols])
         self._valid = np.column_stack(
             [
                 out.diagnostics[s]["valid"].to_numpy(bool)
@@ -136,13 +136,13 @@ class StrategyAgent:
         return events
 
     def _decide(self, t: int, time: pd.Timestamp, first: bool = False) -> list[dict[str, Any]]:
-        assert self._weights is not None and self._signals is not None and self._valid is not None
+        assert self._weights is not None and self._states is not None and self._valid is not None
         if self.engine.stopped:
             return []
         events = []
         changed: set[str] = set()
         for j, sym in enumerate(self.symbols):
-            state = held_position_text(self._signals[t, j]) if self._valid[t, j] else "warming_up"
+            state = str(self._states[t, j]) if self._valid[t, j] else "warming_up"
             if state != self._state.get(sym):
                 ex = self.explain(sym, t)
                 self.explanations[sym] = ex

@@ -31,7 +31,7 @@ export interface Overlay {
   values?: Num[];
 }
 
-export type EvidenceLevel = "strong" | "moderate" | "practitioner" | "benchmark";
+export type EvidenceLevel = "strong" | "moderate" | "practitioner" | "experimental" | "benchmark";
 
 export interface StrategyMeta {
   id: string;
@@ -51,6 +51,12 @@ export interface StrategyMeta {
   min_symbols: number;
   max_symbols: number | null;
   uses_short: boolean;
+  /** "classic": a published rule. "modern": a method from quant desks (filters, factor models, ML). */
+  family: "classic" | "modern";
+  /** What the strategy needs to work well, in plain words ("" if nothing special). */
+  needs: string;
+  /** For a modern method: the id of the classic rule it refines, to compare against. */
+  counterpart: string;
 }
 
 export interface MetricInfo {
@@ -259,7 +265,7 @@ export interface Vote {
   category: string;
   evidence_level: EvidenceLevel;
   vote: -1 | 0 | 1;
-  state: "long" | "short" | "flat" | "warming_up" | "error";
+  state: "long" | "short" | "flat" | "hedge" | "warming_up" | "error";
   headline: string;
   rules: RuleCheck[];
   since: number | null;
