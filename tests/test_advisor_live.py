@@ -129,6 +129,12 @@ def test_last_bar_forming():
     # The 15:30 ET hourly bar ends at the 16:00 close, not at 16:30.
     assert last_bar_forming(hourly, Timeframe.H1, datetime(2026, 9, 28, 19, 45, tzinfo=timezone.utc))
     assert not last_bar_forming(hourly, Timeframe.H1, datetime(2026, 9, 28, 20, 5, tzinfo=timezone.utc))
+    # An after-hours bar (16:05 ET, e.g. from Alpaca's extended-hours feed) runs its full interval.
+    late = pd.DataFrame(
+        {"close": [1.0]}, index=pd.DatetimeIndex([pd.Timestamp("2026-09-28 20:05", tz="UTC")])
+    )
+    assert last_bar_forming(late, Timeframe.M5, datetime(2026, 9, 28, 20, 6, tzinfo=timezone.utc))
+    assert not last_bar_forming(late, Timeframe.M5, datetime(2026, 9, 28, 20, 10, tzinfo=timezone.utc))
 
 
 def test_alpaca_quote_ignores_extended_hours_trades():

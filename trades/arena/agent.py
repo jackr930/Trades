@@ -127,6 +127,10 @@ class StrategyAgent:
                     "reason": self._reasons.pop(f.symbol, ""),
                 }
             )
+        # An order that expired without a fill (e.g. trimmed to nothing by the leverage cap) must not
+        # lend its reason to a later, unrelated trade.
+        waiting = {self.symbols[j] for j in self.engine.pending}
+        self._reasons = {s: r for s, r in self._reasons.items() if s in waiting}
         self.t = t
         self.times.append(int(time.timestamp()))
         self.equity.append(self.engine.equity)

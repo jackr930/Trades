@@ -653,6 +653,8 @@ export type ArenaStatus = "ready" | "running" | "paused" | "finished" | "error";
 
 export interface ArenaState {
   id: string;
+  /** Number of the last message this snapshot already reflects. */
+  seq: number;
   created_at: number;
   status: ArenaStatus;
   error: string | null;
@@ -686,7 +688,9 @@ export interface ArenaState {
 }
 
 export interface ArenaUpdate {
-  type: "update" | "finished" | "resync" | "error";
+  type: "update" | "finished" | "resync" | "closed" | "error";
+  /** Messages are numbered in the order they are sent (not on resync/closed/error). */
+  seq: number;
   status: ArenaStatus;
   cursor: number;
   progress: { done: number; total: number | null };

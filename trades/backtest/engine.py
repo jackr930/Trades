@@ -238,7 +238,10 @@ class ExecutionEngine:
             self.pending.pop(j)
             cur = led.qty(s)
             if cfg.max_gross_leverage is not None and abs(target_qty) > abs(cur) + EPS:
-                target_qty = self._within_leverage(j, target_qty, ref_prices, close)
+                capped = self._within_leverage(j, target_qty, ref_prices, close)
+                if cur * target_qty > 0:  # an add the cap blocks is skipped, never turned into a sale
+                    capped = float(np.sign(target_qty)) * max(abs(capped), abs(cur))
+                target_qty = capped
             delta = target_qty - cur
             if abs(delta) <= EPS:
                 continue

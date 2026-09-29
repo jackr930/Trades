@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from tests.conftest import UNIVERSE
-from trades.backtest.engine import BacktestConfig, buy_and_hold_weights, run_backtest
+from trades.backtest.engine import BacktestConfig, ExecutionEngine, buy_and_hold_weights, run_backtest
 from trades.backtest.metrics import monthly_returns, performance_metrics
 from trades.backtest.optimize import expand_grid, grid_search, range_values, walk_forward
 from trades.backtest.runner import StrategySpec, backtest_payload, backtest_strategy, sanitize
@@ -106,6 +106,21 @@ def test_reducing_orders_fill_before_adding_ones():
     switch = [f for f in res.fills if f.index == 2]
     assert [f.symbol for f in switch] == ["B", "A"]  # sold B first, freeing cash for A
     assert res.positions["A"].iloc[-1] == 100
+
+
+def test_the_leverage_cap_skips_an_add_rather_than_selling():
+    cfg = BacktestConfig(initial_cash=100_000, slippage_bps=5, max_gross_leverage=1.5)
+    eng = ExecutionEngine(["A", "B"], cfg)
+    t = pd.Timestamp("2024-01-02", tz="UTC")
+    p, q = np.full(2, 100.0), np.full(2, 90.0)
+    eng.execute(0, t, p, p, p, p)
+    eng.decide(0, [0.75, 0.75])
+    eng.execute(1, t, p, p, p, p)
+    eng.execute(2, t, q, q, q, q)  # both fall 10%: the book is now above 1.5x
+    before = eng.ledger.qty("A")
+    assert eng.decide(2, [0.85, 0.75])["A"] > 0  # the strategy wants more A...
+    fills = eng.execute(3, t, q, q, q, q)
+    assert not fills and eng.ledger.qty("A") == before  # ...the cap blocks the add, and never sells
 
 
 def test_trade_pnl_reconciles_with_equity(daily):

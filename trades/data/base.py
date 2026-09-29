@@ -243,7 +243,9 @@ def last_bar_forming(df: pd.DataFrame | None, timeframe: Timeframe, now: datetim
     end = start + timedelta(minutes=timeframe.minutes)
     d = start.astimezone(NY).date()
     if is_trading_day(d):
-        end = min(end, session_bounds(d)[1])  # the last hourly bar ends at the close
+        close = session_bounds(d)[1]
+        if start < close:  # a regular-session bar ends at the close (the last hourly bar is short);
+            end = min(end, close)  # an extended-hours bar after the close runs its full interval
     return now < end
 
 

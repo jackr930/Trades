@@ -46,6 +46,7 @@ BRIDGE_STEPS = 16
 MAX_VOL_MULT = 6.0
 MAX_GARCH = 30.0
 MAX_BAR_MOVE = 0.7  # |log return| per bar (about -50% / +100%)
+MIN_EVENT_RETURN = -0.5  # the largest one-bar drop an event can ask for without being clipped
 LOG_PRICE_BOUNDS = (math.log(0.01), math.log(1e7))
 
 # Regimes an event can force, whatever the scenario's own regimes are.
@@ -270,6 +271,31 @@ class SimulatedMarket:
             out[s] = df
         return out
 
+    def bars_payload(self, first: int, last: int) -> dict[str, dict[str, list]]:
+        """Bars ``first..last`` (inclusive) per symbol as compact rounded arrays."""
+        last = min(last, len(self) - 1)
+        n = max(last - first + 1, 0)
+        self._ensure_dates(last + 1)
+        times = pd.DatetimeIndex(pd.to_datetime(self._dates[first : first + n])).as_unit("s").asi8.tolist()
+        out = {}
+        for s in self.symbols:
+            j = self._simulated.index(s)
+            rows = slice(first, first + n)
+            out[s] = {
+                "t": times,
+                "o": np.round(self._o[rows, j], 4).tolist(),
+                "h": np.round(self._h[rows, j], 4).tolist(),
+                "l": np.round(self._l[rows, j], 4).tolist(),
+                "c": np.round(self._c[rows, j], 4).tolist(),
+                "v": np.round(self._v[rows, j], 0).tolist(),
+            }
+        return out
+
+    def drifts(self, upto: int) -> dict[str, float]:
+        """Annual drift of each regime that occurs in bars ``0..upto``."""
+        seen = set(self._regimes[: upto + 1])
+        return {k: v for k, v in self.regime_drift.items() if k in seen}
+
     def bar(self, t: int) -> dict[str, tuple[float, float, float, float, float]]:
         cols = [self._simulated.index(s) for s in self.symbols]
         return {
@@ -314,8 +340,8 @@ class SimulatedMarket:
         bars = int(bars if bars is not None else spec["bars"])
         if not 1 <= bars <= 500:
             raise ValueError("bars must be between 1 and 500")
-        if kind in ("crash", "rally", "gap") and size is not None and not -0.6 <= size <= 1.0:
-            raise ValueError("size must be a return between -60% and +100%")
+        if kind in ("crash", "rally", "gap") and size is not None and not MIN_EVENT_RETURN <= size <= 1.0:
+            raise ValueError("size must be a return between -50% and +100% (the most one bar can move)")
         if kind == "crash" and size is not None and size >= 0:
             raise ValueError("a crash needs a negative size")
         if kind == "rally" and size is not None and size <= 0:

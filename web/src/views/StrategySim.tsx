@@ -527,67 +527,106 @@ function applyUpdate(prev: ArenaState, u: ArenaUpdate): ArenaState {
 function useRun(runId: string) {
   const [run, setRun] = useState<ArenaState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const queue = useRef<ArenaUpdate[]>([]);
-  const timer = useRef<number | undefined>(undefined);
-
-  const load = useCallback(async () => {
-    try {
-      setRun(await api.arenaState(runId));
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [runId]);
+  const reloadRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
+    // Messages are numbered. `seq` is the last one reflected in the state (null until the first
+    // snapshot): older messages are dropped, and a skipped number means some were missed (a dropped
+    // connection, a sleeping laptop), so the state is reloaded instead of patched with a gap.
     let ws: WebSocket | null = null;
-    let closed = false;
+    let disposed = false;
+    let gone = false; // the simulation no longer exists: stop reconnecting
     let retry: number | undefined;
-    const flush = () => {
-      timer.current = undefined;
-      const msgs = queue.current;
-      queue.current = [];
-      if (msgs.length) setRun((prev) => (prev ? msgs.reduce(applyUpdate, prev) : prev));
+    let timer: number | undefined;
+    let seq: number | null = null;
+    let queue: ArenaUpdate[] = [];
+    let loading = false;
+    let stale = false; // another snapshot was requested while one was loading
+    let opens = 0;
+
+    const load = async () => {
+      if (loading) {
+        stale = true;
+        return;
+      }
+      loading = true;
+      try {
+        const s = await api.arenaState(runId);
+        if (disposed) return;
+        seq = s.seq;
+        setRun(s);
+        setError(null);
+      } catch (e) {
+        if (!disposed) setError((e as Error).message);
+      } finally {
+        loading = false;
+      }
+      if (disposed) return;
+      if (stale) {
+        stale = false;
+        void load();
+      } else flush();
     };
+
+    const flush = () => {
+      timer = undefined;
+      if (seq === null || loading) return; // applied once the snapshot arrives
+      const fresh = queue.filter((m) => m.seq > (seq as number)).sort((a, b) => a.seq - b.seq);
+      queue = [];
+      let last = seq;
+      for (const m of fresh) {
+        if (m.seq !== last + 1) {
+          queue = fresh; // keep them: the snapshot decides which are still new
+          void load();
+          return;
+        }
+        last = m.seq;
+      }
+      if (!fresh.length) return;
+      seq = last;
+      setRun((prev) => (prev ? fresh.reduce(applyUpdate, prev) : prev));
+      // The final state (summary and any last bar) in one consistent snapshot.
+      if (fresh.some((m) => m.type === "finished")) void load();
+    };
+
     const connect = () => {
       ws = new WebSocket(arenaSocketUrl(runId));
+      ws.onopen = () => {
+        if (opens++ > 0) void load(); // reconnected: catch up on whatever happened meanwhile
+      };
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data as string) as ArenaUpdate;
         if (msg.type === "resync") {
+          queue = [];
           void load();
           return;
         }
-        if (msg.type === "finished") {
-          // The final state (summary and any last bar) in one consistent snapshot.
-          queue.current = [];
-          void load();
+        if (msg.type === "closed" || msg.type === "error") {
+          gone = true;
+          setError(msg.type === "closed" ? "This simulation was removed." : (msg.detail ?? "simulation not found"));
           return;
         }
-        if (msg.type === "error") {
-          setError(msg.detail ?? "simulation not found");
-          return;
-        }
-        queue.current.push(msg);
-        if (timer.current === undefined) timer.current = window.setTimeout(flush, 120);
+        queue.push(msg);
+        if (timer === undefined) timer = window.setTimeout(flush, 120);
       };
       ws.onclose = () => {
-        if (!closed) retry = window.setTimeout(connect, 1500);
+        if (!disposed && !gone) retry = window.setTimeout(connect, 1500);
       };
     };
+
+    reloadRef.current = () => void load();
+    void load();
     connect();
     return () => {
-      closed = true;
+      disposed = true;
       window.clearTimeout(retry);
-      window.clearTimeout(timer.current);
+      window.clearTimeout(timer);
       ws?.close();
     };
-  }, [runId, load]);
+  }, [runId]);
 
-  return { run, error, setError, reload: load };
+  const reload = useCallback(() => reloadRef.current(), []);
+  return { run, error, setError, reload };
 }
 
 function RunView({ runId, onNew, onOpen }: { runId: string; onNew: () => void; onOpen: (id: string) => void }) {

@@ -52,6 +52,7 @@ MIN_LOOKAHEAD = 48  # simulated bars generated ahead of the cursor
 UPDATES_PER_SECOND = 10.0
 MAX_EVENTS = 1500
 HISTORY_SHOWN = 150  # warm-up bars included in the chart
+CLOSED_MESSAGE = json.dumps({"type": "closed"})  # sent to subscribers when a simulation is removed
 MAX_WARMUP = 1500
 WARMUP_MARGIN = 5  # extra history beyond a strategy's first possible signal
 
@@ -287,7 +288,12 @@ class StrategyRun:
         self.events: list[dict[str, Any]] = []
         self.market_events: list[dict[str, Any]] = []
         self.summary: dict[str, Any] | None = None
-        self._lock = threading.RLock()
+        self._lock = threading.RLock()  # guards bars, agents and the market (worker threads)
+        self._advancing = asyncio.Lock()  # one caller advances bars at a time (the loop or a step)
+        self._pushing = asyncio.Lock()  # messages go out in the order they were built
+        self._seq = 0  # number of the last message built; snapshots carry it too
+        self._finishing = False
+        self._closed = False
         self._subscribers: set[asyncio.Queue] = set()
         self._task: asyncio.Task | None = None
         self._cols = {a.id: [feed.symbols.index(s) for s in a.symbols] for a in agents}
@@ -319,9 +325,11 @@ class StrategyRun:
         for a in stale:
             a.prepare(frames)
 
-    def _advance(self) -> list[dict[str, Any]]:
-        """Reveal bar ``cursor + 1``: every agent fills, marks and decides."""
+    def _advance(self) -> list[dict[str, Any]] | None:
+        """Reveal bar ``cursor + 1``: every agent fills, marks and decides (None at the end)."""
         with self._lock:
+            if not self._has_next():
+                return None
             t = self.cursor + 1
             self.feed.ensure(t + 1)  # the simulated market generates ahead (under the lock)
             self._prepare(t)
@@ -371,25 +379,44 @@ class StrategyRun:
         done = self.cursor - self.feed.start_index
         return {"done": done, "total": (last - self.feed.start_index) if last is not None else None}
 
-    def _update(self, first: int, last: int, events: list[dict[str, Any]]) -> dict[str, Any]:
-        prices = self.prices()
-        n = last - first + 1
-        return {
-            "type": "update",
-            "status": self.status,
-            "cursor": self.cursor,
-            "progress": self.progress(),
-            "bars": self.feed.bars_payload(first, last) if n > 0 else {},
-            "regimes": [self.feed.regime(t) for t in range(first, last + 1)] if n > 0 else [],
-            "regime_drift": self.feed.regime_drift(),
-            "equity": {a.id: [round(v, 2) for v in a.equity[-n:]] for a in self.agents} if n > 0 else {},
-            "agents": [a.snapshot(prices) for a in self.agents],
-            "events": events,
-            "feed_status": self.feed.status(),
-            "speed": self.speed,
-            "summary": self.summary,
-            "error": self.error,
-        }
+    def _update(self, first: int | None, events: list[dict[str, Any]], kind: str = "update") -> str:
+        """A numbered websocket message with bars ``first..cursor`` (None: no bars), as JSON.
+
+        Built under the lock, so it never sees a bar or an injected event half-applied, and
+        numbered in the order messages go out: a client that sees a number skipped knows it
+        missed something and reloads.
+        """
+        with self._lock:
+            self._seq += 1
+            last = self.cursor
+            n = 0 if first is None else last - first + 1
+            prices = self.prices()
+            message = {
+                "type": kind,
+                "seq": self._seq,
+                "status": self.status,
+                "cursor": last,  # the index of the last bar included (when there are bars)
+                "progress": self.progress(),
+                "bars": self.feed.bars_payload(last - n + 1, last) if n > 0 else {},
+                "regimes": [self.feed.regime(t) for t in range(last - n + 1, last + 1)] if n > 0 else [],
+                "regime_drift": self.feed.regime_drift(last),
+                "equity": {a.id: [round(v, 2) for v in a.equity[-n:]] for a in self.agents} if n > 0 else {},
+                "agents": [a.snapshot(prices) for a in self.agents],
+                "events": events,
+                "feed_status": self.feed.status(),
+                "speed": self.speed,
+                "summary": self.summary,
+                "error": self.error,
+            }
+            return json.dumps(sanitize(message), default=str)
+
+    async def _push(
+        self, first: int | None = None, events: list[dict[str, Any]] | None = None, kind: str = "update"
+    ) -> None:
+        """Build a message off the event loop and send it to every subscriber."""
+        async with self._pushing:
+            payload = await asyncio.to_thread(self._update, first, events or [], kind)
+            self._send(payload)
 
     def state(self) -> dict[str, Any]:
         with self._lock:
@@ -402,6 +429,7 @@ class StrategyRun:
             return sanitize(
                 {
                     "id": self.id,
+                    "seq": self._seq,  # messages numbered above this are newer than the snapshot
                     "created_at": self.created_at,
                     "status": self.status,
                     "error": self.error,
@@ -416,7 +444,7 @@ class StrategyRun:
                     "speed": self.speed,
                     "bars": self.feed.bars_payload(first, self.cursor),
                     "regimes": regimes,
-                    "regime_drift": self.feed.regime_drift(),
+                    "regime_drift": self.feed.regime_drift(self.cursor),
                     "agents": [
                         {
                             **a.describe(),
@@ -518,7 +546,7 @@ class StrategyRun:
             row = {
                 "regime": label,
                 "bars": int(mask.sum()),
-                "drift": self.feed.regime_drift().get(label),
+                "drift": self.feed.regime_drift(self.cursor).get(label),
                 "returns": {},
             }
             for a in self.agents:
@@ -538,8 +566,7 @@ class StrategyRun:
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self._subscribers.discard(q)
 
-    async def _broadcast(self, message: dict[str, Any]) -> None:
-        payload = json.dumps(sanitize(message), default=str)
+    def _send(self, payload: str) -> None:
         for q in list(self._subscribers):
             if q.full():  # a slow client: drop its backlog and ask it to reload
                 while not q.empty():
@@ -553,48 +580,50 @@ class StrategyRun:
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
+    def _halted(self) -> bool:
+        return self._closed or self.status in ("finished", "error")
+
     async def play(self) -> None:
-        if self.status in ("finished", "error"):
+        if self._halted():
             raise RunError(f"this simulation is {self.status}")
         self.status = "running"
         if not self.running:
             loop = self._realtime_loop if isinstance(self.feed, RealtimeFeed) else self._loop
             self._task = asyncio.create_task(loop(), name=f"arena-{self.id}")
-        await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+        await self._push()
 
     async def pause(self) -> None:
         if self.status == "running":
             self.status = "paused"
-        await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+        await self._push()
 
     async def step(self, n: int = 1) -> None:
-        if self.status in ("finished", "error"):
+        if self._halted():
             raise RunError(f"this simulation is {self.status}")
-        if self.status == "running":
-            await self.pause()
-            if self._task is not None:
-                await asyncio.wait({self._task}, timeout=5)
         if isinstance(self.feed, RealtimeFeed):
             raise RunError("a real-time run advances with the market; it cannot be stepped")
+        if self.status == "running":
+            await self.pause()
         self.status = "paused"
         await self._run_bars(max(1, min(int(n), 1000)))
 
     async def set_speed(self, speed: float) -> None:
         self.speed = min(max(float(speed), 0.1), MAX_SPEED)
         self._fit_lookahead()
-        await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+        await self._push()
 
     async def stop(self) -> None:
-        if self.status in ("finished", "error"):
+        if self._halted():
             return
-        self.status = "finished"
+        self.status = "finished"  # a step in progress stops after its current bar
         if self._task is not None and self._task is not asyncio.current_task():
             self._task.cancel()
             try:
                 await self._task
             except (asyncio.CancelledError, Exception):
                 pass
-        await self._finish()
+        async with self._advancing:
+            await self._finish()
 
     async def inject(self, kind: str, **params) -> dict[str, Any]:
         if not isinstance(self.feed, SimulatedFeed):
@@ -603,7 +632,7 @@ class StrategyRun:
             raise RunError(f"this simulation is {self.status}")
         # Taking the lock can wait for a bar in progress: do it off the event loop.
         record = await asyncio.to_thread(self._inject, kind, params)
-        await self._broadcast({**self._update(self.cursor + 1, self.cursor, [record])})
+        await self._push(events=[record])
         return record
 
     def _inject(self, kind: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -630,12 +659,15 @@ class StrategyRun:
             return record
 
     async def close(self) -> None:
+        """Stop for good (the simulation is being removed) and tell subscribers."""
+        self._closed = True  # a step in progress stops after its current bar
         if self._task is not None:
             self._task.cancel()
             try:
                 await self._task
             except (asyncio.CancelledError, Exception):
                 pass
+        self._send(CLOSED_MESSAGE)
         self._subscribers.clear()
 
     # -- loops ---------------------------------------------------------------------------
@@ -644,23 +676,26 @@ class StrategyRun:
         return last is None or self.cursor < last
 
     async def _run_bars(self, n: int) -> int:
-        """Advance up to ``n`` bars and broadcast them as one update."""
-        first = self.cursor + 1
-        events: list[dict[str, Any]] = []
-        done = 0
-        for _ in range(n):
-            if not self._has_next():
-                await self._broadcast(self._update(first, self.cursor, events))
+        """Advance up to ``n`` bars and broadcast them as one update.
+
+        One caller at a time (the play loop or a step), so two callers can never both take
+        the last bar; a stop or close ends the batch after the bar in progress.
+        """
+        async with self._advancing:
+            first = self.cursor + 1
+            events: list[dict[str, Any]] = []
+            done = 0
+            while done < n and not self._halted():
+                bar = await asyncio.to_thread(self._advance)
+                if bar is None:
+                    break
+                events += bar
+                done += 1
+            if done:
+                await self._push(first, events)
+            if not self._has_next() and not self._halted():
                 await self._finish()
-                return done
-            events += await asyncio.to_thread(self._advance)
-            done += 1
-        if done:
-            await self._broadcast(self._update(first, self.cursor, events))
-        last = self.feed.last_index()
-        if last is not None and self.cursor >= last:
-            await self._finish()
-        return done
+            return done
 
     async def _loop(self) -> None:
         try:
@@ -677,7 +712,7 @@ class StrategyRun:
         except Exception as exc:
             log.exception("strategy simulation %s failed", self.id)
             self.status, self.error = "error", f"{type(exc).__name__}: {exc}"
-            await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+            await self._push()
 
     async def _realtime_loop(self) -> None:
         feed = self.feed
@@ -690,18 +725,22 @@ class StrategyRun:
                     feed.error = None
                 except Exception as exc:  # keep polling; surface the problem
                     feed.error = f"{type(exc).__name__}: {exc}"
-                first = self.cursor + 1
-                events: list[dict[str, Any]] = []
-                while self.status == "running" and feed.known() > self.cursor + 1:
-                    events += await asyncio.to_thread(self._advance)
-                await self._broadcast(self._update(first, self.cursor, events))
+                async with self._advancing:
+                    first = self.cursor + 1
+                    events: list[dict[str, Any]] = []
+                    while self.status == "running" and feed.known() > self.cursor + 1:
+                        bar = await asyncio.to_thread(self._advance)
+                        if bar is None:
+                            break
+                        events += bar
+                    await self._push(first, events)
                 await asyncio.sleep(feed.interval())
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.exception("real-time simulation %s failed", self.id)
             self.status, self.error = "error", f"{type(exc).__name__}: {exc}"
-            await self._broadcast(self._update(self.cursor + 1, self.cursor, []))
+            await self._push()
 
     def _apply_bars(self, recent: dict[str, pd.DataFrame]) -> int:
         with self._lock:
@@ -709,9 +748,12 @@ class StrategyRun:
             return self.feed.apply(recent)
 
     async def _finish(self) -> None:
+        if self._finishing:
+            return
+        self._finishing = True
         self.status = "finished"
         self.summary = await asyncio.to_thread(self._summarise)
-        await self._broadcast({**self._update(self.cursor + 1, self.cursor, []), "type": "finished"})
+        await self._push(kind="finished")
 
 
 class RunManager:
@@ -720,19 +762,31 @@ class RunManager:
         self.max_runs = max_runs
         self.max_active = max_active
 
-    def add(self, run: StrategyRun) -> StrategyRun:
-        running = [r for r in self._runs.values() if r.running]
+    def _check_capacity(self, run: StrategyRun) -> None:
+        running = [r for r in self._runs.values() if r.running and r is not run]
         if len(running) >= self.max_active:
             raise RunError(
                 f"{len(running)} simulations are already running; pause or stop one before starting another."
             )
+
+    async def add(self, run: StrategyRun, *, play: bool = False) -> StrategyRun:
+        if play:
+            self._check_capacity(run)
         self._runs[run.id] = run
         while len(self._runs) > self.max_runs:
-            victim = next((r for r in self._runs.values() if not r.running), None)
+            victim = next((r for r in self._runs.values() if not r.running and r is not run), None)
             if victim is None:
                 break
             self._runs.pop(victim.id)
+            await victim.close()
+        if play:
+            await run.play()
         return run
+
+    async def play(self, run: StrategyRun) -> None:
+        if not run.running:
+            self._check_capacity(run)
+        await run.play()
 
     def get(self, run_id: str) -> StrategyRun:
         run = self._runs.get(run_id)

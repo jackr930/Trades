@@ -51,8 +51,8 @@ def test_no_look_ahead(sid, daily):
             part.signals.to_numpy(), full.signals.iloc[:cut].to_numpy(), equal_nan=True
         )
         for sym in data:
-            a = full.diagnostics[sym].iloc[:cut].select_dtypes("number").astype(float)
-            b = part.diagnostics[sym].select_dtypes("number").astype(float)
+            a = full.diagnostics[sym].iloc[:cut].select_dtypes(["number", "bool"]).astype(float)
+            b = part.diagnostics[sym].select_dtypes(["number", "bool"]).astype(float)
             np.testing.assert_allclose(a.to_numpy(), b.to_numpy(), equal_nan=True, err_msg=f"{sid}/{sym}")
         w_part = apply_sizing(part.signals, part_data, sizing, cls.kind)
         np.testing.assert_allclose(w_part.to_numpy(), w_full.iloc[:cut].to_numpy(), atol=1e-12)

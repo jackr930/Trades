@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from trades.arena.run import RunConfig, RunError, create_run, options
+from trades.arena.run import CLOSED_MESSAGE, RunConfig, RunError, create_run, options
 
 router = APIRouter()
 ws_router = APIRouter()
@@ -58,13 +58,11 @@ async def start_run(request: Request, body: dict[str, Any]):
     config = RunConfig.from_dict(body)
     run = await run_in_threadpool(create_run, config, c.data)
     try:
-        c.runs.add(run)
+        await c.runs.add(run, play=autoplay)
     except RunError:
         await run.close()
         raise
-    if autoplay:
-        await run.play()
-    return run.state()
+    return await run_in_threadpool(run.state)
 
 
 @router.get("/arena/runs/{run_id}")
@@ -86,7 +84,7 @@ async def agent_detail(request: Request, run_id: str, agent_id: str):
 async def control(request: Request, run_id: str, body: ControlBody):
     run = _run(request, run_id)
     if body.action == "play":
-        await run.play()
+        await _runs(request).play(run)
     elif body.action == "pause":
         await run.pause()
     elif body.action == "step":
@@ -130,7 +128,10 @@ async def ws_run(ws: WebSocket, run_id: str):
 
     async def sender():
         while True:
-            await ws.send_text(await queue.get())
+            message = await queue.get()
+            await ws.send_text(message)
+            if message == CLOSED_MESSAGE:  # the simulation was removed: nothing more will come
+                return
 
     async def receiver():
         while True:

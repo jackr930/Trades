@@ -12,6 +12,7 @@ never shown or traded on before the cursor reaches them.
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
@@ -56,8 +57,8 @@ class Feed(ABC):
     def regime(self, t: int) -> str | None:
         return None
 
-    def regime_drift(self) -> dict[str, float]:
-        """Annual drift of each hidden regime label (simulated markets only)."""
+    def regime_drift(self, upto: int) -> dict[str, float]:
+        """Annual drift of each hidden regime seen up to bar ``upto`` (simulated markets only)."""
         return {}
 
     def bars_payload(self, first: int, last: int) -> dict[str, Any]:
@@ -152,8 +153,12 @@ class SimulatedFeed(Feed):
     def regime(self, t: int) -> str | None:
         return self.market.regime(t)
 
-    def regime_drift(self) -> dict[str, float]:
-        return dict(self.market.regime_drift)
+    def regime_drift(self, upto: int) -> dict[str, float]:
+        # Only regimes already revealed: bars generated ahead must not hint at what is coming.
+        return self.market.drifts(upto)
+
+    def bars_payload(self, first: int, last: int) -> dict[str, Any]:
+        return self.market.bars_payload(first, last)  # straight from the arrays, no frames rebuilt
 
     def inject(self, kind: str, at: int, **kw) -> MarketEvent:
         ev = self.market.inject(kind, at, **kw)
@@ -199,8 +204,11 @@ class RealtimeFeed(_FrameFeed):
     """Completed bars from the connected provider as they happen.
 
     Polls the provider; a bar is appended once it has completed (its session or interval
-    has ended). A symbol without a bar at a timestamp another symbol has (no trades in
-    that minute) gets a flat bar at its previous close, keeping the agents in step.
+    has ended) for every symbol. A symbol's bar can reach the provider a little later than
+    another's, so a timestamp is held back until each symbol has either its bar there or a
+    later one. A symbol that moved on without a bar at that time (no trades in that minute),
+    or that is still silent after a grace period, gets a flat bar at its previous close,
+    keeping the agents in step.
     """
 
     source = "realtime"
@@ -211,6 +219,8 @@ class RealtimeFeed(_FrameFeed):
         self.timeframe = timeframe
         self.provider = provider
         self.poll_seconds = 5.0 if timeframe.is_intraday else 30.0
+        self.grace_seconds = 3 * self.poll_seconds  # how long to wait for a lagging symbol's bar
+        self._held: dict[pd.Timestamp, float] = {}  # held-back timestamp -> when first seen
         frames, errors = data_service.bars_many(
             self.symbols, timeframe, None, None, provider, count=warmup + 20
         )
@@ -259,17 +269,24 @@ class RealtimeFeed(_FrameFeed):
                     **{k[0]: float(row[k]) for k in ("open", "high", "low", "close", "volume")},
                 }
         last = self._index[-1]
-        new_times = sorted({ts for df in recent.values() for ts in self._completed(df).index if ts > last})
+        done = {s: self._completed(recent[s]) for s in self.symbols}
+        now = time.monotonic()
+        new_times = []
+        for ts in sorted({ts for df in done.values() for ts in df.index if ts > last}):
+            lagging = [s for s in self.symbols if ts not in done[s].index and not (done[s].index > ts).any()]
+            if lagging and now - self._held.setdefault(ts, now) < self.grace_seconds:
+                break  # wait for the lagging symbols' bars (this and later timestamps)
+            new_times.append(ts)
+        self._held = {ts: t0 for ts, t0 in self._held.items() if not new_times or ts > new_times[-1]}
         if not new_times:
             return 0
         frames = dict(self._frames)
         for s in self.symbols:
-            done = self._completed(recent[s])
             prev_close = float(frames[s]["close"].iloc[-1])
             rows = []
             for ts in new_times:
-                if ts in done.index:
-                    r = done.loc[ts]
+                if ts in done[s].index:
+                    r = done[s].loc[ts]
                     rows.append([r["open"], r["high"], r["low"], r["close"], r["volume"]])
                     prev_close = float(r["close"])
                 else:  # no trade in this interval: a flat bar keeps every symbol in step
