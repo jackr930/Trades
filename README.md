@@ -105,6 +105,10 @@ The strategy panels explain each decision in the method's own terms: the s-score
 residual, the filter's current hedge ratio and forecast error, the probability of the calm regime, or the model's
 predicted relative return with the features driving it.
 
+| Library: modern quant methods | Simulator: modern vs classic through a crash |
+| --- | --- |
+| ![Library filtered to modern quant methods](docs/screenshots/modern-methods.jpg) | ![Results of a modern-vs-classic race](docs/screenshots/modern-vs-classic.jpg) |
+
 Position sizing is a separate, swappable layer: fixed allocation, **volatility targeting** (Moreira & Muir 2017),
 or **ATR risk units** (the Turtles' fixed-fractional sizing).
 

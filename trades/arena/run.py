@@ -293,6 +293,7 @@ class StrategyRun:
         self._pushing = asyncio.Lock()  # messages go out in the order they were built
         self._seq = 0  # number of the last message built; snapshots carry it too
         self._finishing = False
+        self._wake = asyncio.Event()  # cuts short the play loop's wait between batches
         self._closed = False
         self._subscribers: set[asyncio.Queue] = set()
         self._task: asyncio.Task | None = None
@@ -524,10 +525,17 @@ class StrategyRun:
                 "other seeds (or periods) before drawing conclusions."
             )
         if self.config.source == "simulated":
-            cautions.append(
-                "Simulated prices follow a model with no built-in edge for any strategy; what you learn here is "
-                "how each rule behaves in different conditions, not which one makes money."
-            )
+            if {PAIR_A, PAIR_B} <= set(self.feed.symbols):
+                cautions.append(
+                    f"Simulated prices follow a model whose only built-in edge is the {PAIR_A}/{PAIR_B} pair, "
+                    "made to revert so pairs strategies have something to find. Beyond that, what you learn here "
+                    "is how each rule behaves in different conditions, not which one makes money."
+                )
+            else:
+                cautions.append(
+                    "Simulated prices follow a model with no built-in edge for any strategy; what you learn here "
+                    "is how each rule behaves in different conditions, not which one makes money."
+                )
         return {
             "leaderboard": rows,
             "bars": bars,
@@ -595,6 +603,7 @@ class StrategyRun:
     async def pause(self) -> None:
         if self.status == "running":
             self.status = "paused"
+        self._wake.set()
         await self._push()
 
     async def step(self, n: int = 1) -> None:
@@ -610,6 +619,7 @@ class StrategyRun:
     async def set_speed(self, speed: float) -> None:
         self.speed = min(max(float(speed), 0.1), MAX_SPEED)
         self._fit_lookahead()
+        self._wake.set()
         await self._push()
 
     async def stop(self) -> None:
@@ -705,14 +715,22 @@ class StrategyRun:
                 await self._run_bars(batch)
                 if self.status != "running":
                     break
-                wait = batch / self.speed - (time.monotonic() - started)
-                await asyncio.sleep(max(wait, 0.0))
+                await self._wait(batch / self.speed - (time.monotonic() - started))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.exception("strategy simulation %s failed", self.id)
             self.status, self.error = "error", f"{type(exc).__name__}: {exc}"
             await self._push()
+
+    async def _wait(self, seconds: float) -> None:
+        """Wait before the next batch. Pausing, stopping or a new speed cuts the wait short, so
+        a slow run (one bar every few seconds) reacts at once instead of after its next bar."""
+        self._wake.clear()
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=max(seconds, 0.0))
+        except TimeoutError:
+            pass
 
     async def _realtime_loop(self) -> None:
         feed = self.feed

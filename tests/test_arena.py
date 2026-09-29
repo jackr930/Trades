@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 
 import numpy as np
 import pandas as pd
@@ -392,6 +393,16 @@ def test_piled_up_events_stay_finite_and_consistent():
 # ----------------------------------------------------------------------------- concurrency and messages
 
 
+async def _until(condition, timeout: float = 5.0) -> bool:
+    """Wait (up to ``timeout`` seconds) for ``condition()`` to hold."""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        await asyncio.sleep(0.01)
+    return True
+
+
 def _drain(q) -> list[dict]:
     out = []
     while not q.empty():
@@ -425,10 +436,7 @@ def test_overlapping_steps_and_play_never_pass_the_last_bar():
             await asyncio.sleep(0)
             await run.play()
             await step
-            for _ in range(100):
-                if not run.running:
-                    break
-                await asyncio.sleep(0.01)
+            assert await _until(lambda: not run.running)
         assert run.cursor == run.feed.last_index() and run.status == "finished" and run.error is None
         kinds = [m["type"] for m in _drain(q)]
         assert kinds.count("finished") == 1 and kinds[-1] == "finished"
@@ -526,7 +534,7 @@ def test_run_manager_limits_playing_runs_and_closes_evicted_ones():
         with pytest.raises(RunError, match="already running"):
             await mgr.play(b)  # starting it would exceed the limit
         await a.pause()
-        await asyncio.sleep(0.05)
+        assert await _until(lambda: not a.running, timeout=1.0)  # not after its 2-second wait
         q = b.subscribe()
         await mgr.add(c)  # evicts the oldest idle run (a), which is closed
         assert [r["id"] for r in mgr.list()] == [c.id, b.id]
@@ -579,3 +587,19 @@ def test_an_order_that_never_fills_does_not_lend_its_reason_to_later_trades():
     agent.engine.pending.pop(agent.symbols.index("SIMIDX"), None)
     run._advance()
     assert agent._reasons.get("SIMIDX") != "stale reason from an order that expired"
+
+
+def test_pausing_or_changing_speed_acts_at_once_on_a_slow_run():
+    async def go():
+        run = create_run(RunConfig(seed=4, length=300, speed=0.2, strategies=[{"id": "tsmom"}]))
+        await run.play()
+        assert await _until(lambda: run.cursor > run.feed.start_index)  # one bar, then a 5-second wait
+        before = run.cursor
+        await run.set_speed(200)
+        assert await _until(lambda: run.cursor >= before + 20, timeout=2.0)
+        await run.set_speed(0.2)
+        await run.pause()
+        assert await _until(lambda: not run.running, timeout=1.0)
+        await run.close()
+
+    asyncio.run(go())
