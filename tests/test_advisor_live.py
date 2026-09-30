@@ -210,6 +210,39 @@ def test_live_service_broadcast_queue(tmp_path):
     assert len(items) == 8 and '"n": 11' in items[-1]
 
 
+def test_live_service_parks_when_nobody_is_watching(tmp_path, monkeypatch):
+    from trades.live import service as live_module
+
+    monkeypatch.setattr(live_module, "IDLE_AFTER", 0.05)
+    store = SettingsStore(tmp_path / "s.json")
+    store.update({"watchlists": {"synthetic": ["SIMIDX", "SIMTEC"]}})
+    svc = LiveService(DataService(store), store)
+
+    async def until(condition, timeout):
+        for _ in range(int(timeout / 0.01)):
+            if condition():
+                return True
+            await asyncio.sleep(0.01)
+        return False
+
+    async def run():
+        await svc.start()
+        # Nobody is watching: after the grace period the loop parks and drops its live data.
+        assert await until(lambda: svc.state["status"] == "idle", 5.0)
+        parked = svc.snapshot()
+        assert not parked["quotes"] and svc.bars("SIMIDX") is None
+        assert parked["demo"] and parked["market"]["phase"] == "demo"  # still known to be the demo market
+        q = svc.subscribe()  # a Live Desk tab opens: updates resume at once
+        assert await until(lambda: svc.state["status"] == "running" and svc.snapshot()["quotes"], 10.0)
+        svc.unsubscribe(q)
+        assert await until(lambda: svc.state["status"] == "idle", 5.0)
+        svc.touch()  # an API call asking for live data also wakes it
+        assert await until(lambda: svc.state["status"] == "running", 10.0)
+        await svc.stop()
+
+    asyncio.run(run())
+
+
 def test_settings_default_advisors_are_valid():
     for spec in Settings().advisors:
         StrategySpec.from_dict(spec).build()

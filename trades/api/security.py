@@ -6,8 +6,10 @@
   website are refused (a browser always sends ``Origin`` for those), which stops cross-site
   request forgery. Tools such as curl or the CLI send no ``Origin`` and are unaffected.
 
-Extra host names (e.g. when running on a home server) can be allowed with the
-``TRADES_ALLOWED_HOSTS`` environment variable (comma separated).
+Extra host names (e.g. when running on a server) can be allowed with the
+``TRADES_ALLOWED_HOSTS`` environment variable (comma separated); on Render the service's own
+hostname is allowed automatically. Allowing any outside host name also requires a password
+(see ``auth.py``).
 """
 
 from __future__ import annotations
@@ -19,11 +21,13 @@ from urllib.parse import urlsplit
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "testserver"})
 DEV_ORIGINS = frozenset({"http://localhost:5173", "http://127.0.0.1:5173"})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+HEALTH_PATH = "/healthz"  # for a host's health checks, which may use any host name
 
 
 def allowed_hosts() -> frozenset[str]:
-    extra = os.environ.get("TRADES_ALLOWED_HOSTS", "")
-    return LOCAL_HOSTS | {h.strip().lower() for h in extra.split(",") if h.strip()}
+    extra = os.environ.get("TRADES_ALLOWED_HOSTS", "").split(",")
+    extra.append(os.environ.get("RENDER_EXTERNAL_HOSTNAME", ""))  # set by Render on its services
+    return LOCAL_HOSTS | {h.strip().lower() for h in extra if h.strip()}
 
 
 def _hostname(hostport: str) -> str:
@@ -41,7 +45,7 @@ class LocalGuard:
         self.dev_origins = dev_origins
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] not in ("http", "websocket"):
+        if scope["type"] not in ("http", "websocket") or scope.get("path") == HEALTH_PATH:
             return await self.app(scope, receive, send)
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
         host = headers.get("host", "")

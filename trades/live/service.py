@@ -37,6 +37,8 @@ from trades.data.synthetic import SyntheticProvider, universe_info
 
 log = logging.getLogger(__name__)
 
+IDLE_AFTER = 60.0  # seconds without anyone watching before the live loop parks
+
 HISTORY_BARS = {
     Timeframe.D1: 1600,
     Timeframe.H1: 1200,
@@ -190,6 +192,8 @@ class LiveService:
         self._recs: dict[str, Any] | None = None
         self._last_recs = 0.0
         self._demo: DemoClock | None = None
+        self._interest = asyncio.Event()  # set when someone looks at live data
+        self._last_interest = time.monotonic()
         self.state: dict[str, Any] = {"status": "stopped", "error": None, "last_update": None}
 
     # -- lifecycle -----------------------------------------------------------------------
@@ -224,10 +228,38 @@ class LiveService:
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=8)
         self._subscribers.add(q)
+        self.touch()
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         self._subscribers.discard(q)
+        self._last_interest = time.monotonic()  # the grace period runs from the last viewer leaving
+
+    def touch(self) -> None:
+        """Someone is looking at live data (a Live Desk tab or an API call): keep updating, or resume."""
+        self._last_interest = time.monotonic()
+        self._interest.set()
+
+    def _unwatched(self) -> bool:
+        return not self._subscribers and time.monotonic() - self._last_interest > IDLE_AFTER
+
+    async def _park(self) -> None:
+        """Nobody is watching: stop polling, streaming and recomputing until someone is.
+
+        Polling a provider and re-running every strategy for no one wastes CPU and data quota
+        (and on a small hosted instance, slows everything else). Live data is dropped rather
+        than left to go stale; it reloads when a viewer returns.
+        """
+        if self._stream_task is not None:
+            self._stream_task.cancel()
+            self._stream_task = None
+        self._bars, self._quotes, self._errors, self._recs = {}, {}, {}, None
+        self._streamed.clear()
+        self._sig = None  # reload on waking (the demo clock stays, so the snapshot still says "demo")
+        self.state.update(status="idle")
+        self._interest.clear()
+        await self._interest.wait()
+        self.state.update(status="starting")
 
     async def _broadcast(self, message: dict[str, Any]) -> None:
         payload = json.dumps(sanitize(message), default=str)
@@ -269,6 +301,8 @@ class LiveService:
     # -- main loop ---------------------------------------------------------------------------
     async def _run(self) -> None:
         while True:
+            if self._unwatched():
+                await self._park()
             s = self.settings.get()
             try:
                 sig = (

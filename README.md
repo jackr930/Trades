@@ -1,6 +1,7 @@
 # Trades
 
-**Quant strategy research, live strategy simulations, and real-time trade recommendations, in one local web app.**
+**Quant strategy research, live strategy simulations, and real-time trade recommendations, in one web app you run
+on your own computer or put online behind a password.**
 
 Trades runs statistical strategies from published quantitative-finance research: classic rules (time-series
 momentum, trend filters, Turtle breakouts, pairs trading, cross-sectional momentum, low volatility and more) and
@@ -135,6 +136,34 @@ docker compose up --build                             # http://127.0.0.1:8000
 For development with hot reload: run `trades serve` and, in another terminal, `cd web && npm run dev`
 (then open http://localhost:5173). Common tasks are also in the `Makefile` (`make serve`, `make dev`, `make test`).
 
+## Put it online (Render)
+
+Trades is a server that has to keep running: it streams prices and simulator bars to your browser over WebSockets
+and keeps simulations going between your clicks. Static and serverless hosts such as Vercel or Netlify can't run it
+(a Vercel deploy shows a 404 page), but any host that runs a container can. This repository includes a blueprint
+for [Render](https://render.com)'s free plan:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jackr930/Trades)
+
+1. Click the button and sign in to Render with your GitHub account.
+2. When Render asks for `TRADES_PASSWORD`, choose a long password. Anyone who has it can use the app and change its
+   settings.
+3. Wait for the first build (about five minutes), open the `onrender.com` address Render shows, and log in.
+
+Good to know about the free plan:
+
+- The service sleeps after 15 minutes without visitors; the next visit takes about a minute to wake it up.
+- It gets a fraction of a CPU core, so backtests and simulations run several times slower than on a laptop.
+- There is no persistent disk: settings and practice history reset whenever the service restarts or redeploys. To
+  make choices stick, set them as environment variables in the Render dashboard, for example `TRADES_PROVIDER=yahoo`
+  to start on real market data, or `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` for Alpaca.
+
+Other container hosts work the same way with the Dockerfile. The server listens on `$PORT` when it is set. To reach
+it under another host name, add the name to `TRADES_ALLOWED_HOSTS` and set `TRADES_PASSWORD`: once outside host
+names are allowed, Trades refuses to serve anything without a password. Set `TRADES_SECRET_KEY` to a long random
+string so logins survive restarts. While nobody has the Live Desk open, the live feed pauses to save CPU and data
+quota, and resumes as soon as someone does.
+
 ## Connecting real-time market data
 
 | Provider | Key needed | Latency | Notes |
@@ -149,8 +178,9 @@ key (data access works with it), and paste the key ID and secret into **Settings
 `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` environment variables.
 
 Settings, including API keys, are stored locally in `~/.trades/settings.json` (override with `TRADES_HOME`) with
-file mode 0600. Keys are masked whenever the UI reads them back. The server listens on `127.0.0.1` by default; don't
-expose it to a network, because it has no authentication.
+file mode 0600. Keys are masked whenever the UI reads them back. The server listens on `127.0.0.1` by default and
+needs no login there; to make it reachable from other machines, use the password-protected setup in
+[Put it online](#put-it-online-render).
 
 ## How results are kept honest
 

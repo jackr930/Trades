@@ -52,11 +52,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;
+    let code: string | undefined;
     try {
       const body = await res.json();
       if (body && body.detail !== undefined) message = describe(body.detail);
+      code = body?.code;
     } catch {
       /* not JSON */
+    }
+    if (res.status === 401 && code === "login_required") {
+      // A password-protected server and no (or an expired) login: log in, then come back here.
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}${window.location.hash}`);
     }
     throw new ApiError(message, res.status);
   }
@@ -98,6 +104,8 @@ export interface OrderRequest {
 }
 
 export const api = {
+  /** Password-protected servers only: end this browser's login. */
+  logout: () => fetch("/api/logout", { method: "POST" }).then(() => undefined),
   meta: () => request<Meta>("/api/meta"),
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>

@@ -294,6 +294,29 @@ export default function SettingsView() {
         </div>
       </div>
 
+      {meta.auth_enabled ? (
+        <div className="card">
+          <div className="card-header">
+            <h2>Access</h2>
+          </div>
+          <p className="secondary">
+            This server is password-protected. Your login lasts 30 days on this browser; changing the server&apos;s password logs
+            everyone out.
+          </p>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button
+              className="btn"
+              onClick={async () => {
+                await api.logout();
+                window.location.assign("/login");
+              }}
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="card">
         <div className="card-header">
           <h2>Appearance</h2>
