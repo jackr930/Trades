@@ -10,12 +10,20 @@ function shortCite(authors: string): string {
   return many ? `${first} et al.` : first;
 }
 
-const EVIDENCE_ORDER = { strong: 0, moderate: 1, practitioner: 2, benchmark: 3 } as const;
+const EVIDENCE_ORDER = { strong: 0, moderate: 1, practitioner: 2, experimental: 3, benchmark: 4 } as const;
+
+type Family = "all" | "modern" | "classic";
+const FAMILIES: [Family, string][] = [
+  ["all", "All"],
+  ["modern", "Modern quant methods"],
+  ["classic", "Classic published rules"],
+];
 
 export default function Library({ route }: { route: Route }) {
   const { meta, navigate } = useApp() as { meta: Meta; navigate: (p: string, q?: Record<string, string>) => void };
   const selectedId = route.params.get("strategy");
   const [tab, setTab] = useState<"strategies" | "concepts">(route.params.get("tab") === "concepts" ? "concepts" : "strategies");
+  const [family, setFamily] = useState<Family>(() => FAMILIES.find(([f]) => f === route.params.get("family"))?.[0] ?? "all");
   const selected = meta.strategies.find((s) => s.id === selectedId) ?? null;
   const sorted = useMemo(
     () =>
@@ -24,9 +32,20 @@ export default function Library({ route }: { route: Route }) {
       ),
     [meta],
   );
+  const shown = sorted.filter((s) => family === "all" || s.family === family);
 
   if (selected) {
-    return <StrategyDetail s={selected} onBack={() => navigate("/library")} onTry={() => navigate("/lab", { strategy: selected.id })} />;
+    const counterpart = meta.strategies.find((s) => s.id === selected.counterpart);
+    return (
+      <StrategyDetail
+        s={selected}
+        counterpart={counterpart}
+        onBack={() => navigate("/library", family === "all" ? {} : { family })}
+        onTry={() => navigate("/lab", { strategy: selected.id })}
+        onRace={() => navigate("/sim", { strategies: [selected.id, ...(counterpart ? [counterpart.id] : [])].join(",") })}
+        onOpen={(id) => navigate("/library", { strategy: id })}
+      />
+    );
   }
   return (
     <div className="stack">
@@ -47,27 +66,48 @@ export default function Library({ route }: { route: Route }) {
       />
       {tab === "strategies" ? (
         <>
-          <div className="row small secondary">
-            <span className="badge ev-strong">Strong evidence</span> replicated across markets and decades ·
-            <span className="badge ev-moderate">Moderate evidence</span> peer-reviewed but mixed or decayed ·
-            <span className="badge ev-practitioner">Practitioner rule</span> popular, less rigorously tested
-          </div>
-          <div className="lib-grid">
-            {sorted.map((s) => (
-              <button key={s.id} className="lib-card" onClick={() => navigate("/library", { strategy: s.id })}>
-                <span className="row tight" style={{ justifyContent: "space-between", width: "100%" }}>
-                  <span className="small muted">{s.category}</span>
-                  <EvidenceBadge level={s.evidence} />
-                </span>
-                <span style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</span>
-                <span className="small secondary">{s.summary}</span>
-                <span className="small muted">
-                  {s.kind === "single" ? "Single symbol" : s.kind === "pair" ? "Two symbols (pair)" : `Universe of ${s.min_symbols}+ symbols`}
-                  {s.references[0] ? ` · ${shortCite(s.references[0].authors)} (${s.references[0].year})` : ""}
-                </span>
+          <div className="chips" role="group" aria-label="Show strategies">
+            {FAMILIES.map(([f, label]) => (
+              <button key={f} type="button" className="chip toggle" aria-pressed={family === f} onClick={() => setFamily(f)}>
+                {label}
+                <span className="muted">{f === "all" ? meta.strategies.length : meta.strategies.filter((s) => s.family === f).length}</span>
               </button>
             ))}
           </div>
+          {family === "modern" ? (
+            <div className="callout info" style={{ maxWidth: "90ch" }}>
+              The methods of today&apos;s quant funds and prop desks: volatility-scaled trend signals, factor-neutral statistical
+              arbitrage, Kalman filters, hidden Markov models and machine learning. They adapt where the classic rules are fixed, and
+              that flexibility makes them easier to overfit. Each one names the classic rule it refines: race the two in the simulator and
+              see whether the extra machinery pays for itself.
+            </div>
+          ) : null}
+          <div className="row small secondary">
+            <span className="legend-item">
+              <span className="badge ev-strong">Strong evidence</span> replicated across markets and decades
+            </span>
+            <span className="legend-item">
+              <span className="badge ev-moderate">Moderate evidence</span> peer-reviewed but mixed or decayed
+            </span>
+            <span className="legend-item">
+              <span className="badge ev-practitioner">Practitioner rule</span> popular, less rigorously tested
+            </span>
+            <span className="legend-item">
+              <span className="badge ev-experimental">Experimental</span> promising, too new or too flexible to rate
+            </span>
+          </div>
+          {(family === "all" ? (["modern", "classic"] as const) : [family]).map((f) => (
+            <section key={f} className="stack" style={{ gap: 10 }}>
+              {family === "all" ? <h2>{f === "modern" ? "Modern quant methods" : "Classic published rules"}</h2> : null}
+              <div className="lib-grid">
+                {shown
+                  .filter((s) => s.family === f)
+                  .map((s) => (
+                    <StrategyCard key={s.id} s={s} onOpen={() => navigate("/library", { strategy: s.id })} />
+                  ))}
+              </div>
+            </section>
+          ))}
         </>
       ) : (
         <div className="stack">
@@ -86,7 +126,31 @@ export default function Library({ route }: { route: Route }) {
   );
 }
 
-function StrategyDetail({ s, onBack, onTry }: { s: StrategyMeta; onBack: () => void; onTry: () => void }) {
+function StrategyCard({ s, onOpen }: { s: StrategyMeta; onOpen: () => void }) {
+  return (
+    <button className="lib-card" onClick={onOpen}>
+      <span className="row tight" style={{ justifyContent: "space-between", width: "100%" }}>
+        <span className="small muted">{s.category}</span>
+        <EvidenceBadge level={s.evidence} />
+      </span>
+      <span style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</span>
+      <span className="small secondary">{s.summary}</span>
+      <span className="small muted">
+        {s.kind === "single" ? "Single symbol" : s.kind === "pair" ? "Two symbols (pair)" : `Universe of ${s.min_symbols}+ symbols`}
+        {s.references[0] ? ` · ${shortCite(s.references[0].authors)} (${s.references[0].year})` : ""}
+      </span>
+    </button>
+  );
+}
+
+function StrategyDetail({ s, counterpart, onBack, onTry, onRace, onOpen }: {
+  s: StrategyMeta;
+  counterpart?: StrategyMeta;
+  onBack: () => void;
+  onTry: () => void;
+  onRace: () => void;
+  onOpen: (id: string) => void;
+}) {
   return (
     <div className="stack">
       <div className="row">
@@ -97,7 +161,10 @@ function StrategyDetail({ s, onBack, onTry }: { s: StrategyMeta; onBack: () => v
       <div className="card prose">
         <div className="card-header">
           <div>
-            <div className="small muted">{s.category}</div>
+            <div className="small muted">
+              {s.family === "modern" ? "Modern quant method · " : ""}
+              {s.category}
+            </div>
             <h1>{s.name}</h1>
           </div>
           <div className="row">
@@ -105,9 +172,28 @@ function StrategyDetail({ s, onBack, onTry }: { s: StrategyMeta; onBack: () => v
             <button className="btn primary" onClick={onTry}>
               Backtest it
             </button>
+            {s.id !== "buy_hold" ? (
+              <button className="btn" onClick={onRace}>
+                {counterpart ? "Race it against the classic rule" : "Test it in the simulator"}
+              </button>
+            ) : null}
           </div>
         </div>
         <p style={{ color: "var(--text-primary)", fontSize: 15 }}>{s.summary}</p>
+        {s.needs ? (
+          <p className="small">
+            <strong>Works best with:</strong> {s.needs}
+          </p>
+        ) : null}
+        {counterpart ? (
+          <p className="small">
+            <strong>Refines a classic rule:</strong>{" "}
+            <button type="button" className="linklike" onClick={() => onOpen(counterpart.id)}>
+              {counterpart.name}
+            </button>
+            . The race button starts a simulation with both, plus buy-and-hold, on the same market.
+          </p>
+        ) : null}
         <h3 className="section-title">Rules</h3>
         <ol>
           {s.rules.map((r) => (

@@ -51,8 +51,8 @@ def test_no_look_ahead(sid, daily):
             part.signals.to_numpy(), full.signals.iloc[:cut].to_numpy(), equal_nan=True
         )
         for sym in data:
-            a = full.diagnostics[sym].iloc[:cut].select_dtypes("number").astype(float)
-            b = part.diagnostics[sym].select_dtypes("number").astype(float)
+            a = full.diagnostics[sym].iloc[:cut].select_dtypes(["number", "bool"]).astype(float)
+            b = part.diagnostics[sym].select_dtypes(["number", "bool"]).astype(float)
             np.testing.assert_allclose(a.to_numpy(), b.to_numpy(), equal_nan=True, err_msg=f"{sid}/{sym}")
         w_part = apply_sizing(part.signals, part_data, sizing, cls.kind)
         np.testing.assert_allclose(w_part.to_numpy(), w_full.iloc[:cut].to_numpy(), atol=1e-12)
@@ -66,7 +66,7 @@ def test_explanations_available(sid, daily):
     out = strat.run(data)
     for sym in data:
         ex = strat.explain(out, sym)
-        assert ex.state in ("long", "short", "flat")
+        assert ex.state in ("long", "short", "flat", "hedge")
         assert ex.headline
         d = ex.to_dict()
         assert set(d) >= {"state", "headline", "rules", "since", "fresh"}
@@ -216,3 +216,25 @@ def test_sizing_locks_and_caps():
     assert w["A"].iloc[4] == 0.0 and w["A"].iloc[5] < 0
     with pytest.raises(ValueError):
         SizingConfig(method="martingale")
+
+
+def test_held_signal_headlines_match_the_position(daily):
+    """Between re-evaluations the headline must describe the position actually held."""
+    df = daily["SIMIDX"]
+    tsmom = create_strategy("tsmom", {"hold": 21})
+    out = tsmom.run({"SIMIDX": df})
+    diag = out.diagnostics["SIMIDX"]
+    checks = np.flatnonzero(diag["check"].to_numpy(bool))
+    t = int(checks[-2]) + 5  # five bars after a check
+    ex = tsmom.explain(out, "SIMIDX", t)
+    assert ex.headline.startswith(f"Holding {ex.state}") and "next check in 16 bars" in ex.headline
+    on_check = tsmom.explain(out, "SIMIDX", int(checks[-2]))
+    assert "Holding" not in on_check.headline
+
+    faber = create_strategy("faber_trend", {})
+    fout = faber.run({"SIMIDX": df})
+    fdiag = fout.diagnostics["SIMIDX"]
+    fchecks = np.flatnonzero(fdiag["check"].to_numpy(bool))
+    mid = int(fchecks[-2]) + 3
+    fex = faber.explain(fout, "SIMIDX", mid)
+    assert "since the monthly check" in fex.headline

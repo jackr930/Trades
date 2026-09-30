@@ -2,11 +2,16 @@ import { useState, type ReactNode } from "react";
 import type { EvidenceLevel, MetricInfo, Metrics, ParamSpec, Reference, Sizing, Trade } from "../types";
 import { evidenceLabel, fmtDate, fmtMetric, fmtMoney, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 
+/** Hover/focus tooltip. Deliberately not a <button>: inside a <label> a button would become
+ *  the label's control and steal the input's accessible name. */
 export function Help({ text }: { text: string }) {
   return (
-    <button type="button" className="help" aria-label={text}>
-      ?<span className="tip" role="tooltip">{text}</span>
-    </button>
+    <span className="help" tabIndex={0} role="note" aria-label={text}>
+      ?
+      <span className="tip" role="tooltip" aria-hidden="true">
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -47,6 +52,7 @@ export function DirectionBadge({ score, label }: { score: number; label: string 
 export function VoteGlyph({ vote, state }: { vote: number; state?: string }) {
   if (state === "warming_up") return <span className="badge neutral">Warming up</span>;
   if (state === "error") return <span className="badge neutral">Error</span>;
+  if (state === "hedge") return <span className="badge neutral">Hedge</span>;
   if (vote > 0)
     return (
       <span className="badge up">

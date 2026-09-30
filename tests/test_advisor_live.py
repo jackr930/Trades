@@ -16,7 +16,7 @@ from trades.config import Settings, SettingsStore
 from trades.core.timeframes import Timeframe
 from trades.data.base import Quote
 from trades.data.service import DataService
-from trades.live.service import DemoClock, LiveService, merge_quote, quote_session_date
+from trades.live.service import DemoClock, LiveService, merge_quote
 
 
 def _settings(**kw) -> AdvisorSettings:
@@ -49,6 +49,26 @@ def test_evidence_is_cached(daily):
     assert len(r._evidence) == n
 
 
+def test_evidence_cache_tracks_the_data_not_just_the_date(daily):
+    r = Recommender()
+    data = {"SIMIDX": daily["SIMIDX"]}
+    r.recommend(data, _settings(), namespace="x")
+    n = len(r._evidence)
+    other = {"SIMIDX": daily["SIMTEC"]}  # same dates, different prices (e.g. another data source)
+    r.recommend(other, _settings(), namespace="x")
+    assert len(r._evidence) > n
+    r.clear()
+    assert not r._evidence
+
+
+def test_provisional_flags_are_per_symbol(daily):
+    data = {"SIMIDX": daily["SIMIDX"], "SIMTEC": daily["SIMTEC"]}
+    res = Recommender().recommend(data, _settings(), provisional={"SIMIDX": True}, namespace="p")
+    by_sym = {r["symbol"]: r for r in res["recommendations"]}
+    assert by_sym["SIMIDX"]["provisional"] and not by_sym["SIMTEC"]["provisional"]
+    assert res["provisional"]
+
+
 def test_provisional_excludes_forming_bar_from_evidence(daily):
     data = {"SIMIDX": daily["SIMIDX"]}
     res = Recommender().recommend(data, _settings(), provisional=True, namespace="p")
@@ -76,11 +96,56 @@ def test_consensus_labels_and_sizing():
     assert half["shares"] == 50  # 1000 / 10 = 100 shares, scaled by 50% conviction
 
 
-def test_quote_session_date_rules():
-    # Saturday quote belongs to Friday's session; a pre-market quote to the previous day.
-    assert quote_session_date(datetime(2026, 9, 26, 15, 0, tzinfo=timezone.utc)).isoformat() == "2026-09-25"
-    assert quote_session_date(datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc)).isoformat() == "2026-09-25"
-    assert quote_session_date(datetime(2026, 9, 28, 15, 0, tzinfo=timezone.utc)).isoformat() == "2026-09-28"
+def test_regular_session_date_rules():
+    from trades.core.calendar import regular_session_date
+
+    utc = timezone.utc
+    assert regular_session_date(datetime(2026, 9, 26, 15, 0, tzinfo=utc)) is None  # Saturday
+    assert regular_session_date(datetime(2026, 9, 28, 12, 0, tzinfo=utc)) is None  # 08:00 ET pre-market
+    assert regular_session_date(datetime(2026, 9, 28, 15, 0, tzinfo=utc)).isoformat() == "2026-09-28"
+    assert regular_session_date(datetime(2026, 9, 28, 20, 0, tzinfo=utc)).isoformat() == "2026-09-28"  # close
+    assert regular_session_date(datetime(2026, 9, 28, 21, 30, tzinfo=utc)) is None  # after-hours
+
+
+def test_extended_hours_quotes_never_touch_completed_bars(daily):
+    df = daily["SIMIDX"].iloc[-5:]  # last bar: Friday 2026-09-25
+    pre = Quote("SIMIDX", 1.0, datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc), open=1.0)  # Mon pre-market
+    post = Quote("SIMIDX", 2.0, datetime(2026, 9, 25, 22, 0, tzinfo=timezone.utc))  # Fri after-hours
+    assert merge_quote(df, pre).equals(df)
+    assert merge_quote(df, post).equals(df)
+
+
+def test_last_bar_forming():
+    from trades.data.base import last_bar_forming
+
+    day = pd.DataFrame({"close": [1.0]}, index=pd.DatetimeIndex([pd.Timestamp("2026-09-28", tz="UTC")]))
+    during = datetime(2026, 9, 28, 17, 0, tzinfo=timezone.utc)  # 13:00 ET
+    after = datetime(2026, 9, 28, 20, 30, tzinfo=timezone.utc)  # 16:30 ET
+    assert last_bar_forming(day, Timeframe.D1, during)
+    assert not last_bar_forming(day, Timeframe.D1, after)
+    hourly = pd.DataFrame(
+        {"close": [1.0]}, index=pd.DatetimeIndex([pd.Timestamp("2026-09-28 19:30", tz="UTC")])
+    )
+    # The 15:30 ET hourly bar ends at the 16:00 close, not at 16:30.
+    assert last_bar_forming(hourly, Timeframe.H1, datetime(2026, 9, 28, 19, 45, tzinfo=timezone.utc))
+    assert not last_bar_forming(hourly, Timeframe.H1, datetime(2026, 9, 28, 20, 5, tzinfo=timezone.utc))
+    # An after-hours bar (16:05 ET, e.g. from Alpaca's extended-hours feed) runs its full interval.
+    late = pd.DataFrame(
+        {"close": [1.0]}, index=pd.DatetimeIndex([pd.Timestamp("2026-09-28 20:05", tz="UTC")])
+    )
+    assert last_bar_forming(late, Timeframe.M5, datetime(2026, 9, 28, 20, 6, tzinfo=timezone.utc))
+    assert not last_bar_forming(late, Timeframe.M5, datetime(2026, 9, 28, 20, 10, tzinfo=timezone.utc))
+
+
+def test_alpaca_quote_ignores_extended_hours_trades():
+    from trades.data.alpaca import _regular_session_price
+
+    daily = {"t": "2026-09-25T04:00:00Z", "c": 101.0}
+    after_hours = {"p": 99.0, "t": "2026-09-25T22:15:00Z"}
+    price, ts = _regular_session_price(after_hours, daily)
+    assert price == 101.0 and ts == datetime(2026, 9, 25, 20, 0, tzinfo=timezone.utc)  # stamped at the close
+    regular = {"p": 100.5, "t": "2026-09-25T18:00:00Z"}
+    assert _regular_session_price(regular, daily)[0] == 100.5
 
 
 def test_merge_quote_updates_or_appends(daily):

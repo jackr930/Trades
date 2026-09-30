@@ -132,6 +132,7 @@ export default function PriceChart({
       timeScale: {
         borderVisible: true,
         rightOffset: 4,
+        minBarSpacing: 0.05,
         timeVisible: intraday,
         secondsVisible: false,
         // Intraday axis in exchange time (ET); the session's first bar shows the date.

@@ -210,6 +210,7 @@ class Ledger:
             trade = self._open_trade(symbol, "long" if old_qty > 0 else "short", time, index, pos.avg_price)
             trade.entry_notional = abs(old_qty) * pos.avg_price
         close_share = closing / abs(qty)
+        self._touch(trade, price)  # the exit price itself is part of the trade's path
         trade.realized_pnl += realized
         trade.commission += commission * close_share
         trade.slippage += slippage * close_share
@@ -248,6 +249,15 @@ class Ledger:
         trade.max_adverse = min(trade.max_adverse, adv)
 
     # -- internals -----------------------------------------------------------------
+    @staticmethod
+    def _touch(trade: Trade, price: float) -> None:
+        if trade.entry_price <= 0 or not math.isfinite(price):
+            return
+        move = price / trade.entry_price - 1.0
+        x = move if trade.direction == "long" else -move
+        trade.max_favorable = max(trade.max_favorable, x)
+        trade.max_adverse = min(trade.max_adverse, x)
+
     def _open_trade(self, symbol: str, direction: str, time: Any, index: int, price: float) -> Trade:
         trade = Trade(self._next_trade_id, symbol, direction, time, index, price)
         self._next_trade_id += 1

@@ -180,6 +180,50 @@ def verdict(process: int | None, excess: float, n_closed: int) -> str:
     return "Both process and outcome need work: focus on the red items below, one at a time."
 
 
+def stop_protected(trade, orders: dict[str, Any], cursor: int, grace: int = 2, need: float = 0.8) -> bool:
+    """Did a working stop order on the exit side protect ``trade`` for (almost) its whole life?
+
+    A stop "works" during bar b if it was placed before b (orders placed at a close act from
+    the next bar) and was not yet filled, canceled, expired or rejected. Bracket stops only
+    work once their entry has filled. The first ``grace`` bars after entry are excused, so a
+    stop placed up to one bar after the fill still counts. A stop that actually fired
+    protected the trade by definition.
+    """
+    exit_side = "sell" if trade.direction == "long" else "buy"
+
+    def armed(o) -> bool:  # bracket children only work once their entry has filled
+        parent = orders.get(o.parent_id) if o.parent_id else None
+        return o.parent_id is None or (parent is not None and parent.status.value == "filled")
+
+    stops = [
+        o
+        for o in orders.values()
+        if o.symbol == trade.symbol
+        and o.type.value == "stop"
+        and o.side.value == exit_side
+        and o.status.value != "pending"
+        and armed(o)
+    ]
+    if trade.exit_index is not None and any(
+        o.status.value == "filled" and o.filled_index == trade.exit_index for o in stops
+    ):
+        return True
+    e = trade.entry_index
+    x = trade.exit_index if trade.exit_index is not None else cursor + 1
+    held = list(range(e, max(x, e + 1)))
+    needed = [b for b in held if b >= e + grace] or held[1:] or held
+
+    def end(o) -> float:
+        if o.status.value == "filled":
+            return o.filled_index
+        if o.status.value == "open":
+            return math.inf
+        return o.closed_index if o.closed_index is not None else -math.inf
+
+    covered = sum(1 for b in needed if any(o.created_index < b <= end(o) for o in stops))
+    return covered / len(needed) >= need
+
+
 def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     bars = sess.bars
@@ -190,18 +234,8 @@ def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> l
     n_bars = max(sess.cursor - sess.start_index, 1)
 
     # 1. Stop-loss usage -------------------------------------------------------------
-    orders = list(sess.broker.orders.values())
-    protected = 0
-    for t in trades:
-        exit_side = "sell" if t.direction == "long" else "buy"
-        end = t.exit_index if t.exit_index is not None else sess.cursor
-        if any(
-            o.type.value == "stop"
-            and o.side.value == exit_side
-            and t.entry_index - 1 <= o.created_index <= end
-            for o in orders
-        ):
-            protected += 1
+    orders = sess.broker.orders
+    protected = sum(1 for t in trades if stop_protected(t, orders, sess.cursor))
     if trades:
         frac = protected / len(trades)
         status = "good" if frac >= 0.8 else "warn" if frac >= 0.4 else "bad"
@@ -211,7 +245,8 @@ def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> l
                 "Protective stops",
                 status,
                 f"{frac:.0%} of trades",
-                f"{protected} of {len(trades)} trades had a stop-loss order protecting them.",
+                f"{protected} of {len(trades)} trades had a working stop-loss order for (almost) their "
+                "whole life (placing it up to one bar after entry is fine).",
                 "Decide where you are wrong *before* entering and place the stop. It turns an open-ended "
                 "risk into a known, small one (the Turtles never traded without a 2-ATR stop).",
                 FAITH_2007,
@@ -299,10 +334,11 @@ def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> l
         )
 
     # 4. Disposition effect ----------------------------------------------------------------
-    winners = [t.bars_held for t in closed if t.pnl > 0]
-    losers = [t.bars_held for t in closed if t.pnl <= 0]
+    # Holding periods in bars, counting the entry bar (a same-bar round trip held for 1 bar).
+    winners = [t.bars_held + 1 for t in closed if t.pnl > 0]
+    losers = [t.bars_held + 1 for t in closed if t.pnl < 0]
     if len(winners) >= 2 and len(losers) >= 2:
-        ratio = float(np.mean(losers) / max(np.mean(winners), 1e-9))
+        ratio = float(np.mean(losers) / np.mean(winners))
         status = "good" if ratio <= 1.1 else "warn" if ratio <= 1.5 else "bad"
         out.append(
             _diag(
@@ -353,15 +389,18 @@ def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> l
     )
 
     # 6. Chasing: buying right after a big up bar ----------------------------------------------------
+    # Judge each order on the bar it was placed, against the volatility of the 20 bars before it.
+    def placed_at(f) -> int:
+        o = orders.get(f.order_id) if f.order_id else None
+        return o.created_index if o is not None else f.index - 1
+
+    def big_move(k: int, threshold: float) -> bool:
+        if k < 1 or k >= len(rets) or not np.isfinite(sd20[k - 1]) or sd20[k - 1] <= 0:
+            return False
+        return bool(np.sign(threshold) * rets[k] > abs(threshold) * sd20[k - 1])
+
     entries = [f for f in sess.broker.ledger.fills if f.tag == "entry" and f.qty > 0]
-    chased = sum(
-        1
-        for f in entries
-        if f.index >= 2
-        and np.isfinite(sd20[f.index - 1])
-        and sd20[f.index - 1] > 0
-        and rets[f.index - 1] > 1.5 * sd20[f.index - 1]
-    )
+    chased = sum(1 for f in entries if big_move(placed_at(f), 1.5))
     if entries:
         frac = chased / len(entries)
         out.append(
@@ -378,11 +417,11 @@ def behaviour_diagnostics(sess, closed, trades, you, bench, advisor_trades) -> l
         )
 
     # 7. Panic selling: selling right after a sharp drop that later recovered ------------------------
-    exits = [f for f in sess.broker.ledger.fills if f.qty < 0 and f.tag != "entry"]
+    # Only discretionary sells count: stop-loss and take-profit legs were planned in advance.
+    exits = [f for f in sess.broker.ledger.fills if f.qty < 0 and f.tag == "exit"]
     panic = recovered = 0
     for f in exits:
-        k = f.index - 1
-        if k >= 1 and np.isfinite(sd20[k]) and sd20[k] > 0 and rets[k] < -2 * sd20[k]:
+        if big_move(placed_at(f), -2.0):
             panic += 1
             later = min(f.index + 10, sess.cursor)
             if closes[later] > f.price:

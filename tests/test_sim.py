@@ -221,3 +221,148 @@ def test_session_store_history(tmp_path):
     store.record(sessions[2])
     (row,) = store.history()
     assert row["id"] == sessions[2].id and row["process_score"] is not None or row["trades"] == 0
+
+
+# ----------------------------------------------------------------------------- reviewer regressions
+
+
+def test_going_flat_keeps_brackets_of_an_unfilled_entry():
+    b = broker()
+    b.submit("X", "buy", 50, index=0, time=T0)
+    b.process_bar(1, T0, {"X": Bar(100, 101, 99, 100)})
+    parent = b.submit(
+        "X", "buy", 10, index=1, time=T0, type="limit", limit_price=95, stop_loss=90, take_profit=110
+    )
+    b.submit("X", "sell", 50, index=1, time=T0)  # close the existing position
+    b.process_bar(2, T0, {"X": Bar(100, 101, 99, 100)})
+    assert b.position("X") == 0
+    children = [o for o in b.orders.values() if o.parent_id == parent.id]
+    assert {o.status for o in children} == {Status.PENDING}  # still waiting for their entry
+    b.process_bar(3, T0, {"X": Bar(96, 97, 94, 95)})  # limit trades through 95
+    assert b.position("X") == 10
+    assert {o.status for o in children} == {Status.OPEN}  # the new position is protected
+
+
+def test_limit_orders_need_a_trade_through():
+    b = broker()
+    b.submit("X", "buy", 5, index=0, time=T0, type="limit", limit_price=95)
+    assert not b.process_bar(1, T0, {"X": Bar(100, 101, 95, 97)})  # touched, not traded through
+    (fill,) = b.process_bar(2, T0, {"X": Bar(97, 98, 94.9, 96)})
+    assert fill["price"] == 95
+
+
+def test_expired_or_rejected_parents_cancel_their_children():
+    b = broker()
+    day = b.submit("X", "buy", 1, index=0, time=T0, type="limit", limit_price=50, tif="day", stop_loss=40)
+    b.process_bar(1, T0, {"X": Bar(100, 100, 99, 100)})
+    assert day.status is Status.EXPIRED
+    kids = [o for o in b.orders.values() if o.parent_id == day.id]
+    assert kids and all(o.status is Status.CANCELED and o.closed_index == 1 for o in kids)
+
+    r = broker()
+    parent = r.submit("X", "buy", 99, index=0, time=T0, stop_loss=90)
+    r.process_bar(1, T0, {"X": Bar(20_000, 20_000, 20_000, 20_000)})  # cannot afford a single share
+    assert parent.status is Status.REJECTED
+    assert all(o.status is Status.CANCELED for o in r.orders.values() if o.parent_id == parent.id)
+
+
+def test_children_of_a_limit_filled_at_the_open_can_trigger_that_bar():
+    b = broker()
+    b.submit("X", "buy", 10, index=0, time=T0, type="limit", limit_price=95, stop_loss=85)
+    fills = b.process_bar(1, T0, {"X": Bar(90, 91, 80, 82)})  # gaps below the limit, then collapses
+    assert [f["tag"] for f in fills] == ["entry", "stop_loss"]
+    assert fills[0]["price"] == 90 and b.position("X") == 0
+
+
+def test_excursions_use_fill_prices_and_only_post_fill_range():
+    b = broker()
+    b.submit("X", "buy", 10, index=0, time=T0, type="limit", limit_price=95)
+    b.process_bar(1, T0, {"X": Bar(100, 110, 90, 96)})  # filled at 95 on the way down
+    t = b.ledger.open_trades["X"]
+    assert t.max_adverse == pytest.approx(90 / 95 - 1)  # the low came after the fill
+    assert t.max_favorable == pytest.approx(96 / 95 - 1)  # the 110 high may predate the entry
+    b.submit("X", "sell", 10, index=1, time=T0)
+    b.process_bar(2, T0, {"X": Bar(120, 121, 119, 120)})  # gap up: exit at the open
+    closed = b.ledger.closed_trades[-1]
+    assert closed.max_favorable == pytest.approx(120 / 95 - 1)  # exit price counts
+
+
+def test_close_position_keeps_pending_brackets():
+    s = create_session(SimConfig(scenario="range", seed=3, length_bars=40, warmup_bars=100))
+    s.place_order(side="buy", qty=10)
+    price = float(s.bars["close"].iloc[s.cursor])
+    s.step(1)
+    parent = s.place_order(
+        side="buy", qty=5, type="limit", limit_price=round(price * 0.5, 2), stop_loss=round(price * 0.4, 2)
+    )
+    s.close_position()
+    s.step(1)
+    assert s.broker.position("SIM") == 0
+    kids = [o for o in s.broker.orders.values() if o.parent_id == parent["id"]]
+    assert kids and all(o.status is Status.PENDING for o in kids)
+
+
+def test_stop_coverage_needs_a_stop_that_kept_working():
+    from trades.sim.scorecard import stop_protected
+
+    def bars(n):
+        return {"X": Bar(100, 101, 99, 100)}
+
+    b = broker()
+    b.submit("X", "buy", 10, index=0, time=T0)
+    b.process_bar(1, T0, bars(1))
+    placed = b.submit("X", "sell", 10, index=1, time=T0, type="stop", stop_price=90)
+    b.cancel(placed.id, index=1)  # placed and immediately removed
+    for i in range(2, 12):
+        b.process_bar(i, T0, bars(i))
+    b.submit("X", "sell", 10, index=11, time=T0)
+    b.process_bar(12, T0, bars(12))
+    (naked,) = b.ledger.closed_trades
+    assert not stop_protected(naked, b.orders, cursor=12)
+
+    g = broker()
+    g.submit("X", "buy", 10, index=0, time=T0)
+    g.process_bar(1, T0, bars(1))
+    g.submit("X", "sell", 10, index=1, time=T0, type="stop", stop_price=90)  # kept until the exit
+    for i in range(2, 12):
+        g.process_bar(i, T0, bars(i))
+    g.submit("X", "sell", 10, index=11, time=T0)
+    g.process_bar(12, T0, bars(12))
+    (guarded,) = g.ledger.closed_trades
+    assert stop_protected(guarded, g.orders, cursor=12)
+
+    bracket = broker()  # bracket stop that fires protects by definition
+    bracket.submit("X", "buy", 10, index=0, time=T0, stop_loss=95)
+    bracket.process_bar(1, T0, bars(1))
+    bracket.process_bar(2, T0, {"X": Bar(96, 97, 94, 95)})
+    (stopped,) = bracket.ledger.closed_trades
+    assert stop_protected(stopped, bracket.orders, cursor=2)
+
+
+def test_blind_session_hides_identifying_details(provider):
+    class Service:
+        class settings:
+            @staticmethod
+            def get():
+                from trades.config import Settings
+
+                return Settings(provider="yahoo")
+
+        @staticmethod
+        def bars(symbol, timeframe, start, end, provider_id):
+            df = provider.history("SIMTEC")
+            return df[(df.index.date >= start) & (df.index.date <= end)]
+
+    s = create_session(
+        SimConfig(source="history", symbol="SIMTEC", start="2020-03-02", length_bars=40), Service()
+    )
+    cfg = s.state()["config"]
+    assert cfg["symbol"] is None and cfg["start"] is None and cfg["seed"] is None
+    assert s.bars["volume"].iloc[: s.start_index + 1].median() == pytest.approx(1e6, rel=1e-3)
+    s.finish()
+    assert s.state()["config"]["symbol"] == "SIMTEC"
+
+    sc = create_session(SimConfig(scenario="crash", seed=11, length_bars=30, warmup_bars=100))
+    assert sc.state()["config"]["seed"] is None  # the seed would regenerate the future
+    sc.finish()
+    assert sc.state()["config"]["seed"] == 11

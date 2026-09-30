@@ -225,7 +225,7 @@ def performance_metrics(
         closed = [t for t in trades if not t.is_open]
         out["n_trades"] = len(closed)
         pnls = np.array([t.pnl for t in closed], dtype=float)
-        wins, losses = pnls[pnls > 0], pnls[pnls <= 0]
+        wins, losses = pnls[pnls > 0], pnls[pnls < 0]  # break-even trades are neither
         out["win_rate"] = float(len(wins) / len(pnls)) if len(pnls) else None
         gross_loss = -losses.sum()
         out["profit_factor"] = float(wins.sum() / gross_loss) if gross_loss > 0 else None
@@ -245,7 +245,7 @@ def performance_metrics(
             beta = float(np.cov(y, x, ddof=1)[0, 1] / np.var(x, ddof=1))
             out["beta"] = beta
             out["alpha"] = float((y.mean() - beta * x.mean()) * periods_per_year)
-            out["correlation"] = float(np.corrcoef(x, y)[0, 1])
+            out["correlation"] = float(np.corrcoef(x, y)[0, 1]) if np.std(y) > 0 else None
         b_years = (len(b) - 1) / periods_per_year
         if len(b) > 1 and b_years > 0 and out["cagr"] is not None and b.iloc[-1] > 0:
             out["excess_cagr"] = out["cagr"] - ((b.iloc[-1] / b.iloc[0]) ** (1 / b_years) - 1.0)

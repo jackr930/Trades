@@ -18,6 +18,7 @@ from trades.strategies.base import (
     StrategyOutput,
     fmt_num,
     signal_since,
+    symmetric_levels,
 )
 
 GGR_2006 = Reference(
@@ -103,6 +104,11 @@ class PairsTrading(Strategy):
             raise ValueError("Exit |z| must be below entry |z|")
         if p["stop_z"] and p["stop_z"] <= p["entry_z"]:
             raise ValueError("Stop |z| must exceed entry |z| (or be 0 to disable)")
+
+    def overlay_levels(self, overlay: Overlay) -> tuple[float, ...]:
+        if overlay.column != "z":
+            return overlay.levels
+        return symmetric_levels(self.params["entry_z"], self.params["exit_z"])
 
     def warmup(self) -> int:
         return self.params["lookback"]

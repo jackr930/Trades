@@ -119,12 +119,13 @@ export default function LiveDesk() {
   const rec = selected ? recs.get(selected) : undefined;
   const quote = selected ? snap.quotes[selected] : undefined;
   const updated = snap.last_update ? new Date(snap.last_update).toLocaleTimeString() : "–";
+  const noData = snap.status === "running" && !Object.keys(snap.quotes).length && Object.keys(snap.errors).length > 0;
 
   return (
     <div>
       <div className="statusbar">
-        <StatusDot status={snap.running && snap.status === "running" ? "live" : snap.status === "error" ? "bad" : "info"}>
-          {snap.running ? (snap.status === "running" ? "Live" : snap.status === "error" ? "Error" : "Starting") : "Stopped"}
+        <StatusDot status={!snap.running ? "info" : snap.status === "error" ? "bad" : noData ? "warn" : snap.status === "running" ? "live" : "info"}>
+          {!snap.running ? "Stopped" : snap.status === "error" ? "Error" : noData ? "No data" : snap.status === "running" ? "Live" : "Starting"}
         </StatusDot>
         <span className="item">
           Data: <b>{snap.provider_label}</b>
@@ -144,6 +145,13 @@ export default function LiveDesk() {
         </button>
         <button className="btn small" onClick={() => navigate("/settings")}>
           Data source
+        </button>
+        <button
+          className="btn small"
+          title="Let each strategy trade its own paper account on this market as bars complete"
+          onClick={() => navigate("/sim", { source: snap.demo ? "simulated" : "realtime" })}
+        >
+          Forward-test strategies
         </button>
       </div>
 
@@ -238,7 +246,15 @@ export default function LiveDesk() {
             <SymbolDetail key={rec.symbol} rec={rec} snap={snap} onPractice={() => navigate("/sim", { symbol: rec.symbol })} toast={toast} />
           ) : (
             <div className="card empty">
-              {snap.symbols.length ? <Spinner label="Computing recommendations..." /> : "Add a symbol to your watchlist to get started."}
+              {!snap.symbols.length ? (
+                "Add a symbol to your watchlist to get started."
+              ) : selected && (snap.errors[selected] || snap.errors._quotes) ? (
+                <ErrorBox error={`Could not load ${selected}: ${snap.errors[selected] ?? snap.errors._quotes}`} />
+              ) : !snap.running ? (
+                "The live feed is paused. Press Start feed to resume."
+              ) : (
+                <Spinner label="Computing recommendations..." />
+              )}
             </div>
           )}
         </div>

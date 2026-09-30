@@ -26,7 +26,7 @@ from trades.backtest.runner import (
     sanitize,
 )
 from trades.core.timeframes import Timeframe
-from trades.data.base import DataError, align_bars
+from trades.data.base import DataError, align_bars, last_bar_forming
 from trades.data.synthetic import SCENARIOS, universe_info
 from trades.sim.session import DEFAULT_ADVISORS, HISTORICAL_PRESETS, SimConfig, create_session
 from trades.strategies import Kind, catalog, create_strategy, get_strategy_class
@@ -147,6 +147,7 @@ async def put_settings(request: Request, patch: dict[str, Any]):
             StrategySpec.from_dict(spec).build()  # validate ids and params
     updated = c.settings.update(patch)
     c.data.invalidate()
+    c.recommender.clear()  # cached evidence may come from the old source or costs
     c.live.poke()
     return updated.public_dict()
 
@@ -368,7 +369,9 @@ async def recommendations(request: Request, body: RecommendBody):
 
     def work():
         frames, errors = c.data.bars_many(symbols, tf, None, None, provider, count=1600)
-        res = c.recommender.recommend(frames, adv, namespace=f"{provider}:{tf.value}")
+        # The synthetic history is complete; real providers include today's forming bar.
+        forming = {s: provider != "synthetic" and last_bar_forming(df, tf) for s, df in frames.items()}
+        res = c.recommender.recommend(frames, adv, provisional=forming, namespace=f"{provider}:{tf.value}")
         res["errors"] = errors
         return sanitize(res)
 

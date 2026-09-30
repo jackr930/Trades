@@ -179,8 +179,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a {
+a,
+.linklike {
   color: var(--accent-strong);
+}
+.linklike {
+  /* A button that reads as an inline link (in-app navigation inside text). */
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 button,
@@ -313,6 +323,12 @@ p {
   grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+.split.side-right {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+}
+.split.halves {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .split.wide-left {
   grid-template-columns: minmax(400px, 480px) minmax(0, 1fr);
@@ -587,9 +603,19 @@ textarea.input {
   background: var(--ramp-100);
   color: var(--text-primary);
 }
+.badge.ev-experimental {
+  /* Off the evidence ramp: promising, but too new (or too flexible) to rate yet. */
+  background: transparent;
+  border: 1px dashed var(--ramp-600);
+  color: var(--text-primary);
+}
 .badge.ev-benchmark {
   background: var(--surface-3);
   color: var(--text-secondary);
+}
+.badge.family-modern {
+  background: var(--surface-3);
+  color: var(--text-primary);
 }
 :root[data-theme="dark"] .badge.ev-strong {
   color: #0b0b0b;
@@ -1184,6 +1210,149 @@ details.more > summary {
   color: var(--text-secondary);
 }
 
+/* ---- strategy simulator ------------------------------------------------------------ */
+.chip.toggle {
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+  font: inherit;
+}
+.chip.toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--ramp-100);
+  color: var(--text-primary);
+}
+.strategy-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.pick {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface-1);
+}
+.pick[data-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.pick-name {
+  font-weight: 600;
+}
+.subcard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--surface-2);
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+.regimes .regime-up {
+  background: var(--up-wash);
+}
+.regimes .regime-down {
+  background: var(--down-wash);
+}
+.regimes .regime-flat {
+  background: var(--surface-3);
+}
+.swatch-line {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+table.leaderboard tbody tr {
+  cursor: pointer;
+}
+table.leaderboard tbody tr:hover {
+  background: var(--surface-2);
+}
+table.leaderboard tbody tr.selected {
+  background: var(--surface-3);
+}
+.lb-name {
+  font-weight: 600;
+}
+.lb-pos {
+  display: block;
+  margin-left: 20px;
+}
+.symbol-tabs {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.inject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.btn.inject {
+  height: auto;
+  min-height: 44px;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 10px;
+}
+.btn.inject.danger {
+  border-color: var(--down);
+}
+.event-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 520px;
+  overflow-y: auto;
+}
+.event-feed .ev {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.event-feed .ev:first-child {
+  border-top: 0;
+}
+.ev-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.ev-body {
+  margin-top: 2px;
+}
+.ev-why {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.event-feed .ev-regime .ev-body,
+.event-feed .ev-injected .ev-body {
+  font-weight: 600;
+}
+
 /* ---- library ----------------------------------------------------------------------- */
 .lib-grid {
   display: grid;
@@ -1200,6 +1369,12 @@ details.more > summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .lib-card:hover {
   border-color: var(--border-strong);
@@ -1287,7 +1462,9 @@ details.more > summary {
 
 @media (max-width: 1100px) {
   .split,
-  .split.wide-left {
+  .split.wide-left,
+  .split.side-right,
+  .split.halves {
     grid-template-columns: minmax(0, 1fr);
   }
 }

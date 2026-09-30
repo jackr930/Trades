@@ -1,4 +1,10 @@
 import type {
+  ArenaAgentDetail,
+  ArenaEvent,
+  ArenaOptions,
+  ArenaRunBrief,
+  ArenaState,
+  ArenaSummary,
   BacktestResult,
   ChartResponse,
   LiveSnapshot,
@@ -126,7 +132,25 @@ export const api = {
     post<{ entry: unknown; journal: SimState["journal"] }>(`/api/sim/${id}/journal`, { text }),
   simFinish: (id: string) => post<SimState>(`/api/sim/${id}/finish`),
   simHistory: () => request<SimHistoryRow[]>("/api/sim/history"),
+  arenaOptions: () => request<ArenaOptions>("/api/arena/options"),
+  arenaRuns: () => request<ArenaRunBrief[]>("/api/arena/runs"),
+  arenaCreate: (config: Record<string, unknown>) => post<ArenaState>("/api/arena/runs", config),
+  arenaState: (id: string) => request<ArenaState>(`/api/arena/runs/${id}`),
+  arenaAgent: (id: string, agentId: string) => request<ArenaAgentDetail>(`/api/arena/runs/${id}/agents/${agentId}`),
+  arenaControl: (id: string, body: { action: "play" | "pause" | "step" | "speed" | "stop"; n?: number; speed?: number }) =>
+    post<{ status: ArenaState["status"]; cursor: number; speed: number; summary: ArenaSummary | null }>(
+      `/api/arena/runs/${id}/control`,
+      body,
+    ),
+  arenaInject: (id: string, body: { kind: string; size?: number; bars?: number; symbol?: string; regime?: string }) =>
+    post<ArenaEvent>(`/api/arena/runs/${id}/inject`, body),
+  arenaDelete: (id: string) => request<{ deleted: string }>(`/api/arena/runs/${id}`, { method: "DELETE" }),
 };
+
+export function arenaSocketUrl(id: string): string {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}/ws/arena/${id}`;
+}
 
 export function liveSocketUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";

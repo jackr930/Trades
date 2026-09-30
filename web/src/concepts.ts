@@ -40,6 +40,73 @@ export const CONCEPTS: Concept[] = [
     ],
   },
   {
+    id: "forward",
+    title: "Forward testing: the only truly unseen data",
+    body: [
+      "However carefully a backtest is built, you chose the strategy after seeing the history it is tested on. A forward test (paper trading) runs the rule on data that did not exist when you chose it, which makes it the cleanest out-of-sample test there is.",
+      "Its weakness is time. The uncertainty of an annualised Sharpe ratio estimated from daily returns is roughly 1 / sqrt(years): after one year, a strategy with a true Sharpe ratio of 0.5 can easily show anything from -0.5 to 1.5. Months of good forward results prove little on their own.",
+      "The strategy simulator trades each strategy bar by bar with the same engine as the backtester. In the simulated market the future is generated as you go and the shocks you inject are ones no parameter was tuned for; the real-time mode is a genuine forward test on live data.",
+    ],
+    refs: [
+      R("Lo, A. W.", 2002, "The Statistics of Sharpe Ratios", "Financial Analysts Journal 58(4), 36-52", "https://doi.org/10.2469/faj.v58.n4.2453"),
+      R("Bailey, D. H., Borwein, J. M., Lopez de Prado, M. & Zhu, Q. J.", 2014, "Pseudo-Mathematics and Financial Charlatanism: The Effects of Backtest Overfitting on Out-of-Sample Performance", "Notices of the AMS 61(5), 458-471", "https://doi.org/10.1090/noti1105"),
+    ],
+  },
+  {
+    id: "regimes",
+    title: "Market regimes: why no strategy wins everywhere",
+    body: [
+      "Markets alternate between trending and range-bound phases, and between calm and turbulent ones. Hamilton's regime-switching model formalises this: prices are driven by a hidden state with its own mean and volatility, which you can only infer from prices, and only with a lag.",
+      "Each strategy is a bet on a kind of regime. Trend followers earn in persistent moves (historically including crises) and pay a small premium in choppy markets; mean-reversion rules do the opposite and suffer when dips keep dipping. Cross-sectional momentum is known for sudden crashes when beaten-down stocks rebound sharply after a bear market.",
+      "The simulator's per-regime table shows this directly. Judge a strategy by whether it behaved as its logic predicts in each regime, not just by its total return on one path, and remember that the regime mix of the next few years is unknown.",
+    ],
+    refs: [
+      R("Hamilton, J. D.", 1989, "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle", "Econometrica 57(2), 357-384", "https://doi.org/10.2307/1912559"),
+      R("Hurst, B., Ooi, Y. H. & Pedersen, L. H.", 2017, "A Century of Evidence on Trend-Following Investing", "Journal of Portfolio Management 44(1), 15-29", "https://doi.org/10.3905/jpm.2017.44.1.015"),
+      R("Daniel, K. & Moskowitz, T. J.", 2016, "Momentum Crashes", "Journal of Financial Economics 122(2), 221-247", "https://doi.org/10.1016/j.jfineco.2015.12.002"),
+    ],
+  },
+  {
+    id: "neutral",
+    title: "Beta, residuals and market-neutral books",
+    body: [
+      "Most of a stock's daily move is the market carrying it along. Regress a stock's returns on the market's and you split them in two: beta times the market's move, plus a residual that belongs to the stock alone. A long position in one stock is therefore mostly a bet on the market.",
+      "Statistical arbitrage and residual momentum work on the residual. Buying a stock and shorting beta times as much of the market leaves only the stock-specific part, so the book barely moves with the index. That is how stat-arb funds can earn in bear markets, and why their risk is different: in August 2007 many funds holding similar trades unwound at once and lost together for days.",
+      "Neutral in beta is not neutral in dollars. Hedging a low-beta stock takes little of the market, so a beta-neutral book can be net long or net short in dollar terms, and a beta estimated on the past can be wrong in the future.",
+    ],
+    refs: [
+      R("Avellaneda, M. & Lee, J.-H.", 2010, "Statistical Arbitrage in the US Equities Market", "Quantitative Finance 10(7), 761-782", "https://doi.org/10.1080/14697680903124632"),
+      R("Khandani, A. E. & Lo, A. W.", 2011, "What Happened to the Quants in August 2007? Evidence from Factors and Transactions Data", "Journal of Financial Markets 14(1), 1-46", "https://doi.org/10.1016/j.finmar.2010.07.005"),
+    ],
+  },
+  {
+    id: "filters",
+    title: "Filtering: tracking what you cannot observe",
+    body: [
+      "Some quantities that matter are never observed: the true hedge ratio between two stocks today, or whether the market is in a calm or a turbulent state. A filter keeps a running estimate and updates it with every bar, moving it more when the new bar is more surprising.",
+      "The Kalman filter does this for continuous quantities. Its gain decides how far each forecast error moves the estimate: adapt quickly and it follows real changes but also chases noise; adapt slowly and it is stable but late. A hidden Markov model does the same for discrete states, turning each return into evidence for calm or turbulent and weighing it against how persistent each state has been.",
+      "Both strategies here use the filtered estimate, which only looks backwards. A smoothed estimate uses the whole sample, future included, and would be look-ahead bias in a backtest.",
+    ],
+    refs: [
+      R("Kalman, R. E.", 1960, "A New Approach to Linear Filtering and Prediction Problems", "Journal of Basic Engineering 82(1), 35-45", "https://doi.org/10.1115/1.3662552"),
+      R("Hamilton, J. D.", 1989, "A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle", "Econometrica 57(2), 357-384", "https://doi.org/10.2307/1912559"),
+    ],
+  },
+  {
+    id: "ml",
+    title: "Machine learning without fooling yourself",
+    body: [
+      "Flexible models find patterns in noise easily, and markets offer little data: one history, a few thousand days, noisy and changing. A model with many parameters can fit the past perfectly and predict nothing.",
+      "Three habits matter most. Train only on data available at the time and retrain as you go (walk-forward). Leave a gap between the last training target and the prediction date, because a 21-day return that ends after today leaks the future into training (purging). And judge the model by its out-of-sample information coefficient, the rank correlation between its predictions and what actually happened, not by how well it fits.",
+      "Expect small numbers: an information coefficient of 0.05 is useful across hundreds of stocks. On eight stocks a single month's rank correlation has a standard error of about 0.38, so one good month means little. Shrinkage (ridge regression) keeps the model's weights small and stable, trading a little bias for much less variance.",
+    ],
+    refs: [
+      R("Lopez de Prado, M.", 2018, "Advances in Financial Machine Learning", "Wiley"),
+      R("Gu, S., Kelly, B. & Xiu, D.", 2020, "Empirical Asset Pricing via Machine Learning", "Review of Financial Studies 33(5), 2223-2273", "https://doi.org/10.1093/rfs/hhaa009"),
+      R("Grinold, R. C. & Kahn, R. N.", 2000, "Active Portfolio Management (2nd ed.)", "McGraw-Hill"),
+    ],
+  },
+  {
     id: "decay",
     title: "Why published edges shrink",
     body: [

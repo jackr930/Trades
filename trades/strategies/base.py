@@ -29,6 +29,7 @@ class Evidence(str, Enum):
     STRONG = "strong"  # peer-reviewed, replicated across markets and decades
     MODERATE = "moderate"  # peer-reviewed, but mixed or weakened after publication
     PRACTITIONER = "practitioner"  # well-known practitioner rule with limited academic testing
+    EXPERIMENTAL = "experimental"  # promising research idea; little evidence it works in this form
     BENCHMARK = "benchmark"
 
 
@@ -141,7 +142,7 @@ class Rule:
 @dataclass
 class Explanation:
     symbol: str
-    state: str  # long | short | flat | warming_up
+    state: str  # long | short | flat | hedge | warming_up
     signal: float
     headline: str
     rules: list[Rule]
@@ -198,6 +199,9 @@ class Strategy(ABC):
     min_symbols: ClassVar[int] = 1
     max_symbols: ClassVar[int | None] = None
     uses_short: ClassVar[bool] = False  # needs short selling to work as designed
+    family: ClassVar[str] = "classic"  # classic published rule | modern (quant-desk methods)
+    needs: ClassVar[str] = ""  # what the strategy needs to work well, in plain words
+    counterpart: ClassVar[str] = ""  # id of the classic rule a modern method refines (to compare)
 
     def __init__(self, **params: Any):
         self.params = self.resolve_params(params)
@@ -219,6 +223,11 @@ class Strategy(ABC):
     @abstractmethod
     def warmup(self) -> int:
         """Bars of history needed before the first valid signal."""
+
+    def overlay_levels(self, overlay: Overlay) -> tuple[float, ...]:
+        """Guide lines for an indicator pane. Strategies whose thresholds are parameters
+        override this so the lines sit where the chosen parameters trigger."""
+        return overlay.levels
 
     # -- evaluation ----------------------------------------------------------------
     @abstractmethod
@@ -249,8 +258,14 @@ class Strategy(ABC):
                 False,
             )
         headline, rules = self.describe(output, symbol, t)
-        state = "long" if value > 1e-12 else "short" if value < -1e-12 else "flat"
+        state = str(self.position_states(output, symbol)[t])
         return Explanation(symbol, state, value, headline, rules, since, fresh, self.exit_rule(state))
+
+    def position_states(self, output: StrategyOutput, symbol: str) -> np.ndarray:
+        """What the strategy holds in ``symbol`` at every bar: long, short or flat. Strategies that
+        hold positions only to hedge others label those bars "hedge" (no view on the symbol)."""
+        v = output.signals[symbol].to_numpy(float)
+        return np.where(v > 1e-12, "long", np.where(v < -1e-12, "short", "flat")).astype(object)
 
     def describe(self, output: StrategyOutput, symbol: str, t: int) -> tuple[str, list[Rule]]:
         return "", []
@@ -279,6 +294,9 @@ class Strategy(ABC):
             "min_symbols": cls.min_symbols,
             "max_symbols": cls.max_symbols,
             "uses_short": cls.uses_short,
+            "family": cls.family,
+            "needs": cls.needs,
+            "counterpart": cls.counterpart,
         }
 
 
@@ -313,17 +331,35 @@ class SingleAssetStrategy(Strategy):
         return "", []
 
 
+def symmetric_levels(*values: float) -> tuple[float, ...]:
+    """Guide lines at plus and minus each value (for z-score style indicators)."""
+    return tuple(sorted({v + 0.0 for x in values for v in (-x, x)}))
+
+
 def signal_since(sig: pd.Series, t: int) -> tuple[pd.Timestamp | None, bool]:
     """When the current signal value started, and whether it changed on bar ``t``."""
-    vals = sig.to_numpy()[: t + 1]
+    vals = sig.to_numpy(dtype=float)[: t + 1]
     if len(vals) == 0:
         return None, False
-    cur = vals[-1]
-    k = len(vals) - 1
-    while k > 0 and abs(vals[k - 1] - cur) <= 1e-12:
-        k -= 1
+    different = np.flatnonzero(np.abs(vals[:-1] - vals[-1]) > 1e-12)
+    k = int(different[-1]) + 1 if len(different) else 0
     fresh = k == len(vals) - 1 and k > 0
     return sig.index[k], fresh
+
+
+def check_bars(raw: pd.Series, every: int) -> np.ndarray:
+    """Boolean mask of the bars on which ``hold_every`` re-samples ``raw``."""
+    arr = raw.to_numpy(dtype=float)
+    out = np.zeros(len(arr), dtype=bool)
+    valid = np.flatnonzero(~np.isnan(arr))
+    if len(valid):
+        first = valid[0]
+        out[first:] = (np.arange(len(arr) - first) % max(every, 1)) == 0
+    return out
+
+
+def held_position_text(value: float) -> str:
+    return "long" if value > 1e-12 else "short" if value < -1e-12 else "flat"
 
 
 def hold_every(raw: pd.Series, every: int) -> pd.Series:

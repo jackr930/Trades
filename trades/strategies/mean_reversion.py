@@ -199,6 +199,11 @@ class RSI2Reversion(SingleAssetStrategy):
         Overlay("rsi", "RSI", "lower", levels=(10.0, 90.0)),
     )
 
+    def overlay_levels(self, overlay: Overlay) -> tuple[float, ...]:
+        if overlay.column != "rsi":
+            return overlay.levels
+        return (float(self.params["entry"]), float(self.params["short_entry"]))
+
     def warmup(self) -> int:
         return max(self.params["trend_ma"], self.params["rsi_length"] + 1)
 

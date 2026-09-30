@@ -13,8 +13,10 @@ from trades.strategies.base import (
     Reference,
     Rule,
     SingleAssetStrategy,
+    check_bars,
     fmt_num,
     fmt_pct,
+    held_position_text,
     hold_every,
 )
 
@@ -138,7 +140,10 @@ class TimeSeriesMomentum(SingleAssetStrategy):
         if p["long_only"]:
             raw = raw.clip(lower=0.0)
         signal = hold_every(raw, p["hold"])
-        return pd.DataFrame({"signal": signal, "mom_return": past, "valid": past.notna()}, index=df.index)
+        check = check_bars(raw, p["hold"])
+        return pd.DataFrame(
+            {"signal": signal, "mom_return": past, "check": check, "valid": past.notna()}, index=df.index
+        )
 
     def describe_row(self, diag, t):
         p = self.params
@@ -146,14 +151,32 @@ class TimeSeriesMomentum(SingleAssetStrategy):
         label = f"Trailing {p['lookback']}-bar return" + (
             f" (skipping last {p['skip']})" if p["skip"] else ""
         )
-        direction = (
-            "uptrend -> long" if r > 0 else ("downtrend -> flat" if p["long_only"] else "downtrend -> short")
-        )
+        held = held_position_text(diag["signal"].iloc[t])
+        checks = np.flatnonzero(diag["check"].to_numpy(bool)[: t + 1])
+        last = int(checks[-1]) if len(checks) else t
+        ago, next_in = t - last, p["hold"] - (t - last)
         rules = [
             Rule(label, fmt_pct(r), bool(r > 0)),
-            Rule("Re-evaluation", f"every {p['hold']} bars (held in between)", None),
+            Rule(
+                "Re-evaluation",
+                f"every {p['hold']} bars; last {ago} bar{'s' if ago != 1 else ''} ago, next in {next_in}",
+                None,
+            ),
         ]
-        return f"{label} is {fmt_pct(r)}: {direction}.", rules
+        if ago == 0:  # re-evaluated on this bar: the position follows today's reading
+            direction = (
+                "uptrend -> long"
+                if r > 0
+                else ("downtrend -> flat" if p["long_only"] else "downtrend -> short")
+            )
+            return f"{label} is {fmt_pct(r)}: {direction}.", rules
+        then = diag["mom_return"].iloc[last]
+        headline = (
+            f"Holding {held} from the last check {ago} bar{'s' if ago != 1 else ''} ago (trailing return "
+            f"{fmt_pct(then)} then). Today's reading is {fmt_pct(r)}; next check in {next_in} bar"
+            f"{'s' if next_in != 1 else ''}."
+        )
+        return headline, rules
 
     def exit_rule(self, state):
         return f"Re-checked every {self.params['hold']} bars; reverses when the trailing return changes sign."
@@ -215,10 +238,18 @@ class FaberTrend(SingleAssetStrategy):
             if first_valid is not None:
                 new_month.loc[first_valid] = True
             signal = raw.where(new_month).ffill()
+            check = new_month.to_numpy(bool) & raw.notna().to_numpy()
         else:
             signal = raw
+            check = raw.notna().to_numpy()
         return pd.DataFrame(
-            {"signal": signal, "sma": avg, "distance": close / avg - 1.0, "valid": avg.notna()},
+            {
+                "signal": signal,
+                "sma": avg,
+                "distance": close / avg - 1.0,
+                "check": check,
+                "valid": avg.notna(),
+            },
             index=df.index,
         )
 
@@ -230,12 +261,24 @@ class FaberTrend(SingleAssetStrategy):
             Rule(f"Close vs {p['sma_length']}-bar SMA ({fmt_num(sma_v)})", fmt_pct(d), bool(d > 0)),
             Rule("Evaluation", "first bar of each month" if p["monthly"] else "every bar", None),
         ]
-        verdict = (
-            "above the trend line -> invested"
-            if d > 0
-            else "below the trend line -> " + ("short" if p["allow_short"] else "in cash")
+        checks = np.flatnonzero(diag["check"].to_numpy(bool)[: t + 1])
+        last = int(checks[-1]) if len(checks) else t
+        if last == t:  # evaluated on this bar
+            verdict = (
+                "above the trend line -> invested"
+                if d > 0
+                else "below the trend line -> " + ("short" if p["allow_short"] else "in cash")
+            )
+            return f"Price is {fmt_pct(d)} vs its {p['sma_length']}-bar average: {verdict}.", rules
+        held = held_position_text(diag["signal"].iloc[t])
+        position = {"long": "Invested", "short": "Short", "flat": "In cash"}[held]
+        then = diag["distance"].iloc[last]
+        when = diag.index[last].strftime("%b %d")
+        headline = (
+            f"{position} since the monthly check on {when} (price was {fmt_pct(then)} vs the average then). "
+            f"Today it is {fmt_pct(d)}; the next check is on the first bar of next month."
         )
-        return f"Price is {fmt_pct(d)} vs its {p['sma_length']}-bar average: {verdict}.", rules
+        return headline, rules
 
     def exit_rule(self, state):
         when = "at the next monthly check" if self.params["monthly"] else "on the next bar"

@@ -20,7 +20,8 @@ def client(tmp_path):
 
 def test_meta_and_settings(client):
     meta = client.get("/api/meta").json()
-    assert len(meta["strategies"]) == 13 and meta["disclaimer"]
+    assert len(meta["strategies"]) == 19 and meta["disclaimer"]
+    assert {s["family"] for s in meta["strategies"]} == {"classic", "modern"}
     assert {p["id"] for p in meta["providers"]} == {"synthetic", "yahoo", "alpaca", "csv"}
     s = client.get("/api/settings").json()
     assert s["provider"] == "synthetic" and s["alpaca_secret_key"] == ""

@@ -14,7 +14,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -235,12 +235,14 @@ class SimSession:
                 continue
             out = strat.run(data)
             weights = apply_sizing(out.signals, data, sizing, strat.kind)
-            res = run_backtest(data, weights, cfg, self.start_index)
+            # The ghosts trade under the same leverage limit as your account.
+            cap = min(sizing.max_leverage, self.config.max_leverage)
+            res = run_backtest(data, weights, replace(cfg, max_gross_leverage=cap), self.start_index)
             self.advisors.append({"strategy": strat, "output": out, "result": res})
         bh = run_backtest(
             data,
             buy_and_hold_weights(self.bars.index, [self.symbol], self.start_index),
-            cfg,
+            replace(cfg, max_gross_leverage=1.0),
             self.start_index,
         )
         self.benchmark = bh
@@ -333,19 +335,21 @@ class SimSession:
     def cancel_order(self, order_id: str) -> dict[str, Any]:
         with self.lock:
             try:
-                return self.broker.cancel(order_id).to_dict()
+                return self.broker.cancel(order_id, index=self.cursor).to_dict()
             except OrderError as exc:
                 raise SimError(str(exc)) from exc
 
     def close_position(self, note: str = "") -> dict[str, Any]:
-        pos = self.broker.position(self.symbol)
-        if abs(pos) <= EPS:
-            raise SimError("no open position")
-        for o in self.broker.open_orders():  # avoid double exits
-            if o.tag in ("stop_loss", "take_profit", "exit"):
-                o.status, o.reason = Status.CANCELED, "replaced by close-position order"
-        side = Side.SELL.value if pos > 0 else Side.BUY.value
-        return self.place_order(side=side, qty=abs(pos), note=note or "close position")
+        with self.lock:
+            pos = self.broker.position(self.symbol)
+            if abs(pos) <= EPS:
+                raise SimError("no open position")
+            for o in self.broker.open_orders():  # avoid double exits
+                # Only working exits: children waiting on an unfilled entry protect a future position.
+                if o.status is Status.OPEN and o.tag in ("stop_loss", "take_profit", "exit"):
+                    self.broker.cancel(o.id, "replaced by close-position order", index=self.cursor)
+            side = Side.SELL.value if pos > 0 else Side.BUY.value
+            return self.place_order(side=side, qty=abs(pos), note=note or "close position")
 
     def add_note(self, text: str) -> dict[str, Any]:
         entry = {
@@ -369,6 +373,15 @@ class SimSession:
     # -- serialisation ------------------------------------------------------------------
     def reveal_info(self) -> dict[str, Any] | None:
         return self._reveal if self.finished else None
+
+    def public_config(self) -> dict[str, Any]:
+        """The config as the player may see it: nothing that identifies the future."""
+        cfg = asdict(self.config)
+        if not self.finished:
+            cfg["seed"] = None  # a scenario seed would let you regenerate the rest of the chart
+            if self.config.source == "history" and self.config.blind:
+                cfg["symbol"] = cfg["start"] = cfg["preset"] = None
+        return cfg
 
     def state(self, since: int | None = None) -> dict[str, Any]:
         with self.lock:
@@ -405,7 +418,7 @@ class SimSession:
                 "title": self.title,
                 "description": self.description,
                 "symbol": self.symbol,
-                "config": asdict(self.config),
+                "config": self.public_config(),
                 "cursor": self.cursor,
                 "start_index": self.start_index,
                 "end_index": self.end_index,
@@ -575,8 +588,13 @@ def create_session(config: SimConfig, data_service=None) -> SimSession:
         bars = bars.copy()
         for col in ("open", "high", "low", "close"):
             bars[col] = bars[col] * scale
+        # Share volume identifies a ticker as surely as its price does: rescale it too.
+        med = float(bars["volume"].iloc[:warm].median())
+        vol_scale = 1e6 / med if np.isfinite(med) and med > 0 else 1.0
+        bars["volume"] = (bars["volume"] * vol_scale).round()
         bars.index = _relabel_dates(len(bars))
         reveal["scale"] = scale
+        reveal["volume_scale"] = vol_scale
         display = "MYSTERY"
     return SimSession(cfg, bars, symbol=display, reveal=reveal, title=title, description=desc)
 

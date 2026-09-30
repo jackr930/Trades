@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from tests.conftest import UNIVERSE
-from trades.backtest.engine import BacktestConfig, buy_and_hold_weights, run_backtest
+from trades.backtest.engine import BacktestConfig, ExecutionEngine, buy_and_hold_weights, run_backtest
 from trades.backtest.metrics import monthly_returns, performance_metrics
 from trades.backtest.optimize import expand_grid, grid_search, range_values, walk_forward
 from trades.backtest.runner import StrategySpec, backtest_payload, backtest_strategy, sanitize
@@ -24,7 +24,7 @@ def _frame(opens, closes, start="2024-01-02"):
 def test_fills_happen_at_next_open_with_costs():
     df = _frame([10, 11, 12, 13, 14], [10.5, 11.5, 12.5, 13.5, 14.5])
     w = pd.DataFrame({"X": [1.0, 1.0, 1.0, 0.0, 0.0]}, index=df.index)
-    cfg = BacktestConfig(initial_cash=1000, slippage_bps=100, commission_bps=0)
+    cfg = BacktestConfig(initial_cash=1000, slippage_bps=100, commission_bps=0, margin_rate_annual=0)
     res = run_backtest({"X": df}, w, cfg)
     buy, sell = res.fills
     # decided at bar 0's close (price 10.5): 1000/10.5 -> 95 shares, filled at bar 1's open +1% slippage
@@ -52,7 +52,7 @@ def test_next_close_execution_and_no_trades_when_flat():
 def test_short_selling_profit_and_disallow():
     df = _frame([100, 100, 90, 80], [100, 95, 85, 80])
     w = pd.DataFrame({"X": [-1.0, -1.0, -1.0, -1.0]}, index=df.index)
-    res = run_backtest({"X": df}, w, BacktestConfig(initial_cash=1000, slippage_bps=0))
+    res = run_backtest({"X": df}, w, BacktestConfig(initial_cash=1000, slippage_bps=0, borrow_bps_annual=0))
     assert res.positions["X"].iloc[-1] == -10
     assert res.equity.iloc[-1] == pytest.approx(1000 + 10 * (100 - 80))
     blocked = run_backtest({"X": df}, w, BacktestConfig(initial_cash=1000, allow_short=False))
@@ -74,6 +74,55 @@ def test_commission_and_borrow_fee():
     assert res.ledger.total_financing == pytest.approx(4 * 5000 * 0.001)
 
 
+def test_leverage_is_charged_margin_interest():
+    df = _frame([100] * 6, [100] * 6)
+    w = pd.DataFrame({"X": [2.0] * 6}, index=df.index)
+    cfg = BacktestConfig(initial_cash=10_000, slippage_bps=0, margin_rate_annual=0.0252)  # 1 bp per bar
+    res = run_backtest({"X": df}, w, cfg)
+    assert res.positions["X"].iloc[-1] == 200  # 2x leverage: $10k of borrowed cash
+    # Interest compounds on the growing debit: 5 bars after the fill at 1 bp per bar.
+    assert res.ledger.total_financing == pytest.approx(10_000 * (1.0001**5 - 1), rel=1e-9)
+    assert res.equity.iloc[-1] == pytest.approx(10_000 - res.ledger.total_financing)
+
+
+def test_fill_time_leverage_cap_trims_gap_fills():
+    df = _frame([100, 110, 110], [100, 110, 110])  # the fill bar gaps up 10%
+    w = pd.DataFrame({"X": [1.0] * 3}, index=df.index)
+    free = run_backtest({"X": df}, w, BacktestConfig(initial_cash=10_000, slippage_bps=0))
+    assert free.fills[0].qty == 100 and free.cash.iloc[1] < 0  # 110% invested on borrowed cash
+    capped = run_backtest(
+        {"X": df}, w, BacktestConfig(initial_cash=10_000, slippage_bps=0, max_gross_leverage=1.0)
+    )
+    assert capped.fills[0].qty == 90 and capped.cash.iloc[1] >= 0  # trimmed to what the cash buys
+
+
+def test_reducing_orders_fill_before_adding_ones():
+    a = _frame([100] * 4, [100] * 4)
+    b = _frame([50] * 4, [50] * 4)
+    # Switch fully from B to A at bar 1's close; A comes first in column order.
+    w = pd.DataFrame({"A": [0.0, 1.0, 1.0, 1.0], "B": [1.0, 0.0, 0.0, 0.0]}, index=a.index)
+    cfg = BacktestConfig(initial_cash=10_000, slippage_bps=0, max_gross_leverage=1.0)
+    res = run_backtest({"A": a, "B": b}, w, cfg)
+    switch = [f for f in res.fills if f.index == 2]
+    assert [f.symbol for f in switch] == ["B", "A"]  # sold B first, freeing cash for A
+    assert res.positions["A"].iloc[-1] == 100
+
+
+def test_the_leverage_cap_skips_an_add_rather_than_selling():
+    cfg = BacktestConfig(initial_cash=100_000, slippage_bps=5, max_gross_leverage=1.5)
+    eng = ExecutionEngine(["A", "B"], cfg)
+    t = pd.Timestamp("2024-01-02", tz="UTC")
+    p, q = np.full(2, 100.0), np.full(2, 90.0)
+    eng.execute(0, t, p, p, p, p)
+    eng.decide(0, [0.75, 0.75])
+    eng.execute(1, t, p, p, p, p)
+    eng.execute(2, t, q, q, q, q)  # both fall 10%: the book is now above 1.5x
+    before = eng.ledger.qty("A")
+    assert eng.decide(2, [0.85, 0.75])["A"] > 0  # the strategy wants more A...
+    fills = eng.execute(3, t, q, q, q, q)
+    assert not fills and eng.ledger.qty("A") == before  # ...the cap blocks the add, and never sells
+
+
 def test_trade_pnl_reconciles_with_equity(daily):
     spec = StrategySpec("donchian_breakout")
     strat, sizing = spec.build()
@@ -92,7 +141,7 @@ def test_buy_and_hold_benchmark_matches_price_change(daily):
     res = run_backtest(
         {"SIMIDX": df},
         buy_and_hold_weights(df.index, ["SIMIDX"]),
-        BacktestConfig(slippage_bps=0, fractional=True),
+        BacktestConfig(slippage_bps=0, fractional=True, margin_rate_annual=0),
     )
     growth = res.equity.iloc[-1] / res.equity.iloc[0]
     # Shares are sized with the decision bar's close (the only price known then) and filled at
