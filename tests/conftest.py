@@ -19,6 +19,14 @@ def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
     monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
     monkeypatch.delenv("TRADES_PROVIDER", raising=False)
+    for var in (
+        "TRADES_PASSWORD",
+        "TRADES_SECRET_KEY",
+        "TRADES_ALLOWED_HOSTS",
+        "RENDER_EXTERNAL_HOSTNAME",
+        "PORT",
+    ):
+        monkeypatch.delenv(var, raising=False)
 
 
 @pytest.fixture(scope="session")

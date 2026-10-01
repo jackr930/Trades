@@ -1,0 +1,13 @@
+# One-click deploy to Render (https://render.com): Trades as a Docker web service behind a login.
+# See "Put it online" in the README. Render asks for TRADES_PASSWORD when you create the service.
+services:
+  - type: web
+    name: trades
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: TRADES_PASSWORD # the password you log in with
+        sync: false
+      - key: TRADES_SECRET_KEY # signs login cookies, so logins survive restarts
+        generateValue: true

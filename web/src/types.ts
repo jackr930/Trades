@@ -105,6 +105,8 @@ export interface Meta {
   default_advisors: { id: string }[];
   universe: { symbol: string; name: string }[];
   disclaimer: string;
+  /** The server is password-protected (hosted mode): offer to log out. */
+  auth_enabled?: boolean;
 }
 
 export interface Bars {

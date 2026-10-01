@@ -125,6 +125,7 @@ async def meta(request: Request):
             "default_advisors": DEFAULT_ADVISORS,
             "universe": universe_info(),
             "disclaimer": DISCLAIMER,
+            "auth_enabled": request.app.state.auth.enabled,  # hosted with a password: offer log out
         }
     )
 
@@ -380,13 +381,16 @@ async def recommendations(request: Request, body: RecommendBody):
 
 @router.get("/live")
 async def live_snapshot(request: Request):
-    return sanitize(ctx(request).live.snapshot())
+    live = ctx(request).live
+    live.touch()  # someone is looking: keep (or resume) live updates
+    return sanitize(live.snapshot())
 
 
 @router.post("/live/start")
 async def live_start(request: Request):
     c = ctx(request)
     await c.live.start()
+    c.live.touch()
     c.live.poke()
     return sanitize(c.live.snapshot())
 

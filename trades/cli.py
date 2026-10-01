@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import timedelta
 
@@ -29,9 +30,10 @@ def cmd_serve(args) -> int:
 
     from trades.api import create_app
 
-    if args.host not in ("127.0.0.1", "localhost"):
+    if args.host not in ("127.0.0.1", "localhost") and not os.environ.get("TRADES_PASSWORD"):
         print(
-            "WARNING: listening on a non-local interface exposes your settings API to your network.",
+            "WARNING: listening on a non-local interface without TRADES_PASSWORD: anyone who can reach "
+            "this machine can use the app and change its settings.",
             file=sys.stderr,
         )
     app = create_app(start_live=not args.no_live)
@@ -165,7 +167,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("serve", help="start the web app")
     p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8000)
+    # Hosting platforms (Render, Railway, Heroku, ...) say which port to use in $PORT.
+    p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
     p.add_argument("--no-live", action="store_true", help="do not start the live feed automatically")
     p.set_defaults(func=cmd_serve)
 

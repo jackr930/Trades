@@ -40,6 +40,13 @@ function describe(detail: unknown): string {
   return JSON.stringify(detail);
 }
 
+// What a missing server looks like: the page came from a static host (such as Vercel) that answers
+// the API's addresses with its own "not found" page instead of the Trades server's JSON.
+const NO_SERVER =
+  "The Trades server isn't running at this address: this page is only the app's front end. Trades also needs its " +
+  "Python server, which static hosts such as Vercel can't run. Run it on your computer or on a server " +
+  "(see \"Put it online\" in the README).";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -52,11 +59,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let message = res.statusText || `HTTP ${res.status}`;
+    let code: string | undefined;
+    let fromServer = false;
     try {
       const body = await res.json();
-      if (body && body.detail !== undefined) message = describe(body.detail);
+      if (body && body.detail !== undefined) {
+        message = describe(body.detail);
+        fromServer = true;
+      }
+      code = body?.code;
     } catch {
       /* not JSON */
+    }
+    if (!fromServer && (res.status === 404 || res.status === 405) && path.startsWith("/api/")) message = NO_SERVER;
+    if (res.status === 401 && code === "login_required") {
+      // A password-protected server and no (or an expired) login: log in, then come back here.
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}${window.location.hash}`);
     }
     throw new ApiError(message, res.status);
   }
@@ -98,6 +116,8 @@ export interface OrderRequest {
 }
 
 export const api = {
+  /** Password-protected servers only: end this browser's login. */
+  logout: () => fetch("/api/logout", { method: "POST" }).then(() => undefined),
   meta: () => request<Meta>("/api/meta"),
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>

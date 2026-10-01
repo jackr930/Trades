@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from trades import __version__
 from trades.advisor import Recommender
+from trades.api.auth import AuthConfig, PasswordGate, make_router
 from trades.api.security import DEV_ORIGINS, LocalGuard
 from trades.arena.run import RunManager
 from trades.config import SettingsStore, trades_home
@@ -39,7 +40,11 @@ class AppContext:
 
 
 def create_app(
-    settings_path: Path | None = None, *, start_live: bool = True, web_dist: Path | None = None
+    settings_path: Path | None = None,
+    *,
+    start_live: bool = True,
+    web_dist: Path | None = None,
+    auth: AuthConfig | None = None,
 ) -> FastAPI:
     home = settings_path.parent if settings_path else trades_home()
     store = SettingsStore(settings_path)
@@ -65,12 +70,15 @@ def create_app(
         description="Quant strategy research, live recommendations (data only) and a trading simulator.",
     )
     app.state.ctx = ctx
+    auth = auth or AuthConfig.from_env()
+    app.state.auth = auth
     app.add_middleware(
         CORSMiddleware,
         allow_origins=sorted(DEV_ORIGINS),
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(PasswordGate, config=auth)  # login when hosted (TRADES_PASSWORD)
     app.add_middleware(LocalGuard)  # outermost: host allow-list + cross-site request check
 
     @app.exception_handler(ValueError)
@@ -96,6 +104,7 @@ def create_app(
     from trades.api import arena_routes  # noqa: PLC0415
     from trades.api.routes import router, ws_router  # noqa: PLC0415
 
+    app.include_router(make_router(auth))
     app.include_router(router, prefix="/api")
     app.include_router(arena_routes.router, prefix="/api")
     app.include_router(ws_router)

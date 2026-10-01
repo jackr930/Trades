@@ -20,5 +20,6 @@ COPY --from=web /web/dist ./web/dist
 VOLUME ["/data"]
 EXPOSE 8000
 # Inside the container the server must listen on all interfaces; docker-compose publishes
-# the port on 127.0.0.1 only, so the app is still reachable from this machine alone.
-CMD ["trades", "serve", "--host", "0.0.0.0", "--port", "8000"]
+# the port on 127.0.0.1 only, so the app is still reachable from this machine alone. The port
+# is $PORT when a host sets it (Render does), else 8000.
+CMD ["trades", "serve", "--host", "0.0.0.0"]
