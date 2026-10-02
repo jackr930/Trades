@@ -1,0 +1,51 @@
+name: Journal
+
+# After every US close: log the Live Desk's recommendations for the session, score the
+# ones whose 5- and 21-session windows have passed, and commit both to the repository.
+on:
+  schedule:
+    # 22:15 UTC on weekdays: after the 16:00 New York close in both EDT (20:00 UTC) and EST (21:00 UTC).
+    # The recorder itself skips holidays and refuses data that does not reach today's session.
+    - cron: "15 22 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: journal
+  cancel-in-progress: false
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e .
+      - name: Record today's recommendations
+        # Yahoo first; if it fails, Alpaca (data API only), with keys from the repository's Actions secrets.
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: trades journal record
+      - name: Score past recommendations
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: trades journal score
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add journal/
+          if git diff --cached --quiet; then
+            echo "Nothing changed; no commit."
+            exit 0
+          fi
+          git commit -m "Journal: $(date -u +%Y-%m-%d)"
+          git pull --rebase
+          git push

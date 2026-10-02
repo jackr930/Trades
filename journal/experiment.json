@@ -1,0 +1,65 @@
+{
+  "description": "The Live Desk's default consensus on the default Yahoo watchlist, recorded after every close.",
+  "watchlist": [
+    "SPY",
+    "QQQ",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "JPM",
+    "XOM",
+    "TLT"
+  ],
+  "benchmark": "SPY",
+  "advisors": [
+    {
+      "id": "tsmom",
+      "params": {}
+    },
+    {
+      "id": "faber_trend",
+      "params": {}
+    },
+    {
+      "id": "ma_crossover",
+      "params": {}
+    },
+    {
+      "id": "donchian_breakout",
+      "params": {}
+    },
+    {
+      "id": "bollinger_reversion",
+      "params": {}
+    },
+    {
+      "id": "rsi2_reversion",
+      "params": {}
+    },
+    {
+      "id": "xs_momentum",
+      "params": {}
+    },
+    {
+      "id": "pairs_trading",
+      "params": {}
+    }
+  ],
+  "pairs": [],
+  "weighting": "equal",
+  "account": {
+    "equity": 100000.0,
+    "risk_per_trade": 0.01,
+    "stop_atr": 2.0,
+    "max_position_pct": 0.2,
+    "max_gross_exposure": 1.0,
+    "allow_short": false,
+    "slippage_bps": 5.0,
+    "commission_bps": 0.0
+  },
+  "history_start": "2008-01-02",
+  "providers": [
+    "yahoo",
+    "alpaca"
+  ]
+}
