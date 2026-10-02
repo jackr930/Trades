@@ -403,7 +403,7 @@ function SymbolDetail({ rec, snap, onPractice }: {
         <div className="card">
           <div className="card-header">
             <h2>Suggested position</h2>
-            <span className="sub">on a hypothetical {fmtMoney(settings?.account_equity ?? null)} account</span>
+            <span className="sub">on your {fmtMoney(settings?.account_equity ?? null)} account (Settings)</span>
           </div>
           {s.side === "flat" ? (
             <p className="secondary">{s.explanation}</p>

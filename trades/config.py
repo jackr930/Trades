@@ -58,7 +58,12 @@ class Settings:
     alpaca_feed: str = "iex"
     csv_dir: str = ""
     synthetic_seed: int = 7
-    account_equity: float = 100_000.0
+    # Account profile: the default for the Lab, the simulators and the Live Desk.
+    account_equity: float = 100_000.0  # starting equity
+    fractional_shares: bool = False
+    account_type: str = "taxable"  # taxable | tax_advantaged (IRA, 401(k): no tax as you go)
+    short_term_tax_rate: float = 0.22  # estimates: replace with your own federal bracket
+    long_term_tax_rate: float = 0.15
     risk_per_trade: float = 0.01  # fraction of equity lost if the protective stop is hit
     stop_atr: float = 2.0  # protective stop distance in ATRs
     max_position_pct: float = 0.20  # cap on any single position, fraction of equity
@@ -68,6 +73,11 @@ class Settings:
     slippage_bps: float = 5.0
     poll_seconds: float = 15.0
     demo_speed: float = 60.0  # synthetic live clock: simulated seconds per real second
+
+    def tax_profile(self):
+        from trades.backtest.tax import TaxProfile
+
+        return TaxProfile(self.account_type, self.short_term_tax_rate, self.long_term_tax_rate)
 
     def watchlist(self, provider: str | None = None) -> list[str]:
         pid = provider or self.provider
@@ -112,6 +122,9 @@ _VALIDATORS = {
     "timeframe": lambda v: v in ("1m", "5m", "15m", "1h", "1d"),
     "alpaca_feed": lambda v: v in ("iex", "sip", "delayed_sip"),
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
+    "account_type": lambda v: v in ("taxable", "tax_advantaged"),
+    "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
+    "long_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "risk_per_trade": lambda v: 0 < float(v) <= 0.1,
     "stop_atr": lambda v: 0.25 <= float(v) <= 10,
     "max_position_pct": lambda v: 0 < float(v) <= 1.0,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import asdict
 from datetime import date, timedelta
 from typing import Any
 
@@ -22,6 +23,7 @@ from trades.backtest.runner import (
     backtest_payload,
     backtest_strategy,
     bars_payload,
+    cost_sensitivity,
     overlays_payload,
     sanitize,
 )
@@ -94,7 +96,13 @@ def _load_bars(c, body: DataBody, warmup: int) -> tuple[dict[str, pd.DataFrame],
 def _config(c, body: DataBody, overrides: dict[str, Any]) -> BacktestConfig:
     s = c.settings.get()
     tf = Timeframe.parse(body.timeframe)
-    base = {"commission_bps": s.commission_bps, "slippage_bps": s.slippage_bps, "allow_short": s.allow_short}
+    base = {
+        "commission_bps": s.commission_bps,
+        "slippage_bps": s.slippage_bps,
+        "allow_short": s.allow_short,
+        "initial_cash": s.account_equity,  # the account profile is the default
+        "fractional": s.fractional_shares,
+    }
     return BacktestConfig.from_dict({**base, **(overrides or {}), "periods_per_year": tf.periods_per_year})
 
 
@@ -272,8 +280,11 @@ async def backtest(request: Request, body: BacktestBody):
 
     def work():
         data, eval_start, provider = _load_bars(c, body, strat.warmup())
-        bt = backtest_strategy(strat, data, sizing, cfg, eval_start)
+        tax = c.settings.get().tax_profile()
+        bt = backtest_strategy(strat, data, sizing, cfg, eval_start, tax=tax)
         payload = backtest_payload(bt)
+        payload["tax"] = asdict(tax)
+        payload["cost_sensitivity"] = cost_sensitivity(bt, tax)
         payload["provider"] = provider
         payload["timeframe"] = body.timeframe
         if provider == "synthetic":

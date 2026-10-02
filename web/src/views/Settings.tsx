@@ -183,14 +183,72 @@ export default function SettingsView() {
 
       <div className="card">
         <div className="card-header">
+          <h2>Your account</h2>
+          <span className="sub">The default for the Strategy Lab, the simulator, practice mode and the Live Desk</span>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>Starting equity ($)</span>
+            <input className="input num" type="number" min={100} {...num("account_equity")} />
+          </label>
+          <label className="field">
+            <span>Account type</span>
+            <select
+              className="input"
+              value={draft.account_type}
+              onChange={(e) => setDraft({ ...draft, account_type: e.target.value as Settings["account_type"] })}
+            >
+              <option value="taxable">Taxable (brokerage account)</option>
+              <option value="tax_advantaged">Tax-advantaged (IRA, 401(k))</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>
+              Short-term tax rate (%){" "}
+              <Help text="Federal tax on gains held one year or less (taxed like income). 22% is only an estimate: replace it with your own bracket." />
+            </span>
+            <input className="input num" type="number" step={1} disabled={draft.account_type !== "taxable"} {...num("short_term_tax_rate", 100)} />
+          </label>
+          <label className="field">
+            <span>
+              Long-term tax rate (%){" "}
+              <Help text="Federal tax on gains held more than a year (0%, 15% or 20% depending on income). 15% is only an estimate: replace it with your own." />
+            </span>
+            <input className="input num" type="number" step={1} disabled={draft.account_type !== "taxable"} {...num("long_term_tax_rate", 100)} />
+          </label>
+        </div>
+        <label className="check" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={draft.fractional_shares} onChange={(e) => setDraft({ ...draft, fractional_shares: e.target.checked })} />
+          My broker supports fractional shares
+        </label>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          The tax rates are estimates for illustration; replace them with your own federal bracket. After-tax results use
+          average cost (not tax lots), ignore wash sales and state tax, and never offset losses against other income.
+        </p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button
+            className="btn primary"
+            onClick={() =>
+              void save({
+                account_equity: draft.account_equity,
+                fractional_shares: draft.fractional_shares,
+                account_type: draft.account_type,
+                short_term_tax_rate: draft.short_term_tax_rate,
+                long_term_tax_rate: draft.long_term_tax_rate,
+              })
+            }
+          >
+            Save account
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
           <h2>Risk and sizing</h2>
           <span className="sub">How the Live Desk sizes its suggested positions</span>
         </div>
         <div className="form-grid">
-          <label className="field">
-            <span>Account size ($)</span>
-            <input className="input num" type="number" {...num("account_equity")} />
-          </label>
           <label className="field">
             <span>
               Risk per trade (%) <Help text="Loss if the protective stop is hit, as a share of the account. 0.5-2% is typical." />
@@ -230,7 +288,6 @@ export default function SettingsView() {
             className="btn primary"
             onClick={() =>
               void save({
-                account_equity: draft.account_equity,
                 risk_per_trade: draft.risk_per_trade,
                 stop_atr: draft.stop_atr,
                 max_position_pct: draft.max_position_pct,

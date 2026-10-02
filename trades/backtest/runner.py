@@ -11,6 +11,7 @@ import pandas as pd
 
 from trades.backtest.engine import BacktestConfig, BacktestResult, buy_and_hold_weights, run_backtest
 from trades.backtest.metrics import drawdown, monthly_returns, performance_metrics
+from trades.backtest.tax import TaxProfile, after_tax, cagr, liquidation
 from trades.data.base import align_bars
 from trades.strategies import Kind, Strategy, StrategyOutput, create_strategy, get_strategy_class
 from trades.strategies.sizing import SizingConfig, apply_sizing
@@ -54,6 +55,7 @@ class StrategyBacktest:
     benchmark_metrics: dict[str, float | None] | None
     start: int
     warnings: list[str]
+    after_tax: pd.Series | None = None  # after-tax equity (taxable accounts), from bar ``start``
 
     @property
     def equity(self) -> pd.Series:
@@ -66,6 +68,24 @@ def benchmark_symbols(strategy: Strategy, symbols: list[str]) -> list[str]:
     return symbols
 
 
+def tax_metrics(
+    result: BacktestResult, data: dict[str, pd.DataFrame], start: int, profile: TaxProfile, ppy: int
+) -> tuple[dict[str, float | None], pd.Series]:
+    """After-tax CAGR (on realized gains, and if everything were sold on the last bar) and taxes paid."""
+    eq = result.equity.iloc[start:]
+    at = after_tax(eq, result.fills, profile)
+    prices = {s: float(df["close"].iloc[-1]) for s, df in data.items() if s in result.positions}
+    sold = liquidation(at, result.ledger, prices, eq.index[-1], profile, float(eq.iloc[-1]))
+    years = (len(eq) - 1) / ppy
+    start_value = float(eq.iloc[0])
+    metrics = {
+        "after_tax_cagr": cagr(start_value, float(at.equity.iloc[-1]), years),
+        "after_tax_cagr_if_sold": cagr(start_value, sold, years),
+        "taxes_paid": sum(at.taxes.values()) if profile.taxable else 0.0,
+    }
+    return metrics, at.equity
+
+
 def backtest_strategy(
     strategy: Strategy,
     data: dict[str, pd.DataFrame],
@@ -73,7 +93,9 @@ def backtest_strategy(
     config: BacktestConfig | None = None,
     eval_start: int | None = None,
     with_benchmark: bool = True,
+    tax: TaxProfile | None = None,
 ) -> StrategyBacktest:
+    """Backtest ``strategy``; with a ``tax`` profile, also report after-tax results (post-processing)."""
     cfg = config or BacktestConfig()
     sizing = sizing or SizingConfig.from_dict(None, strategy.default_sizing)
     aligned = align_bars({s.upper() if isinstance(s, str) else s: df for s, df in data.items()})
@@ -119,8 +141,14 @@ def backtest_strategy(
         bench.equity.iloc[start:] if bench is not None else None,
     )
     warnings += interpretation_warnings(metrics, T - start, cfg.periods_per_year, cfg.initial_cash)
+    after_tax_equity = None
+    if tax is not None:
+        extra, after_tax_equity = tax_metrics(result, aligned, start, tax, cfg.periods_per_year)
+        metrics.update(extra)
+        if bench is not None and bench_metrics is not None:
+            bench_metrics.update(tax_metrics(bench, aligned, start, tax, cfg.periods_per_year)[0])
     return StrategyBacktest(
-        strategy, sizing, aligned, output, weights, result, bench, metrics, bench_metrics, start, warnings
+        strategy, sizing, aligned, output, weights, result, bench, metrics, bench_metrics, start, warnings, after_tax_equity
     )
 
 
@@ -136,6 +164,36 @@ def buy_and_hold(
         res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure
     )
     return res, metrics
+
+
+SENSITIVITY_KEYS = ("cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", "cost_drag", "turnover")
+
+
+def cost_sensitivity(bt: StrategyBacktest, tax: TaxProfile | None = None, multipliers=(2, 4)) -> dict[str, Any]:
+    """Rerun ``bt`` with its slippage multiplied, and say whether it still beats buy-and-hold at
+    double costs. Compared after tax with both sold at the end (CAGR in a tax-advantaged account)."""
+    cfg = bt.result.config
+    rows = [{"multiplier": 1, "slippage_bps": cfg.slippage_bps, **{k: bt.metrics.get(k) for k in SENSITIVITY_KEYS}}]
+    for m in multipliers:
+        more = replace(cfg, slippage_bps=cfg.slippage_bps * m)
+        rerun = backtest_strategy(bt.strategy, bt.data, bt.sizing, more, bt.start, with_benchmark=False, tax=tax)
+        rows.append({"multiplier": m, "slippage_bps": more.slippage_bps, **{k: rerun.metrics.get(k) for k in SENSITIVITY_KEYS}})
+    key = "after_tax_cagr_if_sold" if tax is not None else "cagr"
+    basis = "after costs and taxes, if sold at the end" if tax is not None and tax.taxable else "after costs"
+    bench = (bt.benchmark_metrics or {}).get(key)
+    double = next((r for r in rows if r["multiplier"] == 2), None)
+    if cfg.slippage_bps == 0:
+        verdict = "Slippage is set to 0 bps, so doubling it changes nothing: set a realistic slippage first."
+    elif double is None or double.get(key) is None or bench is None:
+        verdict = "Not enough data to compare with buy-and-hold at double costs."
+    else:
+        beats = double[key] > bench
+        verdict = (
+            f"At double slippage ({double['slippage_bps']:g} bps per fill) the strategy compounds at "
+            f"{double[key]:.1%} a year {basis}, versus {bench:.1%} for buy-and-hold: it "
+            f"{'still beats' if beats else 'does not beat'} buy-and-hold at double costs."
+        )
+    return {"rows": rows, "benchmark": {k: (bt.benchmark_metrics or {}).get(k) for k in SENSITIVITY_KEYS}, "verdict": verdict}
 
 
 def interpretation_warnings(
@@ -264,6 +322,9 @@ def backtest_payload(bt: StrategyBacktest, chart_symbols: list[str] | None = Non
         "start_time": int(eq.index[0].timestamp()),
         "end_time": int(eq.index[-1].timestamp()),
         "equity": {"t": _ts(eq.index), "v": _vals(eq, 2)},
+        "after_tax_equity": (
+            {"t": _ts(bt.after_tax.index), "v": _vals(bt.after_tax, 2)} if bt.after_tax is not None else None
+        ),
         "drawdown": {"t": _ts(eq.index), "v": _vals(drawdown(eq), 6)},
         "exposure": {"t": _ts(eq.index), "v": _vals(bt.result.gross_exposure.iloc[start:], 4)},
         "metrics": bt.metrics,

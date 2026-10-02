@@ -193,8 +193,29 @@ export interface BacktestResult {
   warnings: string[];
   pending_orders: Record<string, number>;
   benchmark?: { label: string; equity: Series; drawdown: Series; metrics: Metrics };
+  /** After-tax equity in a taxable account (null in a tax-advantaged one). */
+  after_tax_equity: Series | null;
+  tax?: { account_type: "taxable" | "tax_advantaged"; short_term_rate: number; long_term_rate: number };
+  cost_sensitivity?: CostSensitivity;
   provider: string;
   timeframe: string;
+}
+
+export interface CostSensitivityRow {
+  multiplier: number;
+  slippage_bps: number;
+  cagr: Num;
+  after_tax_cagr_if_sold: Num;
+  sharpe: Num;
+  max_drawdown: Num;
+  cost_drag: Num;
+  turnover: Num;
+}
+
+export interface CostSensitivity {
+  rows: CostSensitivityRow[];
+  benchmark: Omit<CostSensitivityRow, "multiplier" | "slippage_bps">;
+  verdict: string;
 }
 
 export interface OptimizeRow {
@@ -416,6 +437,10 @@ export interface Settings {
   csv_dir_resolved: string;
   synthetic_seed: number;
   account_equity: number;
+  fractional_shares: boolean;
+  account_type: "taxable" | "tax_advantaged";
+  short_term_tax_rate: number;
+  long_term_tax_rate: number;
   risk_per_trade: number;
   stop_atr: number;
   max_position_pct: number;

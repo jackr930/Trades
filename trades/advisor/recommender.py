@@ -47,6 +47,7 @@ EVIDENCE_KEYS = ("cagr", "sharpe", "max_drawdown", "win_rate", "n_trades", "psr"
 class AdvisorSettings:
     strategies: list[StrategySpec]
     account_equity: float = 100_000.0
+    fractional: bool = False  # suggest fractional shares (else whole shares, rounded down)
     risk_per_trade: float = 0.01
     stop_atr: float = 2.0
     max_position_pct: float = 0.20
@@ -77,6 +78,7 @@ class AdvisorSettings:
         return cls(
             strategies=specs,
             account_equity=s.account_equity,
+            fractional=s.fractional_shares,
             risk_per_trade=s.risk_per_trade,
             stop_atr=s.stop_atr,
             max_position_pct=s.max_position_pct,
@@ -391,7 +393,7 @@ def suggest_position(d: Decision, price: float, settings: AdvisorSettings) -> di
             "conviction": d.conviction,
             "explanation": d.reason or "No position suggested.",
         }
-    shares = abs(round_qty(d.weight * equity / price, fractional=False))
+    shares = abs(round_qty(d.weight * equity / price, settings.fractional))
     stop_dist = d.stop_distance or 0.0
     stop = price - stop_dist if d.side == "long" else price + stop_dist
     expl = (
@@ -405,7 +407,7 @@ def suggest_position(d: Decision, price: float, settings: AdvisorSettings) -> di
             f" and by {d.scale:.0%} so that all suggestions together stay within the "
             f"{settings.max_gross:.0%} portfolio cap"
         )
-    expl += f" -> {abs(d.weight):.1%} of equity, {shares:,.0f} shares."
+    expl += f" -> {abs(d.weight):.1%} of equity, {shares:,.{4 if settings.fractional else 0}f} shares."
     return {
         "side": d.side,
         "shares": shares,
