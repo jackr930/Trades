@@ -334,7 +334,7 @@ def cmd_journal_score(args) -> int:
 
     from trades.core.calendar import last_completed_session
     from trades.journal.experiment import Experiment
-    from trades.journal.rule import load_rule, rule_history
+    from trades.journal.rule import BACKTEST_CHECK, decision, load_rule, rule_history
     from trades.journal.scorer import read_journal, render_report
     from trades.journal.source import TRACK_FILE
     from trades.journal.track import health, track_record
@@ -379,6 +379,15 @@ def cmd_journal_score(args) -> int:
     record = track_record(journal, bars, exp.benchmark, last, rule, rule_dates, paper)
     record["experiment_id"] = exp.id
     record["health"] = health(journal, exp.watchlist, last, paper)
+    check_path = folder / BACKTEST_CHECK
+    backtest = json.loads(check_path.read_text()) if check_path.exists() else None
+    current = next((e for e in record["experiments"] if e["id"] == exp.id), None)
+    record["decision"] = decision(
+        backtest,
+        current.get("verdict") if current else None,
+        (record.get("rule") or {}).get("paper"),
+        bool((record.get("rule") or {}).get("changed_after_first_row")),
+    )
     record["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (folder / TRACK_FILE).write_text(json.dumps(record, indent=1) + "\n")
     print(report)

@@ -610,26 +610,43 @@ function BackupCard({ onRestored, toast }: { onRestored: () => void; toast: (m: 
     }
   };
 
+  const wipe = async () => {
+    const typed = window.prompt('This deletes your settings, API keys, holdings, research log and simulator history from this server. Type "delete everything" to confirm.');
+    if (typed !== "delete everything") return;
+    setError(null);
+    try {
+      const r = await api.deleteMyData();
+      await refreshSettings();
+      onRestored();
+      toast(`Deleted ${r.deleted.join(", ")}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   return (
     <div className="card">
       <div className="card-header">
-        <h2>Backup and restore</h2>
-        <span className="sub">Settings, the research log and simulator history; never API keys</span>
+        <h2>Your data</h2>
+        <span className="sub">Settings, holdings, the research log and simulator history (backups never include API keys)</span>
       </div>
       <ErrorBox error={error} />
       <p className="secondary" style={{ marginTop: 0 }}>
         A hosted copy without a disk forgets everything when it restarts, including the research log that counts how many
         configurations you have tried (which the Deflated Sharpe Ratio needs to be honest). Download a backup now and then; restoring
-        adds back anything missing and never deletes.
+        adds back anything missing and never deletes. See <a href="#/privacy">Privacy</a> for what is kept and where it goes.
       </p>
       <div className="row">
         <button className="btn" onClick={() => void download()}>
-          Download backup
+          Download all my data
         </button>
         <label className="btn">
           Restore from file
           <input type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => void restore(e.target.files?.[0])} />
         </label>
+        <button className="btn danger" onClick={() => void wipe()}>
+          Delete everything
+        </button>
       </div>
     </div>
   );

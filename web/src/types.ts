@@ -633,6 +633,13 @@ export interface TrackRecord {
   };
   paper: { orders: number; filled: number; with_slippage: number; mean_slippage_bps: Num; worst_slippage_bps: Num } | null;
   experiments: TrackExperiment[];
+  decision?: Decision;
+}
+
+export interface Decision {
+  status: "YES, WITH CARE" | "NO" | "NOT YET" | "INVALID";
+  summary: string;
+  checks: { name: string; status: Verdict["status"]; detail: string }[];
 }
 
 export interface Backup {

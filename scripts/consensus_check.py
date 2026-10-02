@@ -21,7 +21,10 @@ Everything uses the app's default settings (not your saved ones), so anyone can 
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import replace
+from datetime import date
+from pathlib import Path
 
 import pandas as pd
 
@@ -34,7 +37,7 @@ from trades.config import DEFAULT_WATCHLISTS, Settings, SettingsStore
 from trades.core import stats
 from trades.data.base import align_bars, history_start
 from trades.data.service import DataService
-from trades.journal.rule import backtest_verdict, load_rule
+from trades.journal.rule import BACKTEST_CHECK, backtest_verdict, load_rule
 from trades.strategies.consensus import params_from_settings
 from trades.universes import UNIVERSES
 
@@ -188,9 +191,22 @@ def main() -> int:
             print(f"\n**Pre-registered decision rule.** {r['description']}")
             v = backtest_verdict(res["equal"], res["spy"], res["p_equal"], r, n)
             print(f"- consensus, equal: **{v['status']}**. {v['detail']}")
+            verdicts = [{"run": "consensus, equal", **v}]
             for name, (metrics, p) in res["variants"].items():
                 v = backtest_verdict(metrics, res["spy"], p, r, n)
                 print(f"- consensus, equal, {name}: **{v['status']}**. {v['detail']}")
+                verdicts.append({"run": f"consensus, equal, {name}", **v})
+            # The decision gate reads this; commit it so the Track Record page and the digest see it.
+            best = next((x for x in verdicts if x["status"] == "PASS"), verdicts[0])
+            out = Path(args.rule).parent / BACKTEST_CHECK
+            out.write_text(json.dumps({
+                "status": best["status"],
+                "detail": f"{best['run']}: {best['detail']} ({args.provider}, {start} to {date.today()})",
+                "runs": verdicts,
+                "provider": args.provider,
+                "run_on": date.today().isoformat(),
+            }, indent=1) + "\n")
+            print(f"\nWrote {out}: commit it so the decision gate sees this result.")
     return 0
 
 

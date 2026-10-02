@@ -107,3 +107,45 @@ def backtest_verdict(
 def changed_after(history: dict[str, str | None], first_row: str | None) -> bool:
     """Was the rule last changed after the journal's first recorded session (ISO dates)?"""
     return bool(history.get("last_changed") and first_row and history["last_changed"][:10] > first_row)
+
+
+BACKTEST_CHECK = "backtest_check.json"  # written by scripts/consensus_check.py for the registered run
+
+
+def decision(
+    backtest: dict[str, Any] | None,
+    forward: dict[str, str] | None,
+    paper: dict[str, str] | None,
+    changed_after_first_row: bool = False,
+) -> dict[str, Any]:
+    """The answer the whole app exists to give: would the evidence justify real money?
+
+    YES only when every pre-registered check passed: the hindsight-free backtest, the forward
+    journal and the paper fills. NO as soon as one failed. Otherwise NOT YET. A rule edited
+    after the journal started cannot vouch for anything, so that alone makes it INVALID.
+    """
+    checks = [
+        {"name": "Backtest on hindsight-free symbols, after costs and taxes", **(backtest or _verdict("NOT YET", "not run yet: run scripts/consensus_check.py and commit journal/backtest_check.json"))},
+        {"name": "Forward journal: calls recorded before their outcome", **(forward or _verdict("NOT YET", "no journal yet"))},
+        {"name": "Paper fills: are the assumed costs real?", **(paper or _verdict("NOT YET", "no paper fills yet"))},
+    ]
+    statuses = {c["status"] for c in checks}
+    if changed_after_first_row:
+        status, text = "INVALID", (
+            "The decision rule was edited after the journal started, so passing it proves nothing. Restore the "
+            "registered rule, or start a new experiment and wait again."
+        )
+    elif "FAIL" in statuses:
+        status, text = "NO", (
+            "At least one pre-registered check failed. The honest choice is a low-cost index fund held for the long run."
+        )
+    elif statuses == {"PASS"}:
+        status, text = "YES, WITH CARE", (
+            "Every pre-registered check passed. That is evidence, not a guarantee: if you go ahead, do it yourself at "
+            "your broker, with an amount you could lose, and keep the journal running. This app never places real orders."
+        )
+    else:
+        status, text = "NOT YET", (
+            "Not enough evidence either way. Until there is, buying and holding an index fund is the default to beat."
+        )
+    return {"status": status, "summary": text, "checks": checks}

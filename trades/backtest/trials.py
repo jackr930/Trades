@@ -111,15 +111,18 @@ def summarise(
 
 
 def record_and_summarise(
-    kind: str, spec, symbols: list[str], metrics: dict[str, float | None], n_obs: int, ppy: int
+    kind: str, spec, symbols: list[str], metrics: dict[str, float | None], n_obs: int, ppy: int,
+    path: Path | None = None,
 ) -> dict[str, Any]:
     """Log a backtest of ``spec`` (a StrategySpec) and judge it against the earlier ones."""
-    record(kind, spec.id, config_key(spec.id, spec.params, spec.sizing), symbols, metrics.get("sharpe"))
-    return summarise(symbols, metrics, n_obs, ppy)
+    record(kind, spec.id, config_key(spec.id, spec.params, spec.sizing), symbols, metrics.get("sharpe"), path)
+    return summarise(symbols, metrics, n_obs, ppy, path)
 
 
-def record_grid(strategy_id: str, symbols: list[str], result: dict[str, Any], base_params=None) -> None:
+def record_grid(
+    strategy_id: str, symbols: list[str], result: dict[str, Any], base_params=None, path: Path | None = None
+) -> None:
     """Log every combination of a grid search: each one is a trial."""
     for row in result.get("rows", []):
         params = {**(base_params or {}), **row["params"]}
-        record("grid", strategy_id, config_key(strategy_id, params), symbols, row["metrics"].get("sharpe"))
+        record("grid", strategy_id, config_key(strategy_id, params), symbols, row["metrics"].get("sharpe"), path)

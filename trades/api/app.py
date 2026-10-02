@@ -31,6 +31,11 @@ WEB_DIST = Path(os.environ.get("TRADES_WEB_DIST", Path(__file__).resolve().paren
 
 @dataclass
 class AppContext:
+    """Everything one user's requests share. Every file the app keeps for a user lives under
+    ``home``: settings.json, trials.jsonl (the research log) and sim_history.jsonl. Serving
+    several users would mean one context per user, each with its own home."""
+
+    home: Path
     settings: SettingsStore
     data: DataService
     recommender: Recommender
@@ -47,13 +52,13 @@ def create_app(
     auth: AuthConfig | None = None,
 ) -> FastAPI:
     home = settings_path.parent if settings_path else trades_home()
-    store = SettingsStore(settings_path)
+    store = SettingsStore(home / "settings.json")
     data = DataService(store)
     recommender = Recommender()
     live = LiveService(data, store, recommender)
     sims = SessionStore(history_path=home / "sim_history.jsonl")
     runs = RunManager()
-    ctx = AppContext(store, data, recommender, live, sims, runs)
+    ctx = AppContext(home, store, data, recommender, live, sims, runs)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
