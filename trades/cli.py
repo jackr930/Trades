@@ -1,4 +1,4 @@
-"""Command-line interface: ``trades serve | strategies | backtest | recommend``."""
+"""Command-line interface: ``trades serve | strategies | backtest | recommend | journal``."""
 
 from __future__ import annotations
 
@@ -237,6 +237,70 @@ def cmd_recommend(args) -> int:
     return 0
 
 
+def _journal_fetcher():
+    """fetch(provider, symbols, start) for the journal, always fresh (retries must see new bars)."""
+    from trades.config import SettingsStore
+    from trades.data.service import DataService
+
+    data = DataService(SettingsStore())
+
+    def fetch(provider, symbols, start):
+        data.invalidate()
+        return data.bars_many(symbols, "1d", start, None, provider)
+
+    return fetch
+
+
+def cmd_journal_record(args) -> int:
+    from pathlib import Path
+
+    from trades.journal.experiment import Experiment
+    from trades.journal.recorder import StaleData, record
+
+    exp = Experiment.load(args.experiment)
+    try:
+        record(exp, _journal_fetcher(), Path(args.journal))
+    except StaleData as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_journal_score(args) -> int:
+    from datetime import timedelta
+    from pathlib import Path
+
+    from trades.core.calendar import last_completed_session
+    from trades.journal.experiment import Experiment
+    from trades.journal.scorer import render_report
+
+    exp = Experiment.load(args.experiment)
+    path = Path(args.journal)
+    journal = pd.read_csv(path, dtype={"session_date": str}) if path.exists() else pd.DataFrame()
+    bars: dict = {}
+    if not journal.empty:
+        symbols = sorted({*journal["symbol"], exp.benchmark})
+        start = pd.Timestamp(journal["session_date"].min()).date() - timedelta(days=7)
+        fetch = _journal_fetcher()
+        problems = []
+        for provider in exp.providers:
+            try:
+                bars, errors = fetch(provider, symbols, start)
+            except Exception as exc:  # e.g. Alpaca without keys: try the next provider
+                problems.append(f"{provider}: {exc}")
+                continue
+            if not errors:
+                break
+            problems.append(f"{provider}: {errors}")
+        else:
+            print(f"ERROR: no prices to score with: {'; '.join(problems)}", file=sys.stderr)
+            return 1
+    report = render_report(journal, bars, exp.benchmark, last_completed_session())
+    Path(args.report).write_text(report)
+    print(report)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trades", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -281,6 +345,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--provider")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_recommend)
+
+    p = sub.add_parser("journal", help="forward journal: record today's recommendations, score past ones")
+    jsub = p.add_subparsers(dest="journal_command", required=True)
+    for name, func, text in (
+        ("record", cmd_journal_record, "after the close: log the Live Desk's calls on today's session"),
+        ("score", cmd_journal_score, "score rows whose 5- and 21-session windows have passed"),
+    ):
+        jp = jsub.add_parser(name, help=text)
+        jp.add_argument("--experiment", default="journal/experiment.json")
+        jp.add_argument("--journal", default="journal/recommendations.csv")
+        if name == "score":
+            jp.add_argument("--report", default="journal/REPORT.md")
+        jp.set_defaults(func=func)
 
     args = parser.parse_args(argv)
     return int(args.func(args) or 0)

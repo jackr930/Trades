@@ -114,9 +114,9 @@ no-look-ahead test covers the strategy like every other.
 Rules re-checked on a fixed schedule (time-series momentum every 21 bars, cross-sectional momentum's monthly
 rebalance) count that schedule from the first bar of history, so the same rule fed a different start date checks
 on different days. Daily history therefore always starts on 2 January 2008: on the Live Desk, in
-`trades recommend` and in every backtest that starts after early 2009, so all of them check on the same days. A
-backtest that starts earlier (or with blank dates in the Lab) loads more history and may check on other days. If
-a provider's history begins later than 2008, its first bar is used, in every view alike.
+`trades recommend`, the forward journal and every backtest that starts after early 2009, so all of them check on
+the same days. A backtest that starts earlier (or with blank dates in the Lab) loads more history and may check
+on other days. If a provider's history begins later than 2008, its first bar is used, in every view alike.
 
 ### Modern quant methods
 
@@ -251,6 +251,7 @@ trades backtest consensus SPY QQQ AAPL MSFT --provider yahoo --start 2010-01-01 
 trades backtest consensus XLB XLE XLF XLI XLK XLP XLU XLV XLY --provider yahoo --start 2010-01-01 \
     --walk-forward --grid weighting=equal,by_category    # re-choose the weighting each year on past data
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
+trades journal record && trades journal score         # forward journal (see below)
 trades serve --port 8000
 ```
 
@@ -263,6 +264,42 @@ Markdown table for the default Yahoo watchlist and for the nine original sector 
 for having won): plain backtests from 2010 with both weightings, a walk-forward test that re-chooses the
 weighting each year using only earlier data, and SPY and equal-weight buy-and-hold over the same bars.
 
+## Forward journal
+
+A backtest, however honest, tests rules you chose after seeing the history. The forward journal records the Live
+Desk's recommendations *before* their outcome exists, every trading day, and scores them once it does.
+
+- **The experiment is a committed file.** `journal/experiment.json` fixes the watchlist, the strategies and pairs,
+  how votes are combined, the account's risk settings, the benchmark, the data providers and the first bar of
+  history (2 January 2008, as on the Live Desk). Every row carries the **experiment id** (a short hash of that
+  definition) and the **code version** (`git rev-parse HEAD:trades`, the hash of the `trades` package, which only
+  changes when the code does). Changing a rule starts a new experiment; the scorer never mixes two.
+- **`trades journal record`** runs after the close. On weekends and holidays, or before the session has closed,
+  it exits without writing. It uses completed bars only, and if the provider's latest bar is not today's session it
+  retries with backoff (1, 3 and 10 minutes), tries the next provider, and finally fails without writing anything:
+  stale data is never logged as today's. Rows are appended to `journal/recommendations.csv` once per (session,
+  symbol, experiment), so rerunning is harmless. Columns: run time (UTC), session date, symbol, close, score,
+  label, bullish/bearish/neutral counts, each strategy's vote as compact JSON (`null` while warming up), the
+  suggested side, weight and stop, experiment id, code version and data provider.
+- **`trades journal score`** writes `journal/REPORT.md`. A row's outcome is the symbol's return from the next
+  session's open (when the backtest engine would have filled) to the close 5 and 21 sessions later, minus SPY's
+  return over the same window; rows whose window has not passed are left out. Outcomes are averaged within each
+  day first, because symbols on the same day move together, and only days at least one horizon apart are used, so
+  overlapping windows are not counted twice. Per label it reports the number of independent days, the mean excess
+  return, the hit rate against SPY and the t-statistic; per strategy, the mean excess return on days it voted
+  bullish versus days it voted neutral or bearish. Below about 60 independent days it says plainly that it is
+  too early to conclude anything. At 21 sessions that takes about five years: forward evidence is slow.
+- **GitHub Actions** (`.github/workflows/journal.yml`) runs record and score at 22:15 UTC on weekdays (after the
+  close in both EDT and EST) and commits the results as `github-actions[bot]`. Scheduled workflows only run on the
+  repository's default branch. Yahoo needs no key; if it fails, the journal falls back to Alpaca's data API with
+  the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` repository secrets (Settings -> Secrets and variables ->
+  Actions). You can also start it by hand from the Actions tab.
+
+```bash
+trades journal record     # after the close; does nothing on weekends and holidays
+trades journal score      # rewrites journal/REPORT.md
+```
+
 ## Architecture
 
 ```
@@ -272,6 +309,7 @@ trades/
   strategies/  strategy framework + library, position sizing
   backtest/    event-driven engine, metrics, optimisation (grid + Deflated Sharpe, walk-forward)
   advisor/     ensemble recommendation engine with evidence and risk-based sizing
+  journal/     forward journal: record recommendations after the close, score them later
   arena/       strategy simulations: steerable simulated market, replay/real-time feeds, strategy agents
   sim/         paper broker, practice sessions, behavioural scorecard
   live/        live service: quotes -> forming bars -> recommendations -> WebSocket
