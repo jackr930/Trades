@@ -75,6 +75,8 @@ METRIC_ROWS = (
     "sharpe",
     "max_drawdown",
     "psr",
+    "p_beats_growth",
+    "p_beats_sharpe",
     "n_trades",
     "win_rate",
     "profit_factor",
@@ -107,10 +109,14 @@ def _print_table(columns: dict[str, dict]) -> None:
 
 
 def cmd_backtest(args) -> int:
+    from dataclasses import replace
+
+    from trades.backtest import trials
     from trades.backtest.engine import BacktestConfig
     from trades.backtest.optimize import walk_forward
     from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold, tax_metrics
     from trades.config import SettingsStore
+    from trades.core import stats
     from trades.core.timeframes import Timeframe
     from trades.data.base import align_bars, history_start
     from trades.data.service import DataService
@@ -154,6 +160,13 @@ def cmd_backtest(args) -> int:
         periods_per_year=tf.periods_per_year,
     )
     provider = args.provider or store.get().provider
+    if tf is Timeframe.D1 and profile.cash_yield == "tbill" and not args.no_cash_yield:
+        cash, note = data.cash_returns(idx, provider)
+        if cash is not None:
+            cfg = replace(cfg, cash_returns=cash)
+            print("\nIdle cash earns T-bill returns (BIL); Sharpe ratios are in excess of T-bills.")
+        if note:
+            print(f"\n! {note}")
     if strat.sizes_itself:
         p = strat.params
         print(
@@ -209,10 +222,24 @@ def cmd_backtest(args) -> int:
     if bench_symbol:
         cols |= benchmark_columns(bt.result.equity.index, bt.start)
     _print_table(cols)
+    if bench_symbol:
+        bench_curve = buy_and_hold({bench_symbol: frames[bench_symbol].reindex(eq.index)}, cfg)[0].equity
+        p = stats.outperformance_probability(
+            eq.pct_change().iloc[1:],
+            bench_curve.pct_change().iloc[1:],
+            risk_free=cfg.cash_returns.reindex(eq.index[1:]) if cfg.cash_returns is not None else None,
+        )
+        print(
+            f"\nAgainst {bench_symbol} buy & hold: compounds faster in {p['p_growth']:.0%} and has the better Sharpe "
+            f"ratio in {p['p_sharpe']:.0%} of 1,000 block-bootstrap resamples."
+        )
+    log = trials.record_and_summarise("cli", spec, symbols, bt.metrics, len(eq) - 1, cfg.periods_per_year)
+    print(f"\nResearch log: {log['interpretation']}")
     if tax.taxable:
         print(
-            f"\nTaxes: {tax.short_term_rate:.0%} short-term / {tax.long_term_rate:.0%} long-term (estimates from "
-            "Settings; federal only, average cost, no wash sales)."
+            f"\nTaxes: {tax.short_term:.0%} short-term / {tax.long_term:.0%} long-term (federal"
+            f"{f' + {tax.state_rate:.0%} state' if tax.state_rate else ' only'}; estimates from Settings; "
+            "average cost, no wash sales)."
         )
     else:
         print("\nTax-advantaged account: no tax as you go, so after-tax equals pre-tax.")
@@ -289,6 +316,7 @@ def cmd_journal_score(args) -> int:
 
     from trades.core.calendar import last_completed_session
     from trades.journal.experiment import Experiment
+    from trades.journal.rule import load_rule, rule_history
     from trades.journal.scorer import read_journal, render_report
 
     exp = Experiment.load(args.experiment)
@@ -314,8 +342,16 @@ def cmd_journal_score(args) -> int:
             return 1
     orders_path = Path(args.journal).parent / "paper_orders.csv"
     paper = pd.read_csv(orders_path, dtype=str) if orders_path.exists() else None
+    rule_path = Path(args.journal).parent / "decision_rule.json"
     report = render_report(
-        journal, bars, exp.benchmark, last_completed_session(), paper, float(exp.account["slippage_bps"])
+        journal,
+        bars,
+        exp.benchmark,
+        last_completed_session(),
+        paper,
+        float(exp.account["slippage_bps"]),
+        rule=load_rule(rule_path),
+        rule_dates=rule_history(rule_path),
     )
     Path(args.report).write_text(report)
     print(report)
@@ -399,6 +435,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--commission", type=float, default=0.0, help="commission in basis points")
     p.add_argument("--short", action="store_true", help="allow short selling")
     p.add_argument("--benchmark", help="also compare with buy-and-hold of this symbol, e.g. SPY")
+    p.add_argument("--no-cash-yield", action="store_true", help="idle cash earns nothing (default: T-bill returns)")
     p.add_argument(
         "--walk-forward",
         action="store_true",

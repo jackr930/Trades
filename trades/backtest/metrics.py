@@ -30,7 +30,7 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "fmt": "pct",
         "better": "higher",
         "help": "CAGR after paying tax each year on realized gains (short-term at your short-term rate, held over "
-        "a year at your long-term rate), with net losses carried forward. Federal only; average cost, no "
+        "a year at your long-term rate, plus any state rate), with net losses carried forward. Average cost, no "
         "wash sales. Equal to CAGR in a tax-advantaged account.",
     },
     "after_tax_cagr_if_sold": {
@@ -56,14 +56,29 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "label": "Sharpe ratio",
         "fmt": "ratio",
         "better": "higher",
-        "help": "Annualised return per unit of volatility (risk-free rate assumed 0). Above 1 is good for a "
-        "single strategy; be sceptical of very high values from backtests.",
+        "help": "Annualised return in excess of T-bills (when idle cash earns the T-bill yield; otherwise the "
+        "risk-free rate is taken as 0) per unit of volatility. Above 1 is good for a single strategy; be "
+        "sceptical of very high values from backtests.",
     },
     "sortino": {
         "label": "Sortino ratio",
         "fmt": "ratio",
         "better": "higher",
         "help": "Like Sharpe but only penalises downside volatility.",
+    },
+    "p_beats_growth": {
+        "label": "Prob. beats buy & hold",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "Share of 1,000 resampled histories (21-day blocks of the same days for both) in which the "
+        "strategy compounded faster than buy-and-hold. Below 95%, the gap could be the luck of which days "
+        "happened to occur.",
+    },
+    "p_beats_sharpe": {
+        "label": "Prob. better Sharpe",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "Share of resampled histories in which the strategy's Sharpe ratio beat buy-and-hold's.",
     },
     "max_drawdown": {
         "label": "Max drawdown",
@@ -214,7 +229,10 @@ def performance_metrics(
     fills: list[Fill] | None = None,
     gross_exposure: pd.Series | None = None,
     benchmark: pd.Series | None = None,
+    risk_free: pd.Series | None = None,
 ) -> dict[str, float | None]:
+    """Metrics of an equity curve. ``risk_free``: per-bar cash returns (e.g. T-bills); risk-adjusted
+    ratios then use returns in excess of it, as cash earning that yield is not skill."""
     eq = equity.dropna()
     out: dict[str, float | None] = {}
     if len(eq) < 2 or eq.iloc[0] <= 0:
@@ -226,19 +244,21 @@ def performance_metrics(
     out["total_return"] = total
     out["cagr"] = (eq.iloc[-1] / eq.iloc[0]) ** (1 / years) - 1.0 if years > 0 and eq.iloc[-1] > 0 else None
     out["volatility"] = float(rets.std(ddof=1) * math.sqrt(periods_per_year)) if n > 1 else None
-    out["sharpe"] = stats.sharpe_ratio(rets, periods_per_year)
-    out["sortino"] = stats.sortino_ratio(rets, periods_per_year)
+    rf = risk_free.reindex(rets.index).fillna(0.0) if risk_free is not None else 0.0
+    excess = rets - rf
+    out["sharpe"] = stats.sharpe_ratio(excess, periods_per_year)
+    out["sortino"] = stats.sortino_ratio(excess, periods_per_year)
     dd = stats.max_drawdown(eq)
     out["max_drawdown"] = dd.max_drawdown
     out["max_dd_duration"] = dd.longest_duration
     out["calmar"] = (
         out["cagr"] / abs(dd.max_drawdown) if out["cagr"] is not None and dd.max_drawdown < 0 else None
     )
-    sk, ku = stats.skewness(rets), stats.kurtosis(rets)
+    sk, ku = stats.skewness(excess), stats.kurtosis(excess)
     out["skew"], out["kurtosis"] = sk, ku
     sr_pp = out["sharpe"] / math.sqrt(periods_per_year) if _f(out["sharpe"]) is not None else float("nan")
     out["psr"] = stats.probabilistic_sharpe_ratio(sr_pp, n, sk, ku)
-    out["kelly"] = stats.kelly_leverage(rets)
+    out["kelly"] = stats.kelly_leverage(excess)
 
     if gross_exposure is not None:
         ge = gross_exposure.reindex(eq.index).fillna(0.0)
@@ -268,7 +288,8 @@ def performance_metrics(
     if benchmark is not None:
         b = benchmark.reindex(eq.index).dropna()
         br = b.pct_change(fill_method=None).dropna()
-        joined = pd.concat([rets, br], axis=1, join="inner").dropna()
+        br_excess = br - (risk_free.reindex(br.index).fillna(0.0) if risk_free is not None else 0.0)
+        joined = pd.concat([excess, br_excess], axis=1, join="inner").dropna()
         if len(joined) > 2 and joined.iloc[:, 1].var() > 0:
             x, y = joined.iloc[:, 1].to_numpy(), joined.iloc[:, 0].to_numpy()
             beta = float(np.cov(y, x, ddof=1)[0, 1] / np.var(x, ddof=1))
@@ -278,6 +299,11 @@ def performance_metrics(
         b_years = (len(b) - 1) / periods_per_year
         if len(b) > 1 and b_years > 0 and out["cagr"] is not None and b.iloc[-1] > 0:
             out["excess_cagr"] = out["cagr"] - ((b.iloc[-1] / b.iloc[0]) ** (1 / b_years) - 1.0)
+        both = pd.concat([rets, br], axis=1, join="inner").dropna()
+        if len(both) > 60:
+            rf_both = risk_free.reindex(both.index).fillna(0.0) if risk_free is not None else None
+            p = stats.outperformance_probability(both.iloc[:, 0], both.iloc[:, 1], risk_free=rf_both)
+            out["p_beats_growth"], out["p_beats_sharpe"] = p["p_growth"], p["p_sharpe"]
     return {k: _f(v) for k, v in out.items()}
 
 

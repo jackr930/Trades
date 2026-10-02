@@ -224,7 +224,8 @@ practice mode and the Live Desk:
   down) when off, and backtests and simulations trade the same way;
 - **Account type**: taxable, or tax-advantaged (an IRA or 401(k), which pays no tax as it goes);
 - **Short- and long-term tax rates**, 22% and 15% by default. These are estimates: replace them with your own
-  federal bracket.
+  federal bracket. An optional flat **state rate** (0 by default) is added to both;
+- **What idle cash earns**: T-bill returns (BIL) by default, or nothing.
 
 After-tax results are computed from a backtest's fills afterwards; the engine is unchanged. Every fill records the
 gain it realized and how long the shares it closed had been held. Each calendar year, gains are split into
@@ -232,8 +233,10 @@ short-term (held one year or less) and long-term, netted, with any net loss carr
 the year's last bar. Gains on short sales are always short-term, however long the short was open, and commissions
 reduce taxable gains in the year they are paid. Buy-and-hold is taxed only on what it realizes (normally nothing), so the Lab also shows an
 **"after tax, if sold at end"** line for both: that is the fair comparison. Simplifications: average cost instead
-of tax lots, no wash-sale rule, no $3,000 offset against ordinary income, federal tax only, and dividends are not
-taxed separately. A tax-advantaged account shows after-tax equal to pre-tax.
+of tax lots, no wash-sale rule, no $3,000 offset against ordinary income, flat federal and state rates (no
+brackets or local taxes), and dividends are not taxed separately: adjusted prices fold them into returns, which
+slightly flatters whichever side holds more stock for longer, usually buy-and-hold. A tax-advantaged account shows
+after-tax equal to pre-tax.
 
 After every Lab backtest, the **cost sensitivity** card reruns it at 2x and 4x the slippage and commissions and says whether the
 strategy still beats buy-and-hold at double costs (after tax, if sold at the end, in a taxable account).
@@ -264,6 +267,20 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
 - **Plain-language warnings** for too few trades, short samples, probably-overfit results, synthetic data, and
   survivorship bias when you pick today's symbols to test the past.
 - **Benchmarks everywhere.** Every backtest and simulator session is compared with buy-and-hold over the same period.
+- **Idle cash earns T-bills, and Sharpe ratios are in excess of them.** On real daily data, cash a strategy is not
+  using earns what a 1-3 month T-bill ETF (BIL) returned, borrowed cash pays that plus the margin spread, and Sharpe
+  ratios subtract it. Without this, a strategy that is sometimes out of the market is penalised (cash earning 0%
+  against a fully invested benchmark) and one sitting in cash looks safe for free. Switch it off in Settings or with
+  `--no-cash-yield`.
+- **"Did it really beat buy-and-hold?" is measured directly.** "Prob. beats buy & hold" is the share of 1,000
+  block-bootstrap resamples of the same days (21-day blocks) in which the strategy compounded faster; "P(Sharpe > 0)"
+  only compares a strategy with doing nothing.
+- **A research log counts your tries.** Every Lab backtest, grid search and `trades backtest` is logged in
+  `$TRADES_HOME/trials.jsonl`, and each result shows its Deflated Sharpe Ratio given every distinct configuration
+  you have tested on the same symbols, so the tenth idea you tried is judged as the tenth.
+- **Success is defined in advance.** `journal/decision_rule.json` fixes what would count as beating buy-and-hold for
+  the backtest, the forward journal and the paper account. `scripts/consensus_check.py` and `journal/REPORT.md` say
+  PASS, FAIL or NOT YET against it, and the report warns if the rule changed after the journal's first row.
 - **Leverage and shorting are not free.** Short positions pay a borrow fee (0.25%/yr by default), borrowed cash pays
   margin interest (2%/yr above cash, since returns are reported in excess of cash), and fills can't push gross
   exposure past the strategy's leverage cap after an overnight gap.
@@ -289,10 +306,13 @@ trades serve --port 8000
 example `--param weighting=by_category`. `--benchmark SPY` adds SPY buy-and-hold over the same bars next to the
 equal-weight buy-and-hold of your symbols.
 
-Does the consensus beat buy-and-hold after costs? `python scripts/consensus_check.py --provider yahoo` prints a
-Markdown table for the default Yahoo watchlist and for the nine original sector SPDR ETFs (a set nobody picked
-for having won): plain backtests from 2010 with both weightings, a walk-forward test that re-chooses the
-weighting each year using only earlier data, and SPY and equal-weight buy-and-hold over the same bars.
+Does the consensus beat buy-and-hold after costs and taxes? `python scripts/consensus_check.py --provider yahoo`
+prints a Markdown table for the default Yahoo watchlist and for the nine original sector SPDR ETFs (a set nobody
+picked for having won): plain backtests from 2010 with both weightings, a walk-forward test that re-chooses the
+weighting each year using only earlier data, and SPY and equal-weight buy-and-hold over the same bars, with
+after-tax CAGR and the probability of beating SPY. It ends with the verdict of the pre-registered decision rule.
+**Edit `journal/decision_rule.json` before you run it** if you want different thresholds: its git history is the
+record of what you committed to in advance.
 
 ## Forward journal
 
@@ -319,6 +339,10 @@ Desk's recommendations *before* their outcome exists, every trading day, and sco
   return, the hit rate against SPY and the t-statistic; per strategy, the mean excess return on days it voted
   bullish versus days it voted neutral or bearish. Below about 60 independent days it says plainly that it is
   too early to conclude anything. At 21 sessions that takes about five years: forward evidence is slow.
+- **A pre-registered decision rule** (`journal/decision_rule.json`, separate from the experiment so editing it does
+  not start a new experiment) says what would count as success: by default, Buy and Strong buy calls must beat SPY
+  over 21 sessions on at least 60 independent days with a t-statistic of at least 2. The report shows PASS, FAIL or
+  NOT YET, the rule's registration date from git, and a warning if it was changed after the first journal row.
 - **GitHub Actions** (`.github/workflows/journal.yml`) runs record and score at 22:15 UTC on weekdays (after the
   close in both EDT and EST) and commits the results as `github-actions[bot]`. Scheduled workflows only run on the
   repository's default branch. Yahoo needs no key; if it fails, the journal falls back to Alpaca's data API with

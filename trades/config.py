@@ -64,6 +64,7 @@ class Settings:
     account_type: str = "taxable"  # taxable | tax_advantaged (IRA, 401(k): no tax as you go)
     short_term_tax_rate: float = 0.22  # estimates: replace with your own federal bracket
     long_term_tax_rate: float = 0.15
+    state_tax_rate: float = 0.0  # flat state rate on all capital gains (0 where there is none)
     risk_per_trade: float = 0.01  # fraction of equity lost if the protective stop is hit
     stop_atr: float = 2.0  # protective stop distance in ATRs
     max_position_pct: float = 0.20  # cap on any single position, fraction of equity
@@ -71,6 +72,7 @@ class Settings:
     allow_short: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
+    cash_yield: str = "tbill"  # tbill: idle cash earns a T-bill ETF's return (BIL); none: it earns nothing
     # Paper trading (Alpaca's paper API only; see trades.paper)
     paper_halted: bool = False  # kill switch: `trades paper halt` / `trades paper resume`
     paper_max_daily_loss: float = 0.03  # no orders after the paper account lost more since the prior close
@@ -81,7 +83,9 @@ class Settings:
     def tax_profile(self):
         from trades.backtest.tax import TaxProfile
 
-        return TaxProfile(self.account_type, self.short_term_tax_rate, self.long_term_tax_rate)
+        return TaxProfile(
+            self.account_type, self.short_term_tax_rate, self.long_term_tax_rate, self.state_tax_rate
+        )
 
     def watchlist(self, provider: str | None = None) -> list[str]:
         pid = provider or self.provider
@@ -127,6 +131,8 @@ _VALIDATORS = {
     "alpaca_feed": lambda v: v in ("iex", "sip", "delayed_sip"),
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
     "account_type": lambda v: v in ("taxable", "tax_advantaged"),
+    "cash_yield": lambda v: v in ("tbill", "none"),
+    "state_tax_rate": lambda v: 0 <= float(v) <= 0.2,
     "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "long_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "risk_per_trade": lambda v: 0 < float(v) <= 0.1,

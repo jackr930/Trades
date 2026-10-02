@@ -20,7 +20,7 @@ feed it bars as they arrive, so a forward test trades exactly like a backtest.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 import numpy as np
@@ -48,6 +48,10 @@ class BacktestConfig:
     cash_rate_annual: float = 0.0
     max_gross_leverage: float | None = None  # fill-time cap on gross exposure / equity
     periods_per_year: int = 252
+    # What idle cash earns, per bar, indexed by bar time: e.g. a T-bill ETF's daily returns.
+    # When set it replaces ``cash_rate_annual``, borrowed cash pays it plus
+    # ``margin_rate_annual``, and Sharpe ratios are measured in excess of it.
+    cash_returns: pd.Series | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         self.initial_cash = float(self.initial_cash)
@@ -77,7 +81,9 @@ class BacktestConfig:
         return cls(**{k: v for k, v in (data or {}).items() if k in known and v is not None})
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        out = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "cash_returns"}
+        out["cash_yield"] = self.cash_returns is not None
+        return out
 
     def commission(self, qty: float, price: float) -> float:
         fee = abs(qty) * self.commission_per_share + abs(qty) * price * self.commission_bps / 1e4
@@ -146,6 +152,7 @@ class ExecutionEngine:
         self._borrow = cfg.borrow_bps_annual / 1e4 / ppy
         self._margin = cfg.margin_rate_annual / ppy
         self._cash_rate = cfg.cash_rate_annual / ppy
+        self._cash_returns = cfg.cash_returns
 
     # -- queries ---------------------------------------------------------------------
     def prices(self) -> dict[str, float]:
@@ -180,7 +187,7 @@ class ExecutionEngine:
             self._excursions(high, low)
         self.close = np.asarray(close, dtype=float)
         prices = self.prices()
-        self._finance(prices)
+        self._finance(prices, self._cash_return(time))
         self.equity = self.ledger.equity(prices)
         if self.equity <= 0:  # account wiped out: stop trading
             self.stopped = True
@@ -272,16 +279,26 @@ class ExecutionEngine:
         max_qty = round_qty(room / (float(ref_prices[j]) * (1 + self._slip)), self.cfg.fractional)
         return float(np.sign(target_qty)) * min(abs(target_qty), max_qty)
 
-    def _finance(self, prices: dict[str, float]) -> None:
+    def _cash_return(self, time: Any) -> float | None:
+        """This bar's return on idle cash, if a cash-return series was given (else None)."""
+        if self._cash_returns is None:
+            return None
+        r = self._cash_returns.get(time)
+        return float(r) if r is not None and np.isfinite(r) else 0.0
+
+    def _finance(self, prices: dict[str, float], cash_return: float | None = None) -> None:
         led = self.ledger
         if self._borrow > 0:
             short_value = sum(-led.qty(s) * prices.get(s, 0.0) for s in self.symbols if led.qty(s) < 0)
             if short_value > 0:
                 led.charge(short_value * self._borrow)
-        if led.cash < 0 and self._margin > 0:
-            led.charge(-led.cash * self._margin)
-        elif led.cash > 0 and self._cash_rate > 0:
-            led.charge(-led.cash * self._cash_rate)
+        # With a cash series, borrowing costs that rate plus the margin spread.
+        cash_rate = self._cash_rate if cash_return is None else cash_return
+        margin = self._margin if cash_return is None else cash_return + self._margin
+        if led.cash < 0 and margin > 0:
+            led.charge(-led.cash * margin)
+        elif led.cash > 0 and cash_rate != 0:
+            led.charge(-led.cash * cash_rate)
 
 
 def run_backtest(

@@ -125,7 +125,7 @@ def grid_search(
     for i, (combo, _strat, weights) in enumerate(prepared):
         res = run_backtest(aligned, weights, cfg, start)
         eq = res.equity.iloc[start:]
-        m = performance_metrics(eq, cfg.periods_per_year, res.trades, res.fills)
+        m = performance_metrics(eq, cfg.periods_per_year, res.trades, res.fills, risk_free=cfg.cash_returns)
         rets = eq.pct_change(fill_method=None).dropna()
         row = {"params": combo, "metrics": {k: m.get(k) for k in SUMMARY_KEYS}}
         rows.append(row)
@@ -233,7 +233,9 @@ def walk_forward(
         for combo, _strat, weights in prepared:
             sub = {k: v.iloc[tr0:tr1] for k, v in aligned.items()}
             res = run_backtest(sub, weights.iloc[tr0:tr1], cfg, 0)
-            m = performance_metrics(res.equity, cfg.periods_per_year, res.trades, res.fills)
+            m = performance_metrics(
+                res.equity, cfg.periods_per_year, res.trades, res.fills, risk_free=cfg.cash_returns
+            )
             score = _objective(m, objective)
             if best is None or score > best[0]:
                 best = (score, combo, weights, m)
@@ -262,11 +264,13 @@ def walk_forward(
     sub = {k: v.iloc[oos_start - 1 : oos_end] for k, v in aligned.items()}
     res = run_backtest(sub, w_df.iloc[oos_start - 1 : oos_end], cfg, 0)
     eq = res.equity
-    oos_m = performance_metrics(eq, cfg.periods_per_year, res.trades, res.fills, res.gross_exposure)
+    oos_m = performance_metrics(
+        eq, cfg.periods_per_year, res.trades, res.fills, res.gross_exposure, risk_free=cfg.cash_returns
+    )
     for w in windows:
         a, b = w.pop("_range")
         seg = eq.loc[index[a - 1] : index[b - 1]]
-        w["out_of_sample"] = performance_metrics(seg, cfg.periods_per_year)
+        w["out_of_sample"] = performance_metrics(seg, cfg.periods_per_year, risk_free=cfg.cash_returns)
         w["out_of_sample"] = {
             k: w["out_of_sample"].get(k) for k in ("sharpe", "total_return", "max_drawdown", "cagr")
         }
@@ -284,7 +288,8 @@ def walk_forward(
     )
     d_res = run_backtest(sub, d_w.iloc[oos_start - 1 : oos_end], cfg, 0)
     d_m = performance_metrics(
-        d_res.equity, cfg.periods_per_year, d_res.trades, d_res.fills, d_res.gross_exposure
+        d_res.equity, cfg.periods_per_year, d_res.trades, d_res.fills, d_res.gross_exposure,
+        risk_free=cfg.cash_returns,
     )
 
     # Compare like with like: a total return over a 3-year training window and one over the whole
