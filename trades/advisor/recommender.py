@@ -157,14 +157,30 @@ class Recommender:
         """``data``: full bar history per symbol. ``provisional`` says whose last bar is
         still forming (one flag for all, or per symbol); evidence uses completed bars only."""
         symbols = [s for s, df in data.items() if len(df) >= 3]
-        forming = (
+        flagged = (
             {s: bool(provisional.get(s, False)) for s in symbols}
             if isinstance(provisional, dict)
             else dict.fromkeys(symbols, bool(provisional))
         )
+        notes: list[str] = []
+        # Every strategy sees the dates all symbols share, exactly as in a backtest of the
+        # watchlist (the consensus strategy and the paper trader): the same bars, the same calls.
+        last = {s: data[s].index[-1] for s in symbols}
+        firsts = {s: data[s].index[0] for s in symbols}
+        data = align_bars({s: data[s] for s in symbols})
+        if symbols and len(set(firsts.values())) > 1:
+            late = max(firsts, key=firsts.get)
+            notes.append(
+                f"{late}'s history starts on {firsts[late].date()}, so every symbol is evaluated from then, "
+                "as in a backtest of this watchlist."
+            )
+        if symbols and len(next(iter(data.values()))) < 3:
+            notes.append("The watchlist's symbols share fewer than three bars: nothing to evaluate.")
+            symbols, data = [], {}
+        # A forming bar survives the alignment only if every symbol has one.
+        forming = {s: flagged[s] and data[s].index[-1] == last[s] for s in symbols}
         completed = {s: (data[s].iloc[:-1] if forming[s] else data[s]) for s in symbols}
         votes: dict[str, list[dict]] = {s: [] for s in symbols}
-        notes: list[str] = []
 
         for spec in settings.strategies:
             try:
@@ -408,10 +424,14 @@ def suggest_position(d: Decision, price: float, settings: AdvisorSettings) -> di
             f"{settings.max_gross:.0%} portfolio cap"
         )
     expl += f" -> {abs(d.weight):.1%} of equity, {shares:,.{4 if settings.fractional else 0}f} shares."
+    if shares == 0:
+        expl += " That is less than one share on this account, so nothing would be bought."
+    sign = 1.0 if d.side == "long" else -1.0
     return {
         "side": d.side,
         "shares": shares,
-        "weight": d.weight,
+        "weight": d.weight,  # the consensus's target, as recorded in the journal and traded on paper
+        "held_weight": sign * shares * price / equity,  # what the whole shares actually hold
         "notional": shares * price,
         "stop": stop,
         "stop_distance": stop_dist,

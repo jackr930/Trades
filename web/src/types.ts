@@ -327,6 +327,8 @@ export interface Recommendation {
     shares: number;
     /** Signed target weight (negative = short), after the portfolio cap. */
     weight: number;
+    /** Signed weight the rounded shares actually hold (absent when flat). */
+    held_weight?: number;
     notional: number;
     stop: Num;
     stop_distance?: number;

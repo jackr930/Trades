@@ -289,11 +289,11 @@ def cmd_journal_score(args) -> int:
 
     from trades.core.calendar import last_completed_session
     from trades.journal.experiment import Experiment
-    from trades.journal.scorer import render_report
+    from trades.journal.scorer import read_journal, render_report
 
     exp = Experiment.load(args.experiment)
     path = Path(args.journal)
-    journal = pd.read_csv(path, dtype={"session_date": str}) if path.exists() else pd.DataFrame()
+    journal = read_journal(path)
     bars: dict = {}
     if not journal.empty:
         symbols = sorted({*journal["symbol"], exp.benchmark})
@@ -364,7 +364,7 @@ def cmd_paper(args) -> int:
             limits,
             submit=args.submit,
             orders_path=Path(args.orders),
-            halt_check=lambda: halted(store.get().paper_halted),
+            halt_check=lambda: halted(SettingsStore().get().paper_halted),  # re-read: the app may have changed it
             version=code_version(),
         )
     except (PaperAPIError, StaleData) as exc:
