@@ -28,6 +28,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x costs. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
 | **Today and Portfolio** | The home screen in plain English: today's suggestions and how much of the account they add up to, whether the calls are proven yet, a one-click "Is this better than just buying SPY?" and your real holdings, imported read-only from a Schwab, Fidelity, Vanguard or Robinhood CSV export. A first-run guide sets things up, an essentials mode hides the research tools, and the Library has a plain-English glossary. |
+| **Plan** | Tools for the decisions that matter more than any signal: a goal planner (a stock/bond/cash mix bootstrapped from its own history, in today's dollars, with its worst fall shown so you can ask whether you would have stayed the course), a fees-and-taxes calculator, a rebalancing and asset-location check of your imported holdings, and a tax-loss-harvesting finder with wash-sale warnings. Suggestions only. |
 | **Track Record** | The forward journal at a glance: the calls logged each evening before their outcome was known, how they did against SPY at 5 and 21 sessions, how many independent results the pre-registered rule still needs and roughly when a verdict becomes possible, the latest calls, the paper account's fills, and any problem the journal's health check found. |
 | **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), a plain-English glossary, plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
 
@@ -184,6 +185,32 @@ docker compose up --build                             # http://127.0.0.1:8000
 
 For development with hot reload: run `trades serve` and, in another terminal, `cd web && npm run dev`
 (then open http://localhost:5173). Common tasks are also in the `Makefile` (`make serve`, `make dev`, `make test`).
+
+## Planning tools
+
+The **Plan** page works on your own money; it never trades, and none of it is tax or investment advice.
+
+- **Reach a goal.** A mix of stocks (SPY), bonds (AGG) and cash (BIL) is simulated 2,000 times by stringing together
+  random 12-month stretches of its own history (dividends included, rebalanced monthly), with your monthly saving
+  (negative for withdrawals), deflated by the inflation you choose. It shows the 10th, 50th and 90th percentile
+  balance year by year and the chance of reaching your goal. Only the funds the mix holds are fetched, so a
+  stocks-only mix uses SPY's history from 1993; with bonds or cash it starts when AGG (2003) or BIL (2007) did.
+  Next to it, **stay the course**: the mix's worst fall in that history, how long it stayed below its old high,
+  and what that would have meant in dollars. Fees and taxes are not in this simulation.
+- **Fees and taxes.** The same return with fund fees, an adviser's fee, trading costs (paid on the sale and the
+  purchase of each turn of the portfolio) and taxes added in turn, next to a low-cost index fund held throughout.
+  Selling realises that share of the gain each year, at the short-term rate when turnover is above 100% and the
+  long-term rate otherwise; buy and hold pays long-term tax once, at the end. Every year earns the same return, and
+  losses are not harvested.
+- **Rebalance.** Your imported holdings by asset class (stocks, bonds, cash, real estate; recognised from a list of
+  common funds, then the fund's description, else counted as stocks and flagged) against a target, the amounts to
+  move once a class drifts more than the band you set, and where: sell inside tax-advantaged accounts first. An
+  asset-location note estimates the yearly tax saved by holding bond and REIT funds in tax-advantaged accounts
+  and stocks in taxable ones (assuming a 4% yield taxed as income against a 1.5% qualified dividend).
+- **Tax losses.** Taxable positions at least $200 (adjustable) below their cost, the tax a sale could defer at
+  your long- and short-term rates, a common similar-but-different fund to stay invested with, and the wash-sale
+  rule: no purchase of the same or a substantially identical fund in any account, IRAs included, from 30 days
+  before to 30 days after; dividend reinvestment counts. Harvesting defers tax rather than avoiding it.
 
 ## Put it online (Render)
 

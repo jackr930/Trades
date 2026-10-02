@@ -9,6 +9,7 @@ import Library from "./views/Library";
 import TrackRecordView from "./views/TrackRecord";
 import Today from "./views/Today";
 import Portfolio from "./views/Portfolio";
+import Plan from "./views/Plan";
 import Onboarding from "./components/Onboarding";
 import SettingsView from "./views/Settings";
 
@@ -19,6 +20,7 @@ const NAV: [string, string, boolean][] = [
   ["/lab", "Strategy Lab", false],
   ["/track", "Track Record", true],
   ["/portfolio", "Portfolio", true],
+  ["/plan", "Plan", true],
   ["/sim", "Simulator", false],
   ["/library", "Library", true],
   ["/settings", "Settings", true],
@@ -72,6 +74,9 @@ function Shell({ route }: { route: Route }) {
       break;
     case "/portfolio":
       view = <Portfolio />;
+      break;
+    case "/plan":
+      view = <Plan route={route} />;
       break;
     case "/live":
       view = <LiveDesk />;

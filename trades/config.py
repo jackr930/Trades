@@ -85,7 +85,7 @@ class Settings:
     cash_yield: str = "tbill"  # tbill: idle cash earns a T-bill ETF's return (BIL); none: it earns nothing
     journal_source: str = ""  # where the Track Record page reads from: "" = ./journal, or a raw GitHub URL
     onboarded: bool = False  # the first-run guide has been completed or skipped
-    ui_mode: str = "full"  # full: every page; simple: Today, Track Record, Plan, Library, Settings
+    ui_mode: str = "full"  # full: every page; simple: Today, Portfolio, Plan, Track Record, Library, Settings
     holdings: list[dict[str, Any]] = field(default_factory=list)  # imported from a broker CSV (read-only)
     account_types: dict[str, str] = field(default_factory=dict)  # account name -> taxable | tax_advantaged
     # Paper trading (Alpaca's paper API only; see trades.paper)

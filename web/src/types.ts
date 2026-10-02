@@ -504,6 +504,7 @@ export type AccountType = "taxable" | "tax_advantaged";
 export interface Holding {
   account: string;
   symbol: string;
+  description?: string;
   quantity: Num;
   value: Num;
   cost_basis: Num;
@@ -518,6 +519,58 @@ export interface HoldingsState {
     unrealised: number;
     accounts: Record<string, { type: AccountType; value: number; cash: number; positions: number }>;
   };
+}
+
+export interface GoalResult {
+  years: number[];
+  p10: number[];
+  p50: number[];
+  p90: number[];
+  p_goal: Num;
+  contributed: number;
+  paths: number;
+  inflation: number;
+  proxies: Record<string, string>;
+  demo: boolean;
+  history: {
+    from: string;
+    to: string;
+    max_drawdown: number;
+    peak: string;
+    trough: string;
+    recovered: string | null;
+    months_below_peak: number;
+    worst_12_months: Num;
+    start_value_at_trough: number;
+    annual_return: number;
+  };
+}
+
+export interface DragResult {
+  rows: { label: string; value: number; cost: number }[];
+  final: number;
+  lost: number;
+  lost_share: number;
+}
+
+export interface AllocationResult {
+  total: number;
+  rows: { class: string; value: number; share: number; target: number; difference: number }[];
+  moves: { class: string; amount: number; action: "add" | "reduce"; where: string }[];
+  location: string[];
+  guessed: string[];
+  band: number;
+}
+
+export interface HarvestCandidate {
+  account: string;
+  symbol: string;
+  value: number;
+  loss: number;
+  loss_share: Num;
+  tax_deferred: [number, number];
+  replacement: string | null;
+  warnings: string[];
 }
 
 export interface VsSpyResult {

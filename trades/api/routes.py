@@ -14,7 +14,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
-from trades import __version__, holdings
+from trades import __version__, holdings, planning
 from trades.advisor import AdvisorSettings
 from trades.backtest import robustness, trials
 from trades.backtest.engine import BacktestConfig
@@ -43,8 +43,11 @@ from trades.strategies.consensus import params_from_settings
 from trades.universes import UNIVERSES
 
 from .schemas import (
+    AllocationBody,
     BacktestBody,
     DataBody,
+    DragBody,
+    GoalBody,
     HoldingsImportBody,
     NoteBody,
     OptimizeBody,
@@ -274,6 +277,84 @@ async def delete_holdings(request: Request, account: str | None = None):
     types = {a: t for a, t in s.account_types.items() if account is not None and a != account}
     c.settings.update({"holdings": keep, "account_types": types})
     return _holdings_payload(c)
+
+
+# --------------------------------------------------------------------------------------
+# Planning: goals, cost and tax drag, allocation and asset location, tax-loss harvesting
+# --------------------------------------------------------------------------------------
+
+PLAN_HISTORY_START = date(1990, 1, 1)  # as far back as the proxy funds go
+
+
+@router.post("/plan/goal")
+async def plan_goal(request: Request, body: GoalBody):
+    """Will a stock/bond/cash mix reach a goal? Bootstrapped from the proxy funds' own history."""
+    c = ctx(request)
+    s = c.settings.get()
+    demo = s.provider == "synthetic"
+    proxies = planning.DEMO_PROXIES if demo else planning.PROXIES
+    used = {cls: sym for cls, sym in proxies.items() if body.mix.get(cls, 0) > 0}  # only what the mix holds
+
+    def work():
+        closes = {}
+        if used:
+            frames, errors = c.data.bars_many(list(used.values()), Timeframe.D1, PLAN_HISTORY_START, None, s.provider)
+            if errors:
+                raise DataError("; ".join(f"{k}: {v}" for k, v in errors.items()))
+            closes = {cls: frames[sym]["close"] for cls, sym in used.items()}
+        if not closes:  # all cash in the demo: a flat series
+            idx = pd.date_range("2010-01-31", periods=180, freq="ME", tz="UTC")
+            returns = pd.DataFrame({"cash": 0.0}, index=idx)
+        else:
+            returns = planning.monthly_returns(closes)
+        mix = planning.mix_returns(returns, {k: v for k, v in body.mix.items() if k in planning.CLASSES})
+        out = planning.goal_paths(mix, body.start_value, body.monthly, body.years, body.goal, body.inflation)
+        out["history"] = planning.history_stats(mix, body.start_value)
+        out["proxies"] = used
+        out["demo"] = demo
+        return sanitize(out)
+
+    return await run_in_threadpool(work)
+
+
+@router.post("/plan/drag")
+async def plan_drag(request: Request, body: DragBody):
+    """Fees, trading costs and taxes over the years, for buy-and-hold and for your scenario."""
+    s = ctx(request).settings.get()
+    taxable = s.account_type == "taxable"
+    tax = s.tax_profile()
+    rates = {"short_rate": tax.short_term, "long_rate": tax.long_term}
+    common = {"amount": body.amount, "years": body.years, "gross_return": body.gross_return, "taxable": taxable, **rates}
+    index_fund = planning.drag(**common, expense_ratio=0.0003, turnover=0.02, trade_cost_bps=1.0)
+    scenario = planning.drag(
+        **common,
+        expense_ratio=body.expense_ratio,
+        advisory_fee=body.advisory_fee,
+        turnover=body.turnover,
+        trade_cost_bps=body.trade_cost_bps,
+    )
+    return sanitize({"index_fund": index_fund, "scenario": scenario, "taxable": taxable, **rates})
+
+
+@router.post("/plan/allocation")
+async def plan_allocation(request: Request, body: AllocationBody):
+    s = ctx(request).settings.get()
+    tax = s.tax_profile()
+    rates = {"short_rate": tax.short_term, "long_rate": tax.long_term}
+    return sanitize(planning.allocation(s.holdings, s.account_types, body.targets, body.band, **rates))
+
+
+@router.get("/plan/harvest")
+async def plan_harvest(request: Request, min_loss: float = Query(200.0, ge=0)):
+    s = ctx(request).settings.get()
+    tax = s.tax_profile()  # the account profile's rates; harvesting only applies to taxable accounts anyway
+    return sanitize(
+        {
+            "candidates": planning.harvest(s.holdings, s.account_types, tax.short_term, tax.long_term, min_loss),
+            "short_rate": tax.short_term,
+            "long_rate": tax.long_term,
+        }
+    )
 
 
 # --------------------------------------------------------------------------------------
