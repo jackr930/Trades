@@ -487,9 +487,65 @@ export interface Settings {
   paper_halted: boolean;
   paper_max_daily_loss: number;
   paper_max_orders: number;
+  journal_source: string;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;
+}
+
+// ---- forward track record ----------------------------------------------------------
+
+export interface JournalStat {
+  n: number;
+  mean: Num;
+  hit_rate: Num;
+  t: Num;
+}
+
+export interface Verdict {
+  status: "PASS" | "FAIL" | "NOT YET";
+  detail: string;
+}
+
+export interface TrackExperiment {
+  id: string;
+  first_session: string;
+  last_session: string;
+  sessions: number;
+  rows: number;
+  code_versions: string[];
+  labels: Record<string, Record<string, JournalStat>>; // by horizon ("5", "21"), then label
+  strategies: Record<string, Record<string, { bullish: JournalStat; other: JournalStat }>>;
+  curve: Series;
+  latest: { symbol: string; label: string; score: Num; weight: Num; votes: Record<string, number | null> }[];
+  verdict?: Verdict;
+  independent_days_21: number;
+  conclusive_from: string;
+}
+
+export interface TrackRecord {
+  benchmark: string;
+  prices_through: string;
+  experiment_id?: string;
+  generated_at?: string;
+  health?: string[];
+  rule?: {
+    registered: string | null;
+    last_changed: string | null;
+    changed_after_first_row: boolean;
+    forward: string | null;
+    paper: Verdict | null;
+  };
+  paper: { orders: number; filled: number; with_slippage: number; mean_slippage_bps: Num; worst_slippage_bps: Num } | null;
+  experiments: TrackExperiment[];
+}
+
+export interface Backup {
+  format: string;
+  version: number;
+  created: string;
+  settings: Record<string, unknown>;
+  files: Record<string, string>;
 }
 
 // ---- simulator -------------------------------------------------------------------

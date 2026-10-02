@@ -39,6 +39,14 @@ DEFAULT_PAIRS: list[list[str]] = [["SIMPRA", "SIMPRB"]]  # the demo market's coi
 WEIGHTINGS = ("equal", "by_category")  # how the Live Desk averages votes (see trades.strategies.consensus)
 
 
+GITHUB_RAW = "https://raw.githubusercontent.com/"
+
+
+def valid_journal_source(value: str) -> bool:
+    """Empty (the local journal/ folder) or a raw.githubusercontent.com address; nothing else is fetched."""
+    return value == "" or (isinstance(value, str) and value.startswith(GITHUB_RAW) and " " not in value)
+
+
 def trades_home() -> Path:
     return Path(os.environ.get("TRADES_HOME", Path.home() / ".trades")).expanduser()
 
@@ -73,6 +81,7 @@ class Settings:
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
     cash_yield: str = "tbill"  # tbill: idle cash earns a T-bill ETF's return (BIL); none: it earns nothing
+    journal_source: str = ""  # where the Track Record page reads from: "" = ./journal, or a raw GitHub URL
     # Paper trading (Alpaca's paper API only; see trades.paper)
     paper_halted: bool = False  # kill switch: `trades paper halt` / `trades paper resume`
     paper_max_daily_loss: float = 0.03  # no orders after the paper account lost more since the prior close
@@ -132,6 +141,7 @@ _VALIDATORS = {
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
     "account_type": lambda v: v in ("taxable", "tax_advantaged"),
     "cash_yield": lambda v: v in ("tbill", "none"),
+    "journal_source": valid_journal_source,
     "state_tax_rate": lambda v: 0 <= float(v) <= 0.2,
     "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "long_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
