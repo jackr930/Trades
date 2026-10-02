@@ -3,6 +3,12 @@ name: Journal
 # After every US close: log the Live Desk's recommendations for the session, score the
 # ones whose 5- and 21-session windows have passed, and commit both to the repository.
 # Later the same evening, a separate job trades the experiment on an Alpaca PAPER account.
+#
+# If either job fails, or `trades journal health` finds a problem (a missed session, a stuck
+# or badly filled paper order), the workflow opens an issue labelled journal-health, or adds
+# a comment to the one already open. GitHub emails you about both. On Fridays, when the
+# repository variable DIGEST_ISSUE is "true", it also posts a weekly digest as a comment on
+# an issue labelled journal-digest.
 on:
   schedule:
     # 22:15 UTC on weekdays: after the 16:00 New York close in both EDT (20:00 UTC) and EST (21:00 UTC).
@@ -21,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  issues: write # health alerts and the weekly digest
 
 concurrency:
   group: journal
@@ -46,6 +53,7 @@ jobs:
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
         run: trades journal record
       - name: Score past recommendations
+        id: score
         env:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
@@ -64,6 +72,31 @@ jobs:
           git commit -m "Journal: $(date -u +%Y-%m-%d)"
           git pull --rebase
           git push
+      - name: Health check
+        run: trades journal health | tee health.txt
+        shell: bash # with pipefail: the step fails when the check does
+      - name: Weekly digest
+        if: ${{ !cancelled() && steps.score.outcome == 'success' && vars.DIGEST_ISSUE == 'true' && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$(date -u +%u)" != "5" ]; then echo "The digest goes out on Fridays."; exit 0; fi
+          trades journal digest > digest.md
+          gh label create journal-digest --color 0E8A16 --description "Weekly forward-journal digest" --force
+          n=$(gh issue list --label journal-digest --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file digest.md
+          else
+            gh issue create --title "Weekly journal digest" --label journal-digest --body-file digest.md
+          fi
+      - name: Alert
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: .github/scripts/alert.sh "journal"
 
   paper:
     # Paper account only (https://paper-api.alpaca.markets is hard-coded; there is no live endpoint).
@@ -105,3 +138,10 @@ jobs:
           git commit -m "Paper orders: $(date -u +%Y-%m-%d)"
           git pull --rebase
           git push
+      - name: Alert
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: .github/scripts/alert.sh "paper"

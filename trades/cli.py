@@ -329,13 +329,15 @@ def cmd_journal_record(args) -> int:
 
 
 def cmd_journal_score(args) -> int:
-    from datetime import timedelta
+    from datetime import datetime, timedelta, timezone
     from pathlib import Path
 
     from trades.core.calendar import last_completed_session
     from trades.journal.experiment import Experiment
     from trades.journal.rule import load_rule, rule_history
     from trades.journal.scorer import read_journal, render_report
+    from trades.journal.source import TRACK_FILE
+    from trades.journal.track import health, track_record
 
     exp = Experiment.load(args.experiment)
     path = Path(args.journal)
@@ -358,21 +360,69 @@ def cmd_journal_score(args) -> int:
         else:
             print(f"ERROR: no prices to score with: {'; '.join(problems)}", file=sys.stderr)
             return 1
-    orders_path = Path(args.journal).parent / "paper_orders.csv"
-    paper = pd.read_csv(orders_path, dtype=str) if orders_path.exists() else None
-    rule_path = Path(args.journal).parent / "decision_rule.json"
+    folder = Path(args.journal).parent
+    paper = _paper_orders(folder)
+    rule_path = folder / "decision_rule.json"
+    rule, rule_dates, last = load_rule(rule_path), rule_history(rule_path), last_completed_session()
     report = render_report(
         journal,
         bars,
         exp.benchmark,
-        last_completed_session(),
+        last,
         paper,
         float(exp.account["slippage_bps"]),
-        rule=load_rule(rule_path),
-        rule_dates=rule_history(rule_path),
+        rule=rule,
+        rule_dates=rule_dates,
     )
     Path(args.report).write_text(report)
+    # The same numbers for the app's Track Record page and the weekly digest.
+    record = track_record(journal, bars, exp.benchmark, last, rule, rule_dates, paper)
+    record["experiment_id"] = exp.id
+    record["health"] = health(journal, exp.watchlist, last, paper)
+    record["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    (folder / TRACK_FILE).write_text(json.dumps(record, indent=1) + "\n")
     print(report)
+    return 0
+
+
+def _paper_orders(folder):
+    path = folder / "paper_orders.csv"
+    return pd.read_csv(path, dtype=str) if path.exists() else None
+
+
+def cmd_journal_health(args) -> int:
+    """Print what looks wrong with the journal and the paper log; exit 1 if anything does."""
+    from pathlib import Path
+
+    from trades.core.calendar import last_completed_session
+    from trades.journal.experiment import Experiment
+    from trades.journal.scorer import read_journal
+    from trades.journal.track import health
+
+    exp = Experiment.load(args.experiment)
+    path = Path(args.journal)
+    journal = read_journal(path)
+    problems = health(journal, exp.watchlist, last_completed_session(), _paper_orders(path.parent))
+    for p in problems:
+        print(f"- {p}")
+    if not problems:
+        print("The journal looks healthy.")
+    return 1 if problems else 0
+
+
+def cmd_journal_digest(args) -> int:
+    """Print a plain-English summary of journal/track_record.json for the weekly digest."""
+    from pathlib import Path
+
+    from trades.core.calendar import last_completed_session
+    from trades.journal.source import TRACK_FILE
+    from trades.journal.track import digest
+
+    path = Path(args.journal).parent / TRACK_FILE
+    if not path.exists():
+        print(f"ERROR: {path} does not exist yet; run `trades journal score` first.", file=sys.stderr)
+        return 1
+    print(digest(json.loads(path.read_text()), last_completed_session()), end="")
     return 0
 
 
@@ -479,11 +529,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_recommend)
 
-    p = sub.add_parser("journal", help="forward journal: record today's recommendations, score past ones")
+    p = sub.add_parser("journal", help="forward journal: record, score, health check, weekly digest")
     jsub = p.add_subparsers(dest="journal_command", required=True)
     for name, func, text in (
         ("record", cmd_journal_record, "after the close: log the Live Desk's calls on today's session"),
         ("score", cmd_journal_score, "score rows whose 5- and 21-session windows have passed"),
+        ("health", cmd_journal_health, "check for missed sessions and stuck or badly filled paper orders"),
+        ("digest", cmd_journal_digest, "print a weekly summary of the track record (after score)"),
     ):
         jp = jsub.add_parser(name, help=text)
         jp.add_argument("--experiment", default="journal/experiment.json")

@@ -6,11 +6,13 @@ import LiveDesk from "./views/LiveDesk";
 import StrategyLab from "./views/StrategyLab";
 import Simulator from "./views/Simulator";
 import Library from "./views/Library";
+import TrackRecordView from "./views/TrackRecord";
 import SettingsView from "./views/Settings";
 
 const NAV: [string, string][] = [
   ["/live", "Live Desk"],
   ["/lab", "Strategy Lab"],
+  ["/track", "Track Record"],
   ["/sim", "Simulator"],
   ["/library", "Library"],
   ["/settings", "Settings"],
@@ -58,6 +60,9 @@ function Shell({ route }: { route: Route }) {
       break;
     case "/sim":
       view = <Simulator route={route} />;
+      break;
+    case "/track":
+      view = <TrackRecordView />;
       break;
     case "/library":
       view = <Library route={route} />;

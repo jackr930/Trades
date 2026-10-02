@@ -27,6 +27,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
 | **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x costs. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
+| **Track Record** | The forward journal at a glance: the calls logged each evening before their outcome was known, how they did against SPY at 5 and 21 sessions, how many independent results the pre-registered rule still needs and roughly when a verdict becomes possible, the latest calls, the paper account's fills, and any problem the journal's health check found. |
 | **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
 
 | Strategy simulator: results by hidden regime | Strategy Lab |
@@ -186,9 +187,16 @@ Good to know about the free plan:
 
 - The service sleeps after 15 minutes without visitors; the next visit takes about a minute to wake it up.
 - It gets a fraction of a CPU core, so backtests and simulations run several times slower than on a laptop.
-- There is no persistent disk: settings and practice history reset whenever the service restarts or redeploys. To
-  make choices stick, set them as environment variables in the Render dashboard, for example `TRADES_PROVIDER=yahoo`
-  to start on real market data, or `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` for Alpaca.
+- There is no persistent disk: settings, the research log and practice history reset whenever the service restarts
+  or redeploys. To make choices stick, set them as environment variables in the Render dashboard, for example
+  `TRADES_PROVIDER=yahoo` to start on real market data, or `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` for Alpaca.
+  **Settings → Backup and restore** downloads everything except API keys as one JSON file and loads it back after a
+  restart (restoring adds missing log entries and never deletes any). For a disk instead, switch to a paid instance
+  type and uncomment the `disk:` lines in `render.yaml`; the app keeps its files in `/data`.
+- The Track Record page reads the journal the workflow commits. A deployed copy never sees those later commits, so set
+  **Settings → Track record source** to `https://raw.githubusercontent.com/<you>/Trades/<branch>/journal` (only
+  `raw.githubusercontent.com` addresses are accepted). For a private repository, set `TRADES_JOURNAL_TOKEN` to a
+  read-only GitHub token (fine-grained, Contents: read). The page caches what it reads for ten minutes.
 
 Other container hosts work the same way with the Dockerfile. The server listens on `$PORT` when it is set. To reach
 it under another host name, add the name to `TRADES_ALLOWED_HOSTS` and set `TRADES_PASSWORD`: once outside host
@@ -312,6 +320,7 @@ trades backtest consensus SPY EFA EEM AGG TLT GLD DBC --provider yahoo --start 2
     --benchmark 60_40 --min-trade 0.05                   # a 60/40 benchmark and a 5% no-trade band
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
 trades journal record && trades journal score         # forward journal (see below)
+trades journal health && trades journal digest        # check it for problems; a weekly summary
 trades paper                                          # paper-trading dry run (see below)
 trades serve --port 8000
 ```
@@ -359,15 +368,30 @@ Desk's recommendations *before* their outcome exists, every trading day, and sco
   not start a new experiment) says what would count as success: by default, Buy and Strong buy calls must beat SPY
   over 21 sessions on at least 60 independent days with a t-statistic of at least 2. The report shows PASS, FAIL or
   NOT YET, the rule's registration date from git, and a warning if it was changed after the first journal row.
-- **GitHub Actions** (`.github/workflows/journal.yml`) runs record and score at 22:15 UTC on weekdays (after the
-  close in both EDT and EST) and commits the results as `github-actions[bot]`. Scheduled workflows only run on the
-  repository's default branch. Yahoo needs no key; if it fails, the journal falls back to Alpaca's data API with
-  the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` repository secrets (Settings -> Secrets and variables ->
-  Actions). You can also start it by hand from the Actions tab.
+- **`trades journal score`** also writes `journal/track_record.json`, the same numbers for the app's **Track
+  Record** page and the weekly digest, with the current experiment id and the health check's findings.
+- **`trades journal health`** looks for problems and exits with status 1 if it finds any: a session among the last
+  five with no rows (a missed session cannot be recorded afterwards, since that would be look-ahead, so the note
+  drops off after five sessions), a latest session missing a watchlist symbol, paper orders still not final after
+  their trade date, and paper fills more than 50 bps from the open.
+- **`trades journal digest`** prints a short plain-English summary of `journal/track_record.json`.
+- **GitHub Actions** (`.github/workflows/journal.yml`) runs record, score and the health check at 22:15 UTC on
+  weekdays (after the close in both EDT and EST) and commits the results as `github-actions[bot]`. Scheduled
+  workflows only run on the repository's default branch. Yahoo needs no key; if it fails, the journal falls back to
+  Alpaca's data API with the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` repository secrets (Settings -> Secrets
+  and variables -> Actions). You can also start it by hand from the Actions tab.
+- **Alerts and the weekly digest arrive by email, through GitHub issues.** When the journal or paper job fails, or
+  the health check finds a problem, the workflow opens an issue labelled `journal-health` (or comments on the one
+  already open) with a link to the run. Close it once fixed. To get a digest every Friday, set the repository
+  variable `DIGEST_ISSUE` to `true` (Settings -> Secrets and variables -> Actions -> Variables): it is posted as a
+  comment on an issue labelled `journal-digest`. GitHub emails you about both as long as you watch the repository
+  (Watch -> All activity, or Custom -> Issues).
 
 ```bash
 trades journal record     # after the close; does nothing on weekends and holidays
-trades journal score      # rewrites journal/REPORT.md
+trades journal score      # rewrites journal/REPORT.md and journal/track_record.json
+trades journal health     # exit status 1 if anything looks wrong
+trades journal digest     # the weekly summary, as Markdown
 ```
 
 ## Paper trading (Alpaca paper account only)
@@ -433,7 +457,7 @@ trades/
   strategies/  strategy framework + library, position sizing
   backtest/    event-driven engine, metrics, optimisation (grid + Deflated Sharpe, walk-forward)
   advisor/     ensemble recommendation engine with evidence and risk-based sizing
-  journal/     forward journal: record recommendations after the close, score them later
+  journal/     forward journal: record recommendations after the close, score them, track record, health check
   paper/       paper trading on Alpaca's paper API only (guardrails, idempotent orders, reconciliation)
   arena/       strategy simulations: steerable simulated market, replay/real-time feeds, strategy agents
   sim/         paper broker, practice sessions, behavioural scorecard
