@@ -71,6 +71,7 @@ class RunConfig:
     strategies: list[dict[str, Any]] = field(default_factory=lambda: [dict(s) for s in DEFAULT_STRATEGIES])
     pairs: list[list[str]] = field(default_factory=list)
     initial_cash: float = 100_000.0
+    fractional: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
     allow_short: bool = True
@@ -91,8 +92,8 @@ class RunConfig:
             raise ValueError("pick at least one strategy")
         if len(self.strategies) > 16:
             raise ValueError("at most 16 strategies per simulation")
-        if not 1_000 <= float(self.initial_cash) <= 1e9:
-            raise ValueError("initial cash must be between 1,000 and 1,000,000,000")
+        if not 100 <= float(self.initial_cash) <= 1e9:
+            raise ValueError("initial cash must be between 100 and 1,000,000,000")
         if not 0 <= self.slippage_bps <= 200 or not 0 <= self.commission_bps <= 200:
             raise ValueError("costs must be between 0 and 200 bps")
         if not 60 <= int(self.warmup) <= MAX_WARMUP:
@@ -224,6 +225,7 @@ def create_run(config: RunConfig, data_service=None) -> StrategyRun:
         )
     bt = BacktestConfig(
         initial_cash=config.initial_cash,
+        fractional=config.fractional,
         commission_bps=config.commission_bps,
         slippage_bps=config.slippage_bps,
         allow_short=config.allow_short,

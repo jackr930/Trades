@@ -25,6 +25,27 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "better": "higher",
         "help": "Compound annual growth rate: the constant yearly return that would produce the same result.",
     },
+    "after_tax_cagr": {
+        "label": "CAGR after tax",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "CAGR after paying tax each year on realized gains (short-term at your short-term rate, held over "
+        "a year at your long-term rate), with net losses carried forward. Federal only; average cost, no "
+        "wash sales. Equal to CAGR in a tax-advantaged account.",
+    },
+    "after_tax_cagr_if_sold": {
+        "label": "After tax, if sold at end",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "After-tax CAGR if every open position were also sold on the last bar and its gain taxed. "
+        "Buy-and-hold defers almost all of its tax until then, so compare on this line.",
+    },
+    "taxes_paid": {
+        "label": "Taxes paid",
+        "fmt": "money",
+        "better": "lower",
+        "help": "Tax charged on realized gains over the backtest (excluding the sale at the end).",
+    },
     "volatility": {
         "label": "Volatility",
         "fmt": "pct",

@@ -3,6 +3,8 @@ import { api, type BacktestRequest } from "../api";
 import { useApp, type Route } from "../state";
 import type {
   BacktestResult,
+  CostSensitivity,
+  CostSensitivityRow,
   GridResult,
   Meta,
   OptimizeResult,
@@ -108,7 +110,8 @@ export default function StrategyLab({ route }: { route: Route }) {
   const [params, setParams] = useState<Record<string, unknown>>(() => defaultParams(initial, settings.provider, settings));
   const [sizing, setSizing] = useState<Partial<Sizing>>(() => baseSizing(initial));
   const [config, setConfig] = useState({
-    initial_cash: 100000,
+    initial_cash: settings.account_equity, // your account profile
+    fractional: settings.fractional_shares,
     commission_bps: settings.commission_bps,
     slippage_bps: settings.slippage_bps,
     allow_short: settings.allow_short || initial.uses_short,
@@ -178,6 +181,7 @@ export default function StrategyLab({ route }: { route: Route }) {
       end: req.end ?? undefined,
       strategies: [req.strategy, ...(compare && counterpart ? [{ id: counterpart.id }] : [])],
       initial_cash: config.initial_cash,
+      fractional: config.fractional,
       slippage_bps: config.slippage_bps,
       commission_bps: config.commission_bps,
       allow_short: config.allow_short,
@@ -361,7 +365,12 @@ export default function StrategyLab({ route }: { route: Route }) {
                 </select>
               </label>
             </div>
-            <label className="check" style={{ marginTop: 10 }} title={strategy.sizes_itself ? "Set by the strategy's own short-selling parameter" : undefined}>
+            <div className="col" style={{ gap: 6, marginTop: 10 }}>
+            <label className="check">
+              <input type="checkbox" checked={config.fractional} onChange={(e) => setConfig({ ...config, fractional: e.target.checked })} />
+              Fractional shares
+            </label>
+            <label className="check" title={strategy.sizes_itself ? "Set by the strategy's own short-selling parameter" : undefined}>
               <input
                 type="checkbox"
                 checked={strategy.sizes_itself ? Boolean(params.allow_short) : config.allow_short}
@@ -370,6 +379,7 @@ export default function StrategyLab({ route }: { route: Route }) {
               />
               Allow short selling
             </label>
+            </div>
             <p className="small muted" style={{ marginTop: 8 }}>
               Signals are computed at a bar's close and filled on the next bar, so a strategy can never trade on information it
               would not have had (no look-ahead bias).
@@ -440,6 +450,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
   const equityLines = useMemo(
     () => [
       { id: "strategy", label: res.strategy.name, data: res.equity, color: colors.series[0] },
+      ...(res.after_tax_equity ? [{ id: "after_tax", label: `${res.strategy.name}, after tax`, data: res.after_tax_equity, color: colors.series[1] }] : []),
       ...(res.benchmark ? [{ id: "bench", label: res.benchmark.label, data: res.benchmark.equity, color: colors.deemph }] : []),
     ],
     [res, colors],
@@ -463,7 +474,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
     <>
       <Warnings items={res.warnings} />
       <MetricTiles
-        keys={["total_return", "cagr", "sharpe", "max_drawdown", "psr", "n_trades", "win_rate", "exposure"]}
+        keys={["total_return", "cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", "psr", "n_trades", "exposure"]}
         metrics={res.metrics}
         benchmark={res.benchmark?.metrics}
         info={meta.metrics}
@@ -501,6 +512,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         </div>
         <LineChart lines={ddLines} format={(v) => fmtPct(v, 1)} height={160} label="Drawdown" />
       </div>
+      {res.cost_sensitivity ? <CostSensitivityCard cs={res.cost_sensitivity} tax={res.tax} /> : null}
       {res.charts.map((ch) => (
         <TradeChart key={ch.symbol} chart={ch} timeframe={res.timeframe} />
       ))}
@@ -547,6 +559,63 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         <TradesTable trades={res.trades} showSymbol={res.symbols.length > 1} />
       </div>
     </>
+  );
+}
+
+/** The same backtest at 1x, 2x and 4x slippage: does the edge survive higher trading costs? */
+function CostSensitivityCard({ cs, tax }: { cs: NonNullable<BacktestResult["cost_sensitivity"]>; tax: BacktestResult["tax"] }) {
+  const taxable = tax?.account_type === "taxable";
+  const cols: [string, (r: CostSensitivityRow | CostSensitivity["benchmark"]) => string][] = [
+    ["CAGR", (r) => fmtPct(r.cagr)],
+    [taxable ? "After tax, if sold" : "After tax", (r) => fmtPct(r.after_tax_cagr_if_sold)],
+    ["Sharpe", (r) => fmtNum(r.sharpe)],
+    ["Max drawdown", (r) => fmtPct(r.max_drawdown)],
+    ["Cost drag / yr", (r) => fmtPct(r.cost_drag, 2, false)],
+  ];
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Cost sensitivity</h2>
+        <span className="sub">The same backtest with slippage doubled and quadrupled</span>
+      </div>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Slippage</th>
+              {cols.map(([label]) => (
+                <th key={label} className="num">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {cs.rows.map((r) => (
+              <tr key={r.multiplier}>
+                <td>
+                  {r.multiplier}x ({fmtNum(r.slippage_bps, 1)} bps)
+                </td>
+                {cols.map(([label, f]) => (
+                  <td key={label} className="num">
+                    {f(r)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr className="muted">
+              <td>Buy &amp; hold</td>
+              {cols.map(([label, f]) => (
+                <td key={label} className="num">
+                  {f(cs.benchmark)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style={{ marginTop: 10 }}>{cs.verdict}</p>
+    </div>
   );
 }
 

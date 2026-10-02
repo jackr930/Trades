@@ -129,6 +129,7 @@ class SimConfig:
     provider: str | None = None
     seed: int | None = None
     initial_cash: float = 100_000.0
+    fractional: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
     allow_short: bool = False
@@ -148,8 +149,8 @@ class SimConfig:
             raise ValueError("warmup_bars must be between 50 and 1000")
         if not (20 <= self.length_bars <= 1500):
             raise ValueError("length_bars must be between 20 and 1500")
-        if not (1_000 <= self.initial_cash <= 1e9):
-            raise ValueError("initial_cash must be between 1,000 and 1,000,000,000")
+        if not (100 <= self.initial_cash <= 1e9):
+            raise ValueError("initial_cash must be between 100 and 1,000,000,000")
         if not (0.1 <= self.max_leverage <= 4):
             raise ValueError("max_leverage must be between 0.1 and 4")
         if self.source == "scenario" and self.scenario not in SCENARIOS:
@@ -196,6 +197,7 @@ class SimSession:
             slippage_bps=config.slippage_bps,
             allow_short=config.allow_short,
             max_leverage=config.max_leverage,
+            fractional=config.fractional,
         )
         self.broker.last_prices[symbol] = float(bars["close"].iloc[self.cursor])
         self.equity: list[float] = [config.initial_cash]
@@ -212,6 +214,7 @@ class SimSession:
         data = {self.symbol: self.bars}
         cfg = BacktestConfig(
             initial_cash=self.config.initial_cash,
+            fractional=self.config.fractional,
             commission_bps=self.config.commission_bps,
             slippage_bps=self.config.slippage_bps,
             allow_short=self.config.allow_short,

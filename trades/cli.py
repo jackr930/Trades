@@ -69,6 +69,8 @@ def _parse_params(items: list[str]) -> dict:
 METRIC_ROWS = (
     "total_return",
     "cagr",
+    "after_tax_cagr",
+    "after_tax_cagr_if_sold",
     "volatility",
     "sharpe",
     "max_drawdown",
@@ -80,6 +82,7 @@ METRIC_ROWS = (
     "turnover",
     "total_costs",
     "cost_drag",
+    "taxes_paid",
 )
 
 
@@ -106,7 +109,7 @@ def _print_table(columns: dict[str, dict]) -> None:
 def cmd_backtest(args) -> int:
     from trades.backtest.engine import BacktestConfig
     from trades.backtest.optimize import walk_forward
-    from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold
+    from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold, tax_metrics
     from trades.config import SettingsStore
     from trades.core.timeframes import Timeframe
     from trades.data.base import align_bars, history_start
@@ -140,7 +143,11 @@ def cmd_backtest(args) -> int:
     aligned = align_bars({s: frames[s] for s in symbols})
     idx = next(iter(aligned.values())).index
     eval_start = int(idx.searchsorted(pd.Timestamp(start).tz_localize("UTC"))) if start else None
+    profile = store.get()  # the account profile: starting equity, fractional shares, taxes
+    tax = profile.tax_profile()
     cfg = BacktestConfig(
+        initial_cash=profile.account_equity,
+        fractional=profile.fractional_shares,
         slippage_bps=args.slippage,
         commission_bps=args.commission,
         allow_short=args.short or bool(strat.params.get("allow_short") and strat.sizes_itself),
@@ -158,10 +165,13 @@ def cmd_backtest(args) -> int:
 
     def benchmark_columns(index, start_at: int) -> dict[str, dict]:
         """Buy-and-hold of the same symbols, and of ``--benchmark``, over the same bars."""
-        cols = {"EW buy & hold": buy_and_hold({s: aligned[s].loc[index] for s in symbols}, cfg, start_at)[1]}
+        def with_tax(sub):
+            res, metrics = buy_and_hold(sub, cfg, start_at)
+            return metrics | tax_metrics(res, sub, start_at, tax, cfg.periods_per_year)[0]
+
+        cols = {"EW buy & hold": with_tax({s: aligned[s].loc[index] for s in symbols})}
         if bench_symbol:
-            bdf = frames[bench_symbol].reindex(index)
-            cols[f"{bench_symbol} buy & hold"] = buy_and_hold({bench_symbol: bdf}, cfg, start_at)[1]
+            cols[f"{bench_symbol} buy & hold"] = with_tax({bench_symbol: frames[bench_symbol].reindex(index)})
         return cols
 
     if args.walk_forward:
@@ -187,7 +197,7 @@ def cmd_backtest(args) -> int:
         print(f"\n{res['interpretation']}")
         return 0
 
-    bt = backtest_strategy(strat, aligned, sizing, cfg, eval_start)
+    bt = backtest_strategy(strat, aligned, sizing, cfg, eval_start, tax=tax)
     eq = bt.equity
     print(
         f"\n{strat.name} on {', '.join(symbols)}  ({eq.index[0].date()} -> {eq.index[-1].date()}, "
@@ -199,6 +209,13 @@ def cmd_backtest(args) -> int:
     if bench_symbol:
         cols |= benchmark_columns(bt.result.equity.index, bt.start)
     _print_table(cols)
+    if tax.taxable:
+        print(
+            f"\nTaxes: {tax.short_term_rate:.0%} short-term / {tax.long_term_rate:.0%} long-term (estimates from "
+            "Settings; federal only, average cost, no wash sales)."
+        )
+    else:
+        print("\nTax-advantaged account: no tax as you go, so after-tax equals pre-tax.")
     for w in bt.warnings:
         print(f"\n! {w}")
     return 0

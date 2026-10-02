@@ -22,7 +22,8 @@ import pandas as pd
 from trades.backtest.engine import BacktestConfig
 from trades.backtest.metrics import performance_metrics
 from trades.backtest.optimize import walk_forward
-from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold
+from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold, tax_metrics
+from trades.backtest.tax import TaxProfile
 from trades.config import DEFAULT_WATCHLISTS, Settings, SettingsStore
 from trades.data.base import align_bars, history_start
 from trades.data.service import DataService
@@ -40,7 +41,8 @@ def row(label: str, period: str, m: dict) -> str:
 
     psr = "–" if m.get("psr") is None else f"{m['psr']:.0%}"
     return (
-        f"| {label} | {period} | {pct('cagr')} | {num('sharpe', '.2f')} | {psr} | {pct('max_drawdown')} "
+        f"| {label} | {period} | {pct('cagr')} | {pct('after_tax_cagr_if_sold')} | {num('sharpe', '.2f')} | {psr} "
+        f"| {pct('max_drawdown')} "
         f"| {num('turnover', '.1f')}x | {'–' if m.get('cost_drag') is None else format(m['cost_drag'], '.2%')} |"
     )
 
@@ -65,14 +67,20 @@ def check(name: str, symbols: list[str], data: DataService, provider: str, start
     spy = {"SPY": frames["SPY"].reindex(index)}
     lines = []
     tests = {}
+    tax = TaxProfile()  # taxable, 22% short-term / 15% long-term: the app's default estimates
+
+    def held(sub, start_at=0):  # buy-and-hold metrics, after tax if sold at the end
+        res, m = buy_and_hold(sub, cfg, start_at)
+        return m | tax_metrics(res, sub, start_at, tax, ppy)[0]
+
     for weighting in ("equal", "by_category"):
         strat, sizing = StrategySpec("consensus", {**base, "weighting": weighting}).build()
-        tests[weighting] = bt = backtest_strategy(strat, aligned, sizing, cfg, eval_start)
+        tests[weighting] = bt = backtest_strategy(strat, aligned, sizing, cfg, eval_start, tax=tax)
         period = f"{bt.equity.index[0].date()} – {bt.equity.index[-1].date()}"
         lines.append(row(f"{name}: consensus, {weighting.replace('_', ' ')}", period, bt.metrics))
     bt = tests["equal"]
-    lines.append(row(f"{name}: SPY buy & hold", period, buy_and_hold(spy, cfg, bt.start)[1]))
-    lines.append(row(f"{name}: equal-weight buy & hold", period, bt.benchmark_metrics or {}))
+    lines.append(row(f"{name}: SPY buy & hold", period, held(spy, bt.start)))
+    lines.append(row(f"{name}: equal-weight buy & hold", period, held(aligned, bt.start)))
 
     # Walk-forward: the first training window starts at --start (after the members' warm-up).
     wf_data = {s: df.iloc[eval_start - warm + 1 :] for s, df in aligned.items()}
@@ -86,9 +94,8 @@ def check(name: str, symbols: list[str], data: DataService, provider: str, start
     for weighting, bt in tests.items():
         lines.append(row(f"{name}: consensus, {weighting.replace('_', ' ')}", period, window_metrics(bt.result, a, b, ppy)))
     oos_index = index[index.searchsorted(a) : index.searchsorted(b) + 1]
-    lines.append(row(f"{name}: SPY buy & hold", period, buy_and_hold({"SPY": spy["SPY"].loc[oos_index]}, cfg)[1]))
-    ew = {s: df.loc[oos_index] for s, df in aligned.items()}
-    lines.append(row(f"{name}: equal-weight buy & hold", period, buy_and_hold(ew, cfg)[1]))
+    lines.append(row(f"{name}: SPY buy & hold", period, held({"SPY": spy["SPY"].loc[oos_index]})))
+    lines.append(row(f"{name}: equal-weight buy & hold", period, held({s: df.loc[oos_index] for s, df in aligned.items()})))
     return lines
 
 
@@ -103,8 +110,10 @@ def main() -> int:
     cfg = BacktestConfig(slippage_bps=args.slippage, allow_short=False)
     sets = {"Watchlist": DEFAULT_WATCHLISTS["yahoo"], "Sectors": SECTORS}
     print(f"Provider: {args.provider}; start {start}; slippage {args.slippage:g} bps per fill.\n")
-    print("| Run | Period | CAGR | Sharpe | P(Sharpe > 0) | Max drawdown | Turnover / yr | Costs / yr |")
-    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    print("After-tax: 22% short-term / 15% long-term federal estimates, everything sold on the last day. Not")
+    print("computed ('–') for the walk-forward or for out-of-sample slices of the longer backtests.\n")
+    print("| Run | Period | CAGR | After-tax CAGR | Sharpe | P(Sharpe > 0) | Max drawdown | Turnover / yr | Costs / yr |")
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for name, symbols in sets.items():
         for line in check(name, symbols, data, args.provider, start, cfg):
             print(line)

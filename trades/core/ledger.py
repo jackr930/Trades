@@ -10,7 +10,18 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+import pandas as pd
+
 EPS = 1e-9
+DAY_NS = 86_400 * 10**9
+
+
+def _ns(time: Any) -> int | None:
+    """``time`` as nanoseconds since the epoch, or None if it is not a point in time."""
+    try:
+        return int(pd.Timestamp(time).value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -18,6 +29,8 @@ class Position:
     symbol: str
     qty: float = 0.0
     avg_price: float = 0.0
+    # Share-weighted average acquisition time (ns), the holding-period start for taxes.
+    opened_ns: int | None = None
 
     @property
     def side(self) -> str:
@@ -35,6 +48,10 @@ class Fill:
     slippage: float  # dollar cost of slippage vs. the reference price
     order_id: str | None = None
     tag: str = ""
+    # Price P&L this fill realized against the average cost (before commissions), and how long
+    # the shares it closed had been held (from their average acquisition time). Used for taxes.
+    realized_pnl: float = 0.0
+    holding_days: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -188,12 +205,16 @@ class Ledger:
 
         trade = self.open_trades.get(symbol)
         same_direction = abs(old_qty) <= EPS or (old_qty > 0) == (qty > 0)
+        now_ns = _ns(time)
         if same_direction:
             # Opening or adding.
             if trade is None:
                 trade = self._open_trade(symbol, "long" if qty > 0 else "short", time, index, price)
             total = abs(old_qty) + abs(qty)
             pos.avg_price = (abs(old_qty) * pos.avg_price + abs(qty) * price) / total
+            if now_ns is not None:
+                held = pos.opened_ns if abs(old_qty) > EPS and pos.opened_ns is not None else now_ns
+                pos.opened_ns = int(round((abs(old_qty) * held + abs(qty) * now_ns) / total))
             pos.qty = new_qty
             trade.entry_notional += abs(qty) * price
             trade.entry_price = pos.avg_price
@@ -206,6 +227,9 @@ class Ledger:
         closing = min(abs(qty), abs(old_qty))
         direction = 1.0 if old_qty > 0 else -1.0
         realized = closing * (price - pos.avg_price) * direction
+        fill.realized_pnl = realized
+        if now_ns is not None and pos.opened_ns is not None:
+            fill.holding_days = (now_ns - pos.opened_ns) / DAY_NS
         if trade is None:  # defensive: position without a trade record
             trade = self._open_trade(symbol, "long" if old_qty > 0 else "short", time, index, pos.avg_price)
             trade.entry_notional = abs(old_qty) * pos.avg_price
@@ -222,6 +246,7 @@ class Ledger:
             remainder = qty + old_qty  # signed remainder in the new direction
             pos.qty = remainder
             pos.avg_price = price
+            pos.opened_ns = now_ns
             new_trade = self._open_trade(symbol, "long" if remainder > 0 else "short", time, index, price)
             new_trade.entry_notional = abs(remainder) * price
             new_trade.qty = abs(remainder)
@@ -231,6 +256,7 @@ class Ledger:
             pos.qty = new_qty
             if new_qty == 0.0:
                 pos.avg_price = 0.0
+                pos.opened_ns = None
                 self._close_trade(symbol, time, index)
         return fill
 

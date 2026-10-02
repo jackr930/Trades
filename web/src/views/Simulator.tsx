@@ -137,7 +137,7 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
   const [blind, setBlind] = useState(true);
   const realProviders = meta.providers.filter((p) => p.id !== "synthetic" && p.configured);
   const [provider, setProvider] = useState(settings.provider !== "synthetic" ? settings.provider : "yahoo");
-  const [cash, setCash] = useState(100000);
+  const [cash, setCash] = useState(settings.account_equity); // your account profile
   const [length, setLength] = useState(250);
   const [reveal, setReveal] = useState<"live" | "end" | "off">("end");
   const [allowShort, setAllowShort] = useState(false);
@@ -159,6 +159,7 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
       source,
       scenario,
       initial_cash: cash,
+      fractional: settings.fractional_shares,
       length_bars: length,
       reveal,
       allow_short: allowShort,
@@ -269,7 +270,7 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
         <div className="form-grid">
           <label className="field">
             <span>Starting cash ($)</span>
-            <input className="input num" type="number" value={cash} min={1000} onChange={(e) => setCash(Number(e.target.value))} />
+            <input className="input num" type="number" value={cash} min={100} onChange={(e) => setCash(Number(e.target.value))} />
           </label>
           <label className="field">
             <span>Length (trading days)</span>

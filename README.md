@@ -24,7 +24,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | --- | --- |
 | **Strategy simulator** | Pick strategies and a market, press play. Each strategy decides at every bar's close using only the past and fills at the next open, in its own paper account, so you watch them react in real time. Markets: a **simulated market** (regime-switching, fat tails, volatility clustering, a cointegrated pair) where you can inject a crash, rally, volatility spike, forced regime, earnings gap or pair break mid-run; a **historical replay** at any speed; or a **real-time forward test** on Yahoo or Alpaca data, trading as each bar completes. A live leaderboard, equity race and a feed of every trade *with its reason*; at the end, risk-adjusted results and each strategy's return in every hidden regime. |
 | **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
-| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns and trade lists. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
+| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x slippage. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
 | **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing and behavioural biases. |
 
@@ -212,6 +212,30 @@ Settings, including API keys, are stored locally in `~/.trades/settings.json` (o
 file mode 0600. Keys are masked whenever the UI reads them back. The server listens on `127.0.0.1` by default and
 needs no login there; to make it reachable from other machines, use the password-protected setup in
 [Put it online](#put-it-online-render).
+
+## Your account: costs and taxes
+
+**Settings -> Your account** holds one account profile, the default for the Strategy Lab, the strategy simulator,
+practice mode and the Live Desk:
+
+- **Starting equity** (from $100 everywhere, including the simulators);
+- **Fractional shares** on or off: the Live Desk suggests fractional share counts when on, whole shares (rounded
+  down) when off, and backtests and simulations trade the same way;
+- **Account type**: taxable, or tax-advantaged (an IRA or 401(k), which pays no tax as it goes);
+- **Short- and long-term tax rates**, 22% and 15% by default. These are estimates: replace them with your own
+  federal bracket.
+
+After-tax results are computed from a backtest's fills afterwards; the engine is unchanged. Every fill records the
+gain it realized and how long the shares it closed had been held. Each calendar year, gains are split into
+short-term (held one year or less) and long-term, netted, with any net loss carried forward, and tax is charged on
+the year's last bar. Buy-and-hold is taxed only on what it realizes (normally nothing), so the Lab also shows an
+**"after tax, if sold at end"** line for both: that is the fair comparison. Simplifications: average cost instead
+of tax lots, no wash-sale rule, no $3,000 offset against ordinary income, federal tax only, and dividends are not
+taxed separately. A tax-advantaged account shows after-tax equal to pre-tax.
+
+After every Lab backtest, the **cost sensitivity** card reruns it at 2x and 4x the slippage and says whether the
+strategy still beats buy-and-hold at double costs (after tax, if sold at the end, in a taxable account).
+`trades backtest` prints the after-tax lines too.
 
 ## How results are kept honest
 
