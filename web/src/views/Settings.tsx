@@ -206,6 +206,13 @@ export default function SettingsView() {
             <input className="input num" type="number" step={1} {...num("max_position_pct", 100)} />
           </label>
           <label className="field">
+            <span>
+              Portfolio cap (% of account){" "}
+              <Help text="All suggested positions together. If they add up to more, every suggestion shrinks in proportion. 100% means no borrowing." />
+            </span>
+            <input className="input num" type="number" step={5} {...num("max_gross_exposure", 100)} />
+          </label>
+          <label className="field">
             <span>Slippage (bps)</span>
             <input className="input num" type="number" step={0.5} {...num("slippage_bps")} />
           </label>
@@ -227,6 +234,7 @@ export default function SettingsView() {
                 risk_per_trade: draft.risk_per_trade,
                 stop_atr: draft.stop_atr,
                 max_position_pct: draft.max_position_pct,
+                max_gross_exposure: draft.max_gross_exposure,
                 slippage_bps: draft.slippage_bps,
                 commission_bps: draft.commission_bps,
                 allow_short: draft.allow_short,
@@ -245,7 +253,7 @@ export default function SettingsView() {
         </div>
         <div className="col" style={{ gap: 6 }}>
           {meta.strategies
-            .filter((s) => s.id !== "buy_hold")
+            .filter((s) => s.id !== "buy_hold" && !s.sizes_itself)
             .map((s) => (
               <label key={s.id} className="check">
                 <input type="checkbox" checked={advisorIds.has(s.id)} onChange={(e) => toggleAdvisor(s.id, e.target.checked)} />
@@ -255,6 +263,20 @@ export default function SettingsView() {
               </label>
             ))}
         </div>
+        <label className="field" style={{ marginTop: 14, maxWidth: 420 }}>
+          <span>
+            Combine the votes{" "}
+            <Help text="Equal: every strategy's vote counts once, so four trend rules that agree count four times. By category: votes are averaged within each category (trend, mean reversion, momentum, ...) first, then the categories are averaged." />
+          </span>
+          <select
+            className="input"
+            value={draft.consensus_weighting}
+            onChange={(e) => setDraft({ ...draft, consensus_weighting: e.target.value as Settings["consensus_weighting"] })}
+          >
+            <option value="equal">Equally (one vote per strategy)</option>
+            <option value="by_category">By category (one vote per kind of strategy)</option>
+          </select>
+        </label>
         <h3 className="section-title" style={{ marginTop: 14 }}>
           Pairs for pairs trading
         </h3>
@@ -287,7 +309,13 @@ export default function SettingsView() {
         <div className="row" style={{ marginTop: 12 }}>
           <button
             className="btn primary"
-            onClick={() => void save({ advisors: draft.advisors, pairs: draft.pairs.filter((p) => p[0] && p[1]) })}
+            onClick={() =>
+              void save({
+                advisors: draft.advisors,
+                pairs: draft.pairs.filter((p) => p[0] && p[1]),
+                consensus_weighting: draft.consensus_weighting,
+              })
+            }
           >
             Save strategies
           </button>

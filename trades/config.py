@@ -35,6 +35,9 @@ DEFAULT_ADVISORS: list[dict[str, Any]] = [
     {"id": "pairs_trading", "params": {}},
 ]
 
+DEFAULT_PAIRS: list[list[str]] = [["SIMPRA", "SIMPRB"]]  # the demo market's cointegrated pair
+WEIGHTINGS = ("equal", "by_category")  # how the Live Desk averages votes (see trades.strategies.consensus)
+
 
 def trades_home() -> Path:
     return Path(os.environ.get("TRADES_HOME", Path.home() / ".trades")).expanduser()
@@ -48,7 +51,8 @@ class Settings:
         default_factory=lambda: {k: list(v) for k, v in DEFAULT_WATCHLISTS.items()}
     )
     advisors: list[dict[str, Any]] = field(default_factory=lambda: [dict(a) for a in DEFAULT_ADVISORS])
-    pairs: list[list[str]] = field(default_factory=lambda: [["SIMPRA", "SIMPRB"]])  # for pairs trading
+    pairs: list[list[str]] = field(default_factory=lambda: [list(p) for p in DEFAULT_PAIRS])  # for pairs trading
+    consensus_weighting: str = "equal"  # "equal": every vote counts once; "by_category": categories count once
     alpaca_key_id: str = ""
     alpaca_secret_key: str = ""
     alpaca_feed: str = "iex"
@@ -58,6 +62,7 @@ class Settings:
     risk_per_trade: float = 0.01  # fraction of equity lost if the protective stop is hit
     stop_atr: float = 2.0  # protective stop distance in ATRs
     max_position_pct: float = 0.20  # cap on any single position, fraction of equity
+    max_gross_exposure: float = 1.0  # cap on all suggested positions together (1.0 = 100% of equity)
     allow_short: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
@@ -110,6 +115,8 @@ _VALIDATORS = {
     "risk_per_trade": lambda v: 0 < float(v) <= 0.1,
     "stop_atr": lambda v: 0.25 <= float(v) <= 10,
     "max_position_pct": lambda v: 0 < float(v) <= 1.0,
+    "max_gross_exposure": lambda v: 0.1 <= float(v) <= 2.0,
+    "consensus_weighting": lambda v: v in WEIGHTINGS,
     "commission_bps": lambda v: 0 <= float(v) <= 100,
     "slippage_bps": lambda v: 0 <= float(v) <= 200,
     "poll_seconds": lambda v: 2 <= float(v) <= 3600,

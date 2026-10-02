@@ -283,7 +283,9 @@ def walk_forward(
         cfg.periods_per_year,
     )
     d_res = run_backtest(sub, d_w.iloc[oos_start - 1 : oos_end], cfg, 0)
-    d_m = performance_metrics(d_res.equity, cfg.periods_per_year, d_res.trades, d_res.fills)
+    d_m = performance_metrics(
+        d_res.equity, cfg.periods_per_year, d_res.trades, d_res.fills, d_res.gross_exposure
+    )
 
     # Compare like with like: a total return over a 3-year training window and one over the whole
     # stitched test period differ in length, so the total-return objective is compared annualised.

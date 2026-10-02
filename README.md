@@ -23,7 +23,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | Area | What it does |
 | --- | --- |
 | **Strategy simulator** | Pick strategies and a market, press play. Each strategy decides at every bar's close using only the past and fills at the next open, in its own paper account, so you watch them react in real time. Markets: a **simulated market** (regime-switching, fat tails, volatility clustering, a cointegrated pair) where you can inject a crash, rally, volatility spike, forced regime, earnings gap or pair break mid-run; a **historical replay** at any speed; or a **real-time forward test** on Yahoo or Alpaca data, trading as each bar completes. A live leaderboard, equity race and a feed of every trade *with its reason*; at the end, risk-adjusted results and each strategy's return in every hidden regime. |
-| **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. |
+| **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
 | **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns and trade lists. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
 | **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing and behavioural biases. |
@@ -86,6 +86,37 @@ Open **Simulator -> Test strategies**, pick a market and a set of strategies, an
 | Low-volatility anomaly | Defensive factor | Strong | Ang et al. (2006), *JF*; Frazzini & Pedersen (2014), *JFE* |
 | Short-term reversal | Mean reversion | Moderate | Lehmann (1990); Jegadeesh (1990); Avramov, Chordia & Goyal (2006) |
 | Buy and hold | Benchmark | — | Sharpe (1991), *FAJ* |
+
+### The Live Desk consensus
+
+What you would actually trade on is the Live Desk's consensus, not any single strategy, so it is a strategy too
+(`consensus`), runnable from the Strategy Lab, the simulator and the command line. One function,
+`trades.strategies.consensus.decide`, goes from votes to a suggested position, and both the Live Desk and the
+`consensus` strategy call it:
+
+1. **Score.** The average vote of the strategies that are not warming up (+1 bullish, 0 neutral, -1 bearish).
+   Four of the eight default strategies are trend rules and a fifth is momentum, so their votes are correlated.
+   **Settings -> Combine the votes -> By category** averages within each category (trend following, mean
+   reversion, momentum, statistical arbitrage) first and then across categories, so agreeing trend rules count once.
+2. **Action.** Score >= +0.2 buy (>= +0.5 strong buy); <= -0.2 sell, or short if shorting is allowed; anything
+   in between is **Neutral, with no position**.
+3. **Weight.** Conviction (the absolute score) x min(risk per trade x price / (stop ATRs x ATR(20)), max
+   position). Account equity cancels out, so this is the same weight on a $1,000 or a $1,000,000 account.
+4. **Portfolio cap.** If the suggestions add up to more than the cap (100% of equity by default, up to 200% in
+   Settings), every one of them shrinks in proportion.
+
+The strategy's members default to the Live Desk's strategy list; the Lab and the command line fill in your
+saved Live Desk settings (strategies, pairs, weighting, risk per trade, stop, position cap, portfolio cap,
+shorting), so a backtest tests what the Live Desk would have told you. A test runs the Live Desk on data cut off
+at several bars and checks that it gives the same action and weight as the strategy at those bars; the
+no-look-ahead test covers the strategy like every other.
+
+Rules re-checked on a fixed schedule (time-series momentum every 21 bars, cross-sectional momentum's monthly
+rebalance) count that schedule from the first bar of history, so the same rule fed a different start date checks
+on different days. Daily history therefore always starts on 2 January 2008: on the Live Desk, in
+`trades recommend` and in every backtest that starts after early 2009, so all of them check on the same days. A
+backtest that starts earlier (or with blank dates in the Lab) loads more history and may check on other days. If
+a provider's history begins later than 2008, its first bar is used, in every view alike.
 
 ### Modern quant methods
 
@@ -190,7 +221,10 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
   (or close). The test suite truncates the data at several points and checks that every strategy's past signals,
   indicators and position sizes never change when future bars are added.
 - **Costs are always on.** Slippage (default 5 bps per fill), optional commissions and short-borrow fees. The Lab
-  warns you when costs eat a large share of gross profits.
+  warns you when costs eat a large share of gross profits and reports the annual cost drag (costs per year as a
+  share of average equity).
+- **What is researched is what is recommended.** The Live Desk's consensus and the `consensus` strategy share one
+  decision function, and a test checks they agree bar by bar.
 - **Statistics that tell you how much to trust a number.** Each backtest reports the Probabilistic Sharpe Ratio
   (Bailey & López de Prado 2012) alongside the Sharpe ratio. Parameter searches report the Deflated Sharpe Ratio
   (2014), and walk-forward analysis compares in-sample with out-of-sample results.
@@ -213,9 +247,21 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
 trades strategies -v                                  # list strategies with references
 trades backtest tsmom SPY --provider yahoo --start 2010-01-01
 trades backtest pairs_trading KO PEP --provider yahoo --short
+trades backtest consensus SPY QQQ AAPL MSFT --provider yahoo --start 2010-01-01 --benchmark SPY
+trades backtest consensus XLB XLE XLF XLI XLK XLP XLU XLV XLY --provider yahoo --start 2010-01-01 \
+    --walk-forward --grid weighting=equal,by_category    # re-choose the weighting each year on past data
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
 trades serve --port 8000
 ```
+
+`trades backtest consensus` uses your saved Live Desk settings unless you override them with `--param`, for
+example `--param weighting=by_category`. `--benchmark SPY` adds SPY buy-and-hold over the same bars next to the
+equal-weight buy-and-hold of your symbols.
+
+Does the consensus beat buy-and-hold after costs? `python scripts/consensus_check.py --provider yahoo` prints a
+Markdown table for the default Yahoo watchlist and for the nine original sector SPDR ETFs (a set nobody picked
+for having won): plain backtests from 2010 with both weightings, a walk-forward test that re-chooses the
+weighting each year using only earlier data, and SPY and equal-weight buy-and-hold over the same bars.
 
 ## Architecture
 

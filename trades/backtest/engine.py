@@ -117,7 +117,8 @@ class BacktestResult:
         return self.weights.sum(axis=1)
 
 
-def _round_qty(qty: float, fractional: bool) -> float:
+def round_qty(qty: float, fractional: bool) -> float:
+    """Shares to order for ``qty``: whole shares toward zero unless fractional shares are allowed."""
     if fractional:
         return round(qty, 6)
     return float(math.trunc(qty))  # toward zero: never oversize
@@ -209,7 +210,7 @@ class ExecutionEngine:
             changed = abs(tw - self.last_target[j]) > 1e-9
             flipped = cur * tw < 0
             if changed or flipped or abs(cur) <= EPS:
-                desired = _round_qty(tw * eq / px, cfg.fractional)
+                desired = round_qty(tw * eq / px, cfg.fractional)
                 trade_value = abs(desired - cur) * px
                 if abs(cur) <= EPS or flipped or trade_value >= cfg.min_trade_weight * eq:
                     if abs(desired - cur) > EPS:
@@ -268,7 +269,7 @@ class ExecutionEngine:
         s = self.symbols[j]
         other = sum(abs(self.ledger.qty(x) * p) for x, p in marks.items() if x != s)
         room = max(self.cfg.max_gross_leverage * equity - other, 0.0)
-        max_qty = _round_qty(room / (float(ref_prices[j]) * (1 + self._slip)), self.cfg.fractional)
+        max_qty = round_qty(room / (float(ref_prices[j]) * (1 + self._slip)), self.cfg.fractional)
         return float(np.sign(target_qty)) * min(abs(target_qty), max_qty)
 
     def _finance(self, prices: dict[str, float]) -> None:

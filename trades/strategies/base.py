@@ -9,6 +9,7 @@ close and is traded at the next bar's open by the backtester and simulator.
 
 from __future__ import annotations
 
+import json
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -59,7 +60,7 @@ class Param:
     name: str
     label: str
     default: Any
-    kind: str = "int"  # int | float | bool | choice | symbol
+    kind: str = "int"  # int | float | bool | choice | symbol | list (a JSON list, e.g. member strategies)
     min: float | None = None
     max: float | None = None
     step: float | None = None
@@ -79,6 +80,15 @@ class Param:
             return value
         if self.kind == "symbol":
             return str(value).strip().upper()
+        if self.kind == "list":
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"{self.label}: not valid JSON ({exc.msg})") from exc
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(f"{self.label}: must be a list")
+            return json.loads(json.dumps(list(value)))  # a JSON-safe copy: never shares the default
         try:
             num = float(value)
         except (TypeError, ValueError) as exc:
@@ -200,6 +210,7 @@ class Strategy(ABC):
     max_symbols: ClassVar[int | None] = None
     uses_short: ClassVar[bool] = False  # needs short selling to work as designed
     family: ClassVar[str] = "classic"  # classic published rule | modern (quant-desk methods)
+    sizes_itself: ClassVar[bool] = False  # signals are already target weights (sizing settings don't apply)
     needs: ClassVar[str] = ""  # what the strategy needs to work well, in plain words
     counterpart: ClassVar[str] = ""  # id of the classic rule a modern method refines (to compare)
 
@@ -261,6 +272,15 @@ class Strategy(ABC):
         state = str(self.position_states(output, symbol)[t])
         return Explanation(symbol, state, value, headline, rules, since, fresh, self.exit_rule(state))
 
+    def states(self, output: StrategyOutput, symbol: str) -> np.ndarray:
+        """The state ``explain`` reports at every bar: long, short, flat or hedge, or "warming_up"
+        while the rule lacks history. Vectorised, so a backtest can read every bar's vote cheaply."""
+        states = self.position_states(output, symbol).copy()
+        diag = output.diagnostics.get(symbol)
+        if diag is not None and "valid" in diag:
+            states[~diag["valid"].to_numpy(bool)] = "warming_up"
+        return states
+
     def position_states(self, output: StrategyOutput, symbol: str) -> np.ndarray:
         """What the strategy holds in ``symbol`` at every bar: long, short or flat. Strategies that
         hold positions only to hedge others label those bars "hedge" (no view on the symbol)."""
@@ -297,6 +317,7 @@ class Strategy(ABC):
             "family": cls.family,
             "needs": cls.needs,
             "counterpart": cls.counterpart,
+            "sizes_itself": cls.sizes_itself,
         }
 
 

@@ -31,7 +31,7 @@ from trades.core.calendar import (
     session_bounds,
 )
 from trades.core.timeframes import SESSION_MINUTES, Timeframe
-from trades.data.base import DataError, Quote, last_bar_forming
+from trades.data.base import HISTORY_START, DataError, Quote, last_bar_forming
 from trades.data.service import DataService
 from trades.data.synthetic import SyntheticProvider, universe_info
 
@@ -39,8 +39,8 @@ log = logging.getLogger(__name__)
 
 IDLE_AFTER = 60.0  # seconds without anyone watching before the live loop parks
 
+# Intraday history is the latest N bars; daily history always starts at HISTORY_START.
 HISTORY_BARS = {
-    Timeframe.D1: 1600,
     Timeframe.H1: 1200,
     Timeframe.M15: 1200,
     Timeframe.M5: 1500,
@@ -290,6 +290,7 @@ class LiveService:
             "recommendations": (self._recs or {}).get("recommendations", []),
             "notes": (self._recs or {}).get("notes", []),
             "provisional": (self._recs or {}).get("provisional", False),
+            "portfolio": (self._recs or {}).get("portfolio"),
             "market": market,
             "demo": self._demo is not None,
             "streaming": self._stream_task is not None and not self._stream_task.done(),
@@ -356,9 +357,8 @@ class LiveService:
         if s.provider == "synthetic":
             self._demo = DemoClock(s.synthetic_seed, s.demo_speed, symbols, tf)
             return
-        frames, errors = await asyncio.to_thread(
-            self.data.bars_many, symbols, tf, None, None, None, count=HISTORY_BARS[tf]
-        )
+        start, count = (HISTORY_START, None) if tf is Timeframe.D1 else (None, HISTORY_BARS[tf])
+        frames, errors = await asyncio.to_thread(self.data.bars_many, symbols, tf, start, None, None, count=count)
         self._bars, self._errors = frames, errors
         provider = self.data.provider()
         if provider.supports_streaming and tf is Timeframe.D1 and frames:

@@ -29,7 +29,9 @@ class StrategySpec:
     def build(self) -> tuple[Strategy, SizingConfig]:
         cls = get_strategy_class(self.id)
         strat = create_strategy(self.id, self.params)
-        return strat, SizingConfig.from_dict(self.sizing, cls.default_sizing)
+        # A strategy whose signals are already target weights (the consensus) keeps its own sizing.
+        sizing = None if cls.sizes_itself else self.sizing
+        return strat, SizingConfig.from_dict(sizing, cls.default_sizing)
 
     def key(self) -> str:
         import json
@@ -107,15 +109,7 @@ def backtest_strategy(
     bench_metrics = None
     if with_benchmark:
         bsyms = benchmark_symbols(strategy, symbols)
-        bench = run_backtest(
-            {s: aligned[s] for s in bsyms},
-            buy_and_hold_weights(index, bsyms, start),
-            replace(cfg, max_gross_leverage=1.0),  # a buy-and-hold investor uses no margin
-            start,
-        )
-        bench_metrics = performance_metrics(
-            bench.equity.iloc[start:], cfg.periods_per_year, bench.trades, bench.fills, bench.gross_exposure
-        )
+        bench, bench_metrics = buy_and_hold({s: aligned[s] for s in bsyms}, cfg, start)
     metrics = performance_metrics(
         result.equity.iloc[start:],
         cfg.periods_per_year,
@@ -128,6 +122,20 @@ def backtest_strategy(
     return StrategyBacktest(
         strategy, sizing, aligned, output, weights, result, bench, metrics, bench_metrics, start, warnings
     )
+
+
+def buy_and_hold(
+    data: dict[str, pd.DataFrame], config: BacktestConfig, start: int = 0
+) -> tuple[BacktestResult, dict[str, float | None]]:
+    """Equal-weight buy-and-hold of ``data`` (aligned bars) from bar ``start``, with its metrics."""
+    symbols = list(data)
+    index = next(iter(data.values())).index
+    # A buy-and-hold investor uses no margin.
+    res = run_backtest(data, buy_and_hold_weights(index, symbols, start), replace(config, max_gross_leverage=1.0), start)
+    metrics = performance_metrics(
+        res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure
+    )
+    return res, metrics
 
 
 def interpretation_warnings(

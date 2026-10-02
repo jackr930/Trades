@@ -42,6 +42,11 @@ const STOCK_UNIVERSE = new Set(["stat_arb", "residual_momentum", "ml_ranker"]);
 
 function defaultSymbols(s: StrategyMeta, provider: string, settings: Settings): string[] {
   const synthetic = provider === "synthetic";
+  if (s.id === "consensus") {
+    // The Live Desk's own watchlist: the consensus is what the Live Desk suggests for it.
+    const wl = settings.watchlists[provider] ?? [];
+    return wl.length ? wl : synthetic ? [...SIM_STOCKS, "SIMIDX", "SIMPRA", "SIMPRB"] : ["SPY", "QQQ", "TLT", "GLD"];
+  }
   if (s.kind === "pair") return synthetic ? ["SIMPRA", "SIMPRB"] : ["KO", "PEP"];
   if (s.id === "dual_momentum") return synthetic ? ["SIMIDX", "SIMGLD", "SIMBND"] : ["SPY", "EFA", "AGG"];
   if (s.id === "cta_trend") return synthetic ? ["SIMIDX", "SIMBND", "SIMGLD"] : ["SPY", "TLT", "GLD"]; // diversify across markets
@@ -54,10 +59,23 @@ function defaultSymbols(s: StrategyMeta, provider: string, settings: Settings): 
   return synthetic ? ["SIMIDX"] : ["SPY"];
 }
 
-function defaultParams(s: StrategyMeta, provider: string): Record<string, unknown> {
+function defaultParams(s: StrategyMeta, provider: string, settings: Settings): Record<string, unknown> {
   const p: Record<string, unknown> = {};
   s.params.forEach((x) => (p[x.name] = x.default));
   if (s.id === "dual_momentum") p.safe_symbol = provider === "synthetic" ? "SIMBND" : "AGG";
+  if (s.id === "consensus") {
+    // Reproduce the Live Desk: its strategies, pairs, weighting and risk settings.
+    Object.assign(p, {
+      members: settings.advisors.map((a) => ({ id: a.id, params: a.params ?? {} })),
+      pairs: settings.pairs,
+      weighting: settings.consensus_weighting,
+      allow_short: settings.allow_short,
+      risk_per_trade: settings.risk_per_trade,
+      stop_atr: settings.stop_atr,
+      max_position_pct: settings.max_position_pct,
+      max_gross: settings.max_gross_exposure,
+    });
+  }
   return p;
 }
 
@@ -87,7 +105,7 @@ export default function StrategyLab({ route }: { route: Route }) {
   const [timeframe, setTimeframe] = useState("1d");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [params, setParams] = useState<Record<string, unknown>>(() => defaultParams(initial, settings.provider));
+  const [params, setParams] = useState<Record<string, unknown>>(() => defaultParams(initial, settings.provider, settings));
   const [sizing, setSizing] = useState<Partial<Sizing>>(() => baseSizing(initial));
   const [config, setConfig] = useState({
     initial_cash: 100000,
@@ -105,7 +123,7 @@ export default function StrategyLab({ route }: { route: Route }) {
     const s = byId.get(id);
     if (!s) return;
     setStrategyId(id);
-    setParams(defaultParams(s, provider));
+    setParams(defaultParams(s, provider, settings));
     setSizing(baseSizing(s));
     setSymbols(defaultSymbols(s, provider, settings));
     setConfig((c) => ({ ...c, allow_short: settings.allow_short || s.uses_short }));
@@ -120,7 +138,7 @@ export default function StrategyLab({ route }: { route: Route }) {
   const changeProvider = (p: string) => {
     setProvider(p);
     setSymbols(defaultSymbols(strategy, p, settings));
-    setParams(defaultParams(strategy, p));
+    setParams(defaultParams(strategy, p, settings));
   };
 
   const request = (): BacktestRequest => ({
@@ -179,8 +197,9 @@ export default function StrategyLab({ route }: { route: Route }) {
   }, [meta]);
 
   const provInfo = meta.providers.find((p) => p.id === provider);
-  const symbolHint =
-    strategy.kind === "pair"
+  const symbolHint = strategy.sizes_itself
+    ? "The watchlist the Live Desk would watch (your Live Desk watchlist by default)."
+    : strategy.kind === "pair"
       ? "Exactly two symbols: A then B."
       : strategy.kind === "cross_sectional"
         ? `A universe to rank (${strategy.min_symbols}+ symbols; more is better).`
@@ -286,13 +305,21 @@ export default function StrategyLab({ route }: { route: Route }) {
           <div className="card">
             <h3 className="section-title">Parameters</h3>
             <ParamForm spec={strategy.params} values={params} onChange={setParams} />
-            <button className="btn small ghost" style={{ marginTop: 8 }} onClick={() => setParams(defaultParams(strategy, provider))}>
-              Reset to published defaults
+            <button className="btn small ghost" style={{ marginTop: 8 }} onClick={() => setParams(defaultParams(strategy, provider, settings))}>
+              {strategy.sizes_itself ? "Reset to my Live Desk settings" : "Reset to published defaults"}
             </button>
           </div>
           <div className="card">
             <h3 className="section-title">Position sizing</h3>
-            <SizingForm value={sizing} onChange={setSizing} />
+            {strategy.sizes_itself ? (
+              <p className="small secondary">
+                This strategy sizes its own positions exactly as the Live Desk suggests them: risk per trade, stop distance and
+                position cap scaled by conviction, then the portfolio cap across all symbols. Change those in the parameters
+                above.
+              </p>
+            ) : (
+              <SizingForm value={sizing} onChange={setSizing} />
+            )}
           </div>
           <div className="card">
             <h3 className="section-title">Costs and execution</h3>
@@ -334,8 +361,13 @@ export default function StrategyLab({ route }: { route: Route }) {
                 </select>
               </label>
             </div>
-            <label className="check" style={{ marginTop: 10 }}>
-              <input type="checkbox" checked={config.allow_short} onChange={(e) => setConfig({ ...config, allow_short: e.target.checked })} />
+            <label className="check" style={{ marginTop: 10 }} title={strategy.sizes_itself ? "Set by the strategy's own short-selling parameter" : undefined}>
+              <input
+                type="checkbox"
+                checked={strategy.sizes_itself ? Boolean(params.allow_short) : config.allow_short}
+                disabled={strategy.sizes_itself}
+                onChange={(e) => setConfig({ ...config, allow_short: e.target.checked })}
+              />
               Allow short selling
             </label>
             <p className="small muted" style={{ marginTop: 8 }}>

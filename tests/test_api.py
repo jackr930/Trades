@@ -20,7 +20,7 @@ def client(tmp_path):
 
 def test_meta_and_settings(client):
     meta = client.get("/api/meta").json()
-    assert len(meta["strategies"]) == 19 and meta["disclaimer"]
+    assert len(meta["strategies"]) == 20 and meta["disclaimer"]
     assert {s["family"] for s in meta["strategies"]} == {"classic", "modern"}
     assert {p["id"] for p in meta["providers"]} == {"synthetic", "yahoo", "alpaca", "csv"}
     s = client.get("/api/settings").json()
@@ -30,6 +30,9 @@ def test_meta_and_settings(client):
     assert "s3cr3tvalue" not in r.text
     assert client.put("/api/settings", json={"risk_per_trade": 3}).status_code == 400
     assert client.put("/api/settings", json={"advisors": [{"id": "nope"}]}).status_code == 400
+    assert client.put("/api/settings", json={"advisors": [{"id": "consensus"}]}).status_code == 400
+    assert client.put("/api/settings", json={"consensus_weighting": "median"}).status_code == 400
+    assert client.put("/api/settings", json={"consensus_weighting": "by_category"}).status_code == 200
 
 
 def test_backtest_endpoint(client):
@@ -80,6 +83,24 @@ def test_recommendations_and_chart(client):
     ).json()
     assert len(c["bars"]["t"]) == 200 and {o["column"] for o in c["overlays"]} >= {"bb_upper", "bb_lower"}
     assert c["explanation"]["headline"]
+
+
+def test_consensus_backtest_and_portfolio_cap(client):
+    syms = ["SIMIDX", "SIMTEC", "SIMBNK", "SIMNRG", "SIMPRA", "SIMPRB"]
+    r = client.post(
+        "/api/backtest",
+        json={"strategy": {"id": "consensus", "params": {"weighting": "by_category"}}, "symbols": syms, "start": "2020-01-02"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["metrics"]["cost_drag"] > 0 and body["strategy"]["sizes_itself"]
+    assert max(v for v in body["exposure"]["v"] if v is not None) < 1.1  # gross, within the 100% cap + drift
+    recs = client.post("/api/recommendations", json={"symbols": syms}).json()
+    p = recs["portfolio"]
+    assert p["gross"] <= p["cap"] + 1e-9 and p["weighting"] == "equal"
+    for rec in recs["recommendations"]:
+        if rec["consensus"]["action"] == "HOLD":
+            assert rec["sizing"]["weight"] == 0 and rec["sizing"]["shares"] == 0
 
 
 def test_bars_and_quotes(client):
@@ -140,6 +161,14 @@ def test_cli_strategies_and_backtest(capsys, tmp_path):
     assert "Sharpe ratio" in out and "Buy & hold" in out
     assert cli_main(["recommend", "SIMIDX", "SIMTEC", "SIMBNK"]) == 0
     assert "not investment advice" in capsys.readouterr().out
+    syms = ["SIMIDX", "SIMTEC", "SIMBNK", "SIMPRA", "SIMPRB"]
+    assert cli_main(["backtest", "consensus", *syms, "--start", "2020-01-02", "--benchmark", "SIMIDX"]) == 0
+    out = capsys.readouterr().out
+    assert "Consensus of tsmom" in out and "SIMIDX buy & hold" in out and "Annual cost drag" in out
+    args = ["--start", "2019-01-02", "--walk-forward", "--grid", "weighting=equal,by_category", "--test-bars", "126"]
+    assert cli_main(["backtest", "consensus", *syms, *args]) == 0
+    out = capsys.readouterr().out
+    assert "Walk-forward" in out and "chose {'weighting'" in out and "EW buy & hold" in out
 
 
 def test_local_guard_blocks_rebinding_and_cross_site(client):
