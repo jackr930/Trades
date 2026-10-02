@@ -114,7 +114,14 @@ def cmd_backtest(args) -> int:
     from trades.backtest import trials
     from trades.backtest.engine import BacktestConfig
     from trades.backtest.optimize import walk_forward
-    from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold, tax_metrics
+    from trades.backtest.runner import (
+        BENCHMARKS,
+        StrategySpec,
+        backtest_strategy,
+        buy_and_hold,
+        fixed_mix,
+        tax_metrics,
+    )
     from trades.config import SettingsStore
     from trades.core import stats
     from trades.core.timeframes import Timeframe
@@ -140,8 +147,15 @@ def cmd_backtest(args) -> int:
     elif start:
         fetch_start = start - timedelta(days=int(strat.warmup() / tf.bars_per_day * 1.6) + 4)
     symbols = [s.upper() for s in args.symbols]
-    bench_symbol = args.benchmark.upper() if args.benchmark else None
-    wanted = symbols + ([bench_symbol] if bench_symbol and bench_symbol not in symbols else [])
+    # --benchmark: a symbol (buy and hold it) or a named mix such as 60_40 (rebalanced monthly).
+    mix = BENCHMARKS.get((args.benchmark or "").lower())
+    if mix and mix["weights"]:
+        bench_label, bench_weights = str(mix["short"]), dict(mix["weights"])
+    elif args.benchmark:
+        bench_label, bench_weights = f"{args.benchmark.upper()} buy & hold", {args.benchmark.upper(): 1.0}
+    else:
+        bench_label, bench_weights = None, {}
+    wanted = list(dict.fromkeys(symbols + list(bench_weights)))
     frames, errors = data.bars_many(wanted, tf, fetch_start, args.end, args.provider)
     if errors:
         print("Data errors:", errors, file=sys.stderr)
@@ -156,6 +170,7 @@ def cmd_backtest(args) -> int:
         fractional=profile.fractional_shares,
         slippage_bps=args.slippage,
         commission_bps=args.commission,
+        min_trade_weight=args.min_trade,
         allow_short=args.short or bool(strat.params.get("allow_short") and strat.sizes_itself),
         periods_per_year=tf.periods_per_year,
     )
@@ -183,8 +198,10 @@ def cmd_backtest(args) -> int:
             return metrics | tax_metrics(res, sub, start_at, tax, cfg.periods_per_year)[0]
 
         cols = {"EW buy & hold": with_tax({s: aligned[s].loc[index] for s in symbols})}
-        if bench_symbol:
-            cols[f"{bench_symbol} buy & hold"] = with_tax({bench_symbol: frames[bench_symbol].reindex(index)})
+        if bench_weights:
+            sub = {s: frames[s].reindex(index).ffill() for s in bench_weights}
+            res, metrics = fixed_mix(sub, bench_weights, cfg, start_at)
+            cols[bench_label] = metrics | tax_metrics(res, sub, start_at, tax, cfg.periods_per_year)[0]
         return cols
 
     if args.walk_forward:
@@ -217,20 +234,21 @@ def cmd_backtest(args) -> int:
         f"provider: {provider})\n"
     )
     cols = {"Strategy": bt.metrics}
-    if len(symbols) == 1 or not bench_symbol:
+    if len(symbols) == 1 or not bench_weights:
         cols["Buy & hold"] = bt.benchmark_metrics or {}
-    if bench_symbol:
+    if bench_weights:
         cols |= benchmark_columns(bt.result.equity.index, bt.start)
     _print_table(cols)
-    if bench_symbol:
-        bench_curve = buy_and_hold({bench_symbol: frames[bench_symbol].reindex(eq.index)}, cfg)[0].equity
+    if bench_weights:
+        sub = {s: frames[s].reindex(eq.index).ffill() for s in bench_weights}
+        bench_curve = fixed_mix(sub, bench_weights, cfg)[0].equity
         p = stats.outperformance_probability(
             eq.pct_change().iloc[1:],
             bench_curve.pct_change().iloc[1:],
             risk_free=cfg.cash_returns.reindex(eq.index[1:]) if cfg.cash_returns is not None else None,
         )
         print(
-            f"\nAgainst {bench_symbol} buy & hold: compounds faster in {p['p_growth']:.0%} and has the better Sharpe "
+            f"\nAgainst {bench_label}: compounds faster in {p['p_growth']:.0%} and has the better Sharpe "
             f"ratio in {p['p_sharpe']:.0%} of 1,000 block-bootstrap resamples."
         )
     log = trials.record_and_summarise("cli", spec, symbols, bt.metrics, len(eq) - 1, cfg.periods_per_year)
@@ -390,6 +408,7 @@ def cmd_paper(args) -> int:
         max_gross=min(1.0, float(a["max_gross_exposure"])),
         allow_short=bool(a["allow_short"]),
         fractional=bool(a["fractional"]),
+        min_trade_weight=float(a["min_trade_weight"]),
     )
     try:
         client = PaperClient(*s.alpaca_credentials())
@@ -434,8 +453,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--slippage", type=float, default=5.0, help="slippage in basis points")
     p.add_argument("--commission", type=float, default=0.0, help="commission in basis points")
     p.add_argument("--short", action="store_true", help="allow short selling")
-    p.add_argument("--benchmark", help="also compare with buy-and-hold of this symbol, e.g. SPY")
+    p.add_argument(
+        "--benchmark", help="also compare with buy-and-hold of a symbol (e.g. SPY) or a mix: 60_40, all_weather"
+    )
     p.add_argument("--no-cash-yield", action="store_true", help="idle cash earns nothing (default: T-bill returns)")
+    p.add_argument(
+        "--min-trade", type=float, default=0.005,
+        help="skip re-sizing trades smaller than this share of equity (0.005 = 0.5%%; a wider band trades less)",
+    )
     p.add_argument(
         "--walk-forward",
         action="store_true",

@@ -281,6 +281,18 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
 - **Success is defined in advance.** `journal/decision_rule.json` fixes what would count as beating buy-and-hold for
   the backtest, the forward journal and the paper account. `scripts/consensus_check.py` and `journal/REPORT.md` say
   PASS, FAIL or NOT YET against it, and the report warns if the rule changed after the journal's first row.
+- **One backtest is one path.** After each Lab backtest, "How robust is it?" shows the share of rolling 3-year
+  windows in which the strategy beat its benchmark, how often you would be ahead today had you started in any
+  quarter, returns in bull, correction and bear markets and in calm versus volatile stretches, and the 5th to 95th
+  percentile of CAGR and drawdown across 1,000 block-bootstrap resamples.
+- **Choose a fair benchmark and a fair universe.** Compare with equal-weight buy-and-hold of the same symbols, SPY,
+  a monthly-rebalanced 60/40 (SPY/AGG) or an all-weather style mix, and test on sets nobody picked with hindsight:
+  the sector SPDRs, 17 country ETFs, a multi-asset set, or the largest US companies as of January 2010 (a frozen
+  list; all of them still trade, so some survivorship bias remains).
+- **Trade less, if it helps.** "Skip trades under" sets the no-trade band (0.5% of equity by default): re-sizing
+  trades smaller than that are skipped. A wider band cuts turnover and costs. The pre-registered decision rule
+  includes a 5% band as a variant, judged with a Bonferroni-raised bar because testing two versions finds more luck
+  than testing one.
 - **Leverage and shorting are not free.** Short positions pay a borrow fee (0.25%/yr by default), borrowed cash pays
   margin interest (2%/yr above cash, since returns are reported in excess of cash), and fills can't push gross
   exposure past the strategy's leverage cap after an overnight gap.
@@ -296,6 +308,8 @@ trades backtest pairs_trading KO PEP --provider yahoo --short
 trades backtest consensus SPY QQQ AAPL MSFT --provider yahoo --start 2010-01-01 --benchmark SPY
 trades backtest consensus XLB XLE XLF XLI XLK XLP XLU XLV XLY --provider yahoo --start 2010-01-01 \
     --walk-forward --grid weighting=equal,by_category    # re-choose the weighting each year on past data
+trades backtest consensus SPY EFA EEM AGG TLT GLD DBC --provider yahoo --start 2010-01-01 \
+    --benchmark 60_40 --min-trade 0.05                   # a 60/40 benchmark and a 5% no-trade band
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
 trades journal record && trades journal score         # forward journal (see below)
 trades paper                                          # paper-trading dry run (see below)
@@ -304,7 +318,9 @@ trades serve --port 8000
 
 `trades backtest consensus` uses your saved Live Desk settings unless you override them with `--param`, for
 example `--param weighting=by_category`. `--benchmark SPY` adds SPY buy-and-hold over the same bars next to the
-equal-weight buy-and-hold of your symbols.
+equal-weight buy-and-hold of your symbols; `--benchmark 60_40` or `--benchmark all_weather` adds a monthly
+rebalanced mix instead. `python scripts/consensus_check.py --sets sectors,countries,multi_asset,large_caps_2010`
+runs the comparison on the hindsight-free sets.
 
 Does the consensus beat buy-and-hold after costs and taxes? `python scripts/consensus_check.py --provider yahoo`
 prints a Markdown table for the default Yahoo watchlist and for the nine original sector SPDR ETFs (a set nobody
