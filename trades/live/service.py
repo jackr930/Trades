@@ -290,6 +290,7 @@ class LiveService:
             "recommendations": (self._recs or {}).get("recommendations", []),
             "notes": (self._recs or {}).get("notes", []),
             "provisional": (self._recs or {}).get("provisional", False),
+            "portfolio": (self._recs or {}).get("portfolio"),
             "market": market,
             "demo": self._demo is not None,
             "streaming": self._stream_task is not None and not self._stream_task.done(),

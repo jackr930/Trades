@@ -12,6 +12,8 @@ from trades.strategies.sizing import SizingConfig, apply_sizing
 
 
 def _inputs(cls, daily):
+    if cls.id == "consensus":  # the whole demo watchlist, so its pair member votes too
+        return {s: daily[s] for s in (*UNIVERSE, "SIMPRA", "SIMPRB")}
     if cls.kind is Kind.PAIR:
         return {s: daily[s] for s in ("SIMPRA", "SIMPRB")}
     if cls.kind is Kind.CROSS_SECTIONAL:

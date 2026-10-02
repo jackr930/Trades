@@ -17,6 +17,7 @@ from trades.core.timeframes import Timeframe
 from trades.data.base import Quote
 from trades.data.service import DataService
 from trades.live.service import DemoClock, LiveService, merge_quote
+from trades.strategies.consensus import decide
 
 
 def _settings(**kw) -> AdvisorSettings:
@@ -84,15 +85,20 @@ def test_consensus_labels_and_sizing():
     s = AdvisorSettings(
         strategies=[], account_equity=100_000, risk_per_trade=0.01, stop_atr=2, max_position_pct=0.2
     )
-    pos = suggest_position(price=50.0, atr=1.0, score=1.0, settings=s)
+
+    def suggest(price, atr, votes):  # one symbol, voted on by strategies of one category
+        d = decide({"X": [("Trend", v) for v in votes]}, {"X": price}, {"X": atr}, s.rules())["X"]
+        return suggest_position(d, price, s)
+
+    pos = suggest(50.0, 1.0, [1, 1])  # score +1
     # risk: 1000 / 2 = 500 shares; cap: 20000 / 50 = 400 shares -> 400
     assert (
         pos["shares"] == 400
         and pos["stop"] == pytest.approx(48.0)
         and pos["limited_by"] == "max position size"
     )
-    assert suggest_position(price=50.0, atr=1.0, score=-1.0, settings=s)["side"] == "flat"  # no shorting
-    half = suggest_position(price=50.0, atr=5.0, score=0.5, settings=s)
+    assert suggest(50.0, 1.0, [-1, -1])["side"] == "flat"  # no shorting
+    half = suggest(50.0, 5.0, [1, 0])  # score +0.5
     assert half["shares"] == 50  # 1000 / 10 = 100 shares, scaled by 50% conviction
 
 

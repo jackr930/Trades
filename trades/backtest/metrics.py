@@ -100,6 +100,13 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "better": "lower",
         "help": "Traded value per year divided by average equity. High turnover makes costs matter.",
     },
+    "cost_drag": {
+        "label": "Annual cost drag",
+        "fmt": "pct",
+        "better": "lower",
+        "help": "Commissions plus estimated slippage per year, as a share of average equity: the return the "
+        "strategy must earn just to pay for its trading.",
+    },
     "n_trades": {"label": "Trades", "fmt": "int", "better": None, "help": "Closed round-trip trades."},
     "win_rate": {
         "label": "Win rate",
@@ -220,6 +227,7 @@ def performance_metrics(
         traded = sum(abs(f.qty * f.price) for f in fills)
         out["turnover"] = traded / float(eq.mean()) / years if years > 0 else None
         out["total_costs"] = sum(f.commission + f.slippage for f in fills)
+        out["cost_drag"] = out["total_costs"] / float(eq.mean()) / years if years > 0 else None
 
     if trades is not None:
         closed = [t for t in trades if not t.is_open]

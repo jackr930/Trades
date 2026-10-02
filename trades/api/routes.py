@@ -145,7 +145,9 @@ async def put_settings(request: Request, patch: dict[str, Any]):
     c = ctx(request)
     if "advisors" in patch:
         for spec in patch["advisors"] or []:
-            StrategySpec.from_dict(spec).build()  # validate ids and params
+            strat, _ = StrategySpec.from_dict(spec).build()  # validate ids and params
+            if strat.sizes_itself:
+                raise ValueError(f"{strat.name} combines the Live Desk's strategies; it cannot be one of them")
     updated = c.settings.update(patch)
     c.data.invalidate()
     c.recommender.clear()  # cached evidence may come from the old source or costs
@@ -263,6 +265,8 @@ async def backtest(request: Request, body: BacktestBody):
     cfg = _config(c, body, body.config)
     if strat.kind is Kind.PAIR and not cfg.allow_short:
         cfg.allow_short = True  # a pair trade is long one leg and short the other by construction
+    if strat.sizes_itself:
+        cfg.allow_short = bool(strat.params.get("allow_short"))  # the consensus's own setting decides
 
     def work():
         data, eval_start, provider = _load_bars(c, body, strat.warmup())
@@ -306,6 +310,8 @@ async def optimize(request: Request, body: OptimizeBody):
     if cls.kind is Kind.PAIR:
         cfg.allow_short = True
     probe = create_strategy(body.strategy.id, body.strategy.params)
+    if cls.sizes_itself:
+        cfg.allow_short = bool(probe.params.get("allow_short"))
     max_warm = probe.warmup()
     for name, values in grid.items():  # warm-up must cover the largest lookback in the grid
         for v in values:
