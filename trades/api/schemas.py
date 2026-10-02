@@ -94,3 +94,27 @@ class VsSpyBody(BaseModel):
 
 class HoldingsImportBody(BaseModel):
     text: str = Field(min_length=1, max_length=5_000_000)
+
+
+class GoalBody(BaseModel):
+    start_value: float = Field(ge=0, le=1e10)
+    monthly: float = Field(0.0, ge=-1e8, le=1e8)  # negative: withdrawals
+    years: int = Field(ge=1, le=60)
+    goal: float = Field(0.0, ge=0, le=1e12)
+    mix: dict[str, float] = Field(default_factory=lambda: {"stocks": 0.6, "bonds": 0.4})
+    inflation: float = Field(0.025, ge=0, le=0.15)
+
+
+class DragBody(BaseModel):
+    amount: float = Field(gt=0, le=1e10)
+    years: int = Field(ge=1, le=60)
+    gross_return: float = Field(0.07, ge=-0.2, le=0.3)
+    expense_ratio: float = Field(0.0, ge=0, le=0.05)
+    advisory_fee: float = Field(0.0, ge=0, le=0.05)
+    turnover: float = Field(0.0, ge=0, le=50)
+    trade_cost_bps: float = Field(5.0, ge=0, le=500)
+
+
+class AllocationBody(BaseModel):
+    targets: dict[str, float]
+    band: float = Field(0.05, ge=0, le=0.5)

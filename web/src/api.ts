@@ -1,4 +1,5 @@
 import type {
+  AllocationResult,
   ArenaAgentDetail,
   ArenaEvent,
   ArenaOptions,
@@ -8,6 +9,9 @@ import type {
   BacktestResult,
   Backup,
   ChartResponse,
+  DragResult,
+  GoalResult,
+  HarvestCandidate,
   HoldingsState,
   LiveSnapshot,
   Meta,
@@ -126,6 +130,13 @@ export const api = {
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  planGoal: (body: { start_value: number; monthly: number; years: number; goal: number; mix: Record<string, number>; inflation: number }) =>
+    post<GoalResult>("/api/plan/goal", body),
+  planDrag: (body: Record<string, number>) =>
+    post<{ index_fund: DragResult; scenario: DragResult; taxable: boolean; short_rate: number; long_rate: number }>("/api/plan/drag", body),
+  planAllocation: (targets: Record<string, number>, band: number) => post<AllocationResult>("/api/plan/allocation", { targets, band }),
+  planHarvest: (minLoss: number) =>
+    request<{ candidates: HarvestCandidate[]; short_rate: number; long_rate: number }>(`/api/plan/harvest?min_loss=${minLoss}`),
   vsSpy: (universe: "watchlist" | "sectors") => post<VsSpyResult>("/api/vs-spy", { universe }),
   holdings: () => request<HoldingsState>("/api/holdings"),
   importHoldings: (text: string) =>

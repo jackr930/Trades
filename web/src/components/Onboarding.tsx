@@ -171,7 +171,7 @@ export default function Onboarding({ settings }: { settings: Settings }) {
           <h2 id="onboarding-title">How much should the app show?</h2>
           <div className="col">
             {[
-              ["simple", "Essentials", "Today, your portfolio, the track record and the library: what you need to decide whether to use it."],
+              ["simple", "Essentials", "Today, your portfolio, planning tools, the track record and the library: what you need to decide whether to use it."],
               ["full", "Everything", "Adds the Live Desk, the Strategy Lab and the simulators, for researching strategies yourself."],
             ].map(([id, title, text]) => (
               <label key={id} className="check" style={{ alignItems: "flex-start" }}>

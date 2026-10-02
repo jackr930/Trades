@@ -523,7 +523,7 @@ export default function SettingsView() {
               checked={settings.ui_mode === "simple"}
               onChange={() => void save({ ui_mode: "simple" }, "Showing the essentials")}
             />
-            Essentials: Today, Portfolio, Track Record, Library and Settings
+            Essentials: Today, Portfolio, Plan, Track Record, Library and Settings
           </label>
           <label className="check">
             <input type="radio" name="ui_mode" checked={settings.ui_mode === "full"} onChange={() => void save({ ui_mode: "full" }, "Showing everything")} />
