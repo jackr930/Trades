@@ -33,6 +33,7 @@ ACCOUNT_DEFAULTS = {
     "max_position_pct": 0.20,
     "max_gross_exposure": 1.0,
     "allow_short": False,
+    "fractional": False,  # paper orders in fractional shares
     "slippage_bps": 5.0,
     "commission_bps": 0.0,
 }

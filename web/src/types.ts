@@ -449,6 +449,9 @@ export interface Settings {
   allow_short: boolean;
   commission_bps: number;
   slippage_bps: number;
+  paper_halted: boolean;
+  paper_max_daily_loss: number;
+  paper_max_orders: number;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;

@@ -137,8 +137,40 @@ def _num(x: float) -> str:
     return "–" if not math.isfinite(x) else f"{x:.2f}"
 
 
-def render_report(journal: pd.DataFrame, bars: dict[str, pd.DataFrame], benchmark: str, last_session: date) -> str:
-    """The Markdown report for every experiment in ``journal``."""
+def paper_slippage(orders: pd.DataFrame, assumed_bps: float) -> list[str]:
+    """Report lines: the paper account's fills against the open the backtest engine assumes."""
+    lines = ["", "## Paper trading fills", ""]
+    filled = orders[pd.to_numeric(orders.get("slippage_bps"), errors="coerce").notna()] if len(orders) else orders
+    if filled.empty:
+        return [*lines, f"{len(orders)} paper orders logged; none with a known fill and open price yet."]
+    bps = pd.to_numeric(filled["slippage_bps"])
+    lines += [
+        f"Slippage of each fill against that session's open, in basis points (positive = cost); the backtests "
+        f"assume {assumed_bps:g} bps.",
+        "",
+        "| Order type | Fills | Mean slippage | Median slippage |",
+        "| --- | --- | --- | --- |",
+    ]
+    for tif, group in [("all", bps), *((t, bps[filled["time_in_force"] == t]) for t in ("opg", "day"))]:
+        if len(group):
+            lines.append(f"| {tif} | {len(group)} | {group.mean():+.1f} bps | {group.median():+.1f} bps |")
+    lines += [
+        "",
+        "Alpaca's paper account simulates fills from quotes; it does not run a real opening auction, so these "
+        "numbers are only a rough check of the cost assumption.",
+    ]
+    return lines
+
+
+def render_report(
+    journal: pd.DataFrame,
+    bars: dict[str, pd.DataFrame],
+    benchmark: str,
+    last_session: date,
+    paper_orders: pd.DataFrame | None = None,
+    assumed_bps: float = 5.0,
+) -> str:
+    """The Markdown report for every experiment in ``journal`` (and the paper fills, if any)."""
     lines = [
         "# Forward journal report",
         "",
@@ -149,8 +181,9 @@ def render_report(journal: pd.DataFrame, bars: dict[str, pd.DataFrame], benchmar
         "first (symbols move together), and only days at least one horizon apart are used, so every observation "
         "is independent. Each experiment is scored on its own.",
     ]
+    paper = paper_slippage(paper_orders, assumed_bps) if paper_orders is not None else []
     if journal.empty:
-        return "\n".join([*lines, "", "The journal is empty so far."]) + "\n"
+        return "\n".join([*lines, "", "The journal is empty so far.", *paper]) + "\n"
     for exp_id, rows in journal.groupby("experiment_id", sort=False):
         rows = rows.assign(session_day=pd.to_datetime(rows["session_date"]).dt.date)
         scored = outcomes(rows, bars, benchmark, last_session)
@@ -195,4 +228,4 @@ def render_report(journal: pd.DataFrame, bars: dict[str, pd.DataFrame], benchmar
                     "t-statistic below about 2 (or 3, given how many numbers this report shows) is no evidence of "
                     "skill, and even a large one can flip as more days arrive.",
                 ]
-    return "\n".join(lines) + "\n"
+    return "\n".join([*lines, *paper]) + "\n"

@@ -50,8 +50,8 @@ ws_router = APIRouter()
 DISCLAIMER = (
     "Educational software. Recommendations are generated mechanically from historical price data and published "
     "research; they are not investment advice and do not consider your circumstances. Past performance, "
-    "especially in backtests, does not predict future results. This app never connects to a brokerage "
-    "account and never places real orders."
+    "especially in backtests, does not predict future results. This app never places real-money orders; "
+    "its optional paper trader uses an Alpaca paper (practice) account only."
 )
 
 

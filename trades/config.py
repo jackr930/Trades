@@ -71,6 +71,10 @@ class Settings:
     allow_short: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
+    # Paper trading (Alpaca's paper API only; see trades.paper)
+    paper_halted: bool = False  # kill switch: `trades paper halt` / `trades paper resume`
+    paper_max_daily_loss: float = 0.03  # no orders after the paper account lost more since the prior close
+    paper_max_orders: int = 20  # per run
     poll_seconds: float = 15.0
     demo_speed: float = 60.0  # synthetic live clock: simulated seconds per real second
 
@@ -132,6 +136,8 @@ _VALIDATORS = {
     "consensus_weighting": lambda v: v in WEIGHTINGS,
     "commission_bps": lambda v: 0 <= float(v) <= 100,
     "slippage_bps": lambda v: 0 <= float(v) <= 200,
+    "paper_max_daily_loss": lambda v: 0.001 <= float(v) <= 0.5,
+    "paper_max_orders": lambda v: 1 <= int(v) <= 200,
     "poll_seconds": lambda v: 2 <= float(v) <= 3600,
     "demo_speed": lambda v: 1 <= float(v) <= 3600,
 }
