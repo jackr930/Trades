@@ -2,12 +2,22 @@ name: Journal
 
 # After every US close: log the Live Desk's recommendations for the session, score the
 # ones whose 5- and 21-session windows have passed, and commit both to the repository.
+# Later the same evening, a separate job trades the experiment on an Alpaca PAPER account.
 on:
   schedule:
     # 22:15 UTC on weekdays: after the 16:00 New York close in both EDT (20:00 UTC) and EST (21:00 UTC).
     # The recorder itself skips holidays and refuses data that does not reach today's session.
     - cron: "15 22 * * 1-5"
+    # 00:30 UTC Tuesday to Saturday = 8:30pm EDT / 7:30pm EST the evening before: after 7:00pm ET, when
+    # Alpaca starts accepting opening-auction orders for the next session.
+    - cron: "30 0 * * 2-6"
   workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        type: choice
+        options: [journal, paper]
+        default: journal
 
 permissions:
   contents: write
@@ -18,6 +28,7 @@ concurrency:
 
 jobs:
   journal:
+    if: github.event.schedule == '15 22 * * 1-5' || (github.event_name == 'workflow_dispatch' && inputs.job == 'journal')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -47,5 +58,42 @@ jobs:
             exit 0
           fi
           git commit -m "Journal: $(date -u +%Y-%m-%d)"
+          git pull --rebase
+          git push
+
+  paper:
+    # Paper account only (https://paper-api.alpaca.markets is hard-coded; there is no live endpoint).
+    # Orders are sent only when the repository variable PAPER_SUBMIT is "true"; otherwise this is a dry run.
+    if: github.event.schedule == '30 0 * * 2-6' || (github.event_name == 'workflow_dispatch' && inputs.job == 'paper')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e .
+      - name: Trade the paper account
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          PAPER_SUBMIT: ${{ vars.PAPER_SUBMIT }}
+        run: |
+          if [ "$PAPER_SUBMIT" = "true" ]; then
+            trades paper --submit
+          else
+            trades paper
+          fi
+      - name: Commit the order log
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add journal/
+          if git diff --cached --quiet; then
+            echo "Nothing changed; no commit."
+            exit 0
+          fi
+          git commit -m "Paper orders: $(date -u +%Y-%m-%d)"
           git pull --rebase
           git push

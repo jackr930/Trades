@@ -13,7 +13,8 @@ pair) or the connected real-time feed.
 The Live Desk turns the same strategies into plain-language recommendations, the Strategy Lab backtests and
 optimises them honestly, and a practice mode lets you trade yourself and get a scorecard on your *process*.
 
-> **Recommendations only.** Trades never connects to a brokerage account and never places real orders.
+> **No real money.** Trades never places real-money orders and has no path to a live brokerage account. The
+> optional paper trader sends orders only to an Alpaca *paper* (practice) account.
 > It is educational software, not investment advice.
 
 ![Live Desk](docs/screenshots/live-desk.jpg)
@@ -200,7 +201,7 @@ quota, and resumes as soon as someone does.
 | Provider | Key needed | Latency | Notes |
 | --- | --- | --- | --- |
 | **Yahoo Finance** (via `yfinance`) | No | Near real-time, polled | Decades of daily history; intraday limited to 7-60 days. Unofficial API, for personal use. |
-| **Alpaca Market Data** | Free account | Real-time, streamed | Free plan uses the IEX exchange feed; a paid plan unlocks the consolidated SIP feed. Trades uses only Alpaca's *data* API, never its trading API. |
+| **Alpaca Market Data** | Free account | Real-time, streamed | Free plan uses the IEX exchange feed; a paid plan unlocks the consolidated SIP feed. The data provider uses only Alpaca's *data* API; the optional [paper trader](#paper-trading-alpaca-paper-account-only) uses only the *paper* trading API. |
 | **CSV files** | No | Static | Put `SYMBOL.csv` files (Date, Open, High, Low, Close, Volume) in `~/.trades/data`. |
 | **Synthetic** | No | Simulated | Regime-switching GARCH market with jumps; not real data. |
 
@@ -276,6 +277,7 @@ trades backtest consensus XLB XLE XLF XLI XLK XLP XLU XLV XLY --provider yahoo -
     --walk-forward --grid weighting=equal,by_category    # re-choose the weighting each year on past data
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
 trades journal record && trades journal score         # forward journal (see below)
+trades paper                                          # paper-trading dry run (see below)
 trades serve --port 8000
 ```
 
@@ -324,6 +326,56 @@ trades journal record     # after the close; does nothing on weekends and holida
 trades journal score      # rewrites journal/REPORT.md
 ```
 
+## Paper trading (Alpaca paper account only)
+
+`trades paper` trades the journal's experiment (by default the Live Desk consensus) on an
+[Alpaca](https://alpaca.markets) **paper** account, so the forward test includes real order handling: queued
+orders, fills, partial fills and slippage. It talks only to `https://paper-api.alpaca.markets`. That address is
+hard-coded, every request is checked against it, redirects are not followed, and there is no setting, flag or code
+path for Alpaca's live endpoint. **Moving to real money is out of scope for this app.**
+
+**Before you start, reset your Alpaca paper account's balance to the amount you would really trade** (in Alpaca's
+dashboard), so that position sizes, whole-share rounding and the costs per trade look like yours. It uses the same
+Alpaca key as the data provider (Settings, or `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`); generate it from the
+*paper* account.
+
+Each run, in the evening after the close:
+
+1. **Reconciles** earlier orders: their status and Alpaca's fill price, next to the price the backtest engine would
+   have assumed (that session's open moved against you by the slippage setting, 5 bps by default).
+2. **Computes target weights** from completed bars, exactly as a backtest does.
+3. **Reads the paper account's actual positions and equity** from Alpaca (it never assumes earlier orders filled)
+   and orders the difference, rounded to whole shares unless the experiment's account allows fractional shares,
+   skipping re-sizing trades under 0.5% of equity as the backtest engine does.
+4. **Matches the engine's next-open fill.** Whole-share orders go to the opening auction (`time_in_force` "opg").
+   Alpaca does not accept fractional quantities in the auction, so those go as day market orders queued for the
+   open. Alpaca accepts auction orders before 9:28am ET or after 7:00pm ET, so orders are only sent in that window
+   (the GitHub job runs at 00:30 UTC, which is 8:30pm EDT / 7:30pm EST). Alpaca allows no fractional short sales,
+   so shorts are whole shares, and a position is closed before it flips. Note that Alpaca's *paper* account fills
+   auction orders like ordinary market orders, so its "slippage" is only a rough check.
+5. **Checks the guardrails before sending anything**: a kill switch (Settings, or `trades paper halt`; checked
+   again before each order), a maximum daily loss (no orders if the paper equity fell more than 3% since the prior
+   close; configurable), long-only unless the experiment allows shorting, gross exposure at most 100%, only the
+   experiment's watchlist, a maximum number of orders per run (20), and no earlier orders still open. If any check
+   fails, nothing is sent.
+
+```bash
+trades paper              # dry run (the default): prints the orders
+trades paper --submit     # sends them to the paper account
+trades paper halt --reason "taking a break"     # kill switch on; also writes journal/PAPER_HALTED
+trades paper resume       # kill switch off
+```
+
+Every order's `client_order_id` is built from the session date, symbol and experiment id, so a rerun finds the
+order it already sent and never orders twice. Sent orders are logged to `journal/paper_orders.csv` with the
+engine's assumed price and, once known, Alpaca's fill; `trades journal score` adds the real slippage in basis
+points (against the assumed 5) to `journal/REPORT.md`.
+
+The journal workflow has a second job, `paper`, that runs at 00:30 UTC on weekday evenings. It sends orders only
+when the repository *variable* `PAPER_SUBMIT` is `true` (Settings -> Secrets and variables -> Actions ->
+Variables); otherwise it is a dry run. The Alpaca keys go in the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`
+*secrets*. To stop it, run `trades paper halt` and commit `journal/PAPER_HALTED` (or create that file on GitHub).
+
 ## Architecture
 
 ```
@@ -334,6 +386,7 @@ trades/
   backtest/    event-driven engine, metrics, optimisation (grid + Deflated Sharpe, walk-forward)
   advisor/     ensemble recommendation engine with evidence and risk-based sizing
   journal/     forward journal: record recommendations after the close, score them later
+  paper/       paper trading on Alpaca's paper API only (guardrails, idempotent orders, reconciliation)
   arena/       strategy simulations: steerable simulated market, replay/real-time feeds, strategy agents
   sim/         paper broker, practice sessions, behavioural scorecard
   live/        live service: quotes -> forming bars -> recommendations -> WebSocket

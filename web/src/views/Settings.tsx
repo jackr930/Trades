@@ -379,6 +379,56 @@ export default function SettingsView() {
         </div>
       </div>
 
+      <div className="card">
+        <div className="card-header">
+          <h2>Paper trading (Alpaca paper account)</h2>
+          <span className="sub">Practice money only: there is no live-trading endpoint in this app</span>
+        </div>
+        <dl className="kv">
+          <dt>Endpoint</dt>
+          <dd>
+            <code>https://paper-api.alpaca.markets</code> (fixed)
+          </dd>
+          <dt>API key</dt>
+          <dd>{draft.has_alpaca_credentials ? "Uses your Alpaca key above" : "Add an Alpaca paper key under Market data source"}</dd>
+        </dl>
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <label className="field">
+            <span>
+              Max daily loss (%) <Help text="No new orders if the paper account fell more than this since the prior close." />
+            </span>
+            <input className="input num" type="number" step={0.5} {...num("paper_max_daily_loss", 100)} />
+          </label>
+          <label className="field">
+            <span>Max orders per run</span>
+            <input className="input num" type="number" step={1} min={1} {...num("paper_max_orders")} />
+          </label>
+        </div>
+        <label className="check" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={draft.paper_halted} onChange={(e) => setDraft({ ...draft, paper_halted: e.target.checked })} />
+          Kill switch: send no paper orders
+        </label>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          Orders are planned and sent from the command line: <code>trades paper</code> prints them, <code>trades paper --submit</code>{" "}
+          sends them, <code>trades paper halt</code> turns the kill switch on (and writes <code>journal/PAPER_HALTED</code>, which
+          stops the GitHub Actions job once committed). Set your Alpaca paper balance to the amount you would really trade.
+        </p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button
+            className="btn primary"
+            onClick={() =>
+              void save({
+                paper_halted: draft.paper_halted,
+                paper_max_daily_loss: draft.paper_max_daily_loss,
+                paper_max_orders: draft.paper_max_orders,
+              })
+            }
+          >
+            Save paper trading
+          </button>
+        </div>
+      </div>
+
       {meta.auth_enabled ? (
         <div className="card">
           <div className="card-header">

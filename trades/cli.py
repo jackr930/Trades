@@ -312,10 +312,64 @@ def cmd_journal_score(args) -> int:
         else:
             print(f"ERROR: no prices to score with: {'; '.join(problems)}", file=sys.stderr)
             return 1
-    report = render_report(journal, bars, exp.benchmark, last_completed_session())
+    orders_path = Path(args.journal).parent / "paper_orders.csv"
+    paper = pd.read_csv(orders_path, dtype=str) if orders_path.exists() else None
+    report = render_report(
+        journal, bars, exp.benchmark, last_completed_session(), paper, float(exp.account["slippage_bps"])
+    )
     Path(args.report).write_text(report)
     print(report)
     return 0
+
+
+def cmd_paper(args) -> int:
+    """Plan (or with --submit, send) today's orders on the Alpaca paper account."""
+    from pathlib import Path
+
+    from trades.config import SettingsStore
+    from trades.journal.experiment import Experiment, code_version
+    from trades.journal.recorder import StaleData
+    from trades.paper.alpaca import PaperAPIError, PaperClient
+    from trades.paper.trader import HALT_FILE, Limits, halted, run
+
+    store = SettingsStore()
+    if args.paper_command in ("halt", "resume"):
+        on = args.paper_command == "halt"
+        store.update({"paper_halted": on})
+        if on:
+            HALT_FILE.parent.mkdir(parents=True, exist_ok=True)
+            HALT_FILE.write_text(f"Paper trading halted: {args.reason or 'no reason given'}\n")
+            print(f"Kill switch ON. Commit {HALT_FILE} to stop the GitHub Actions job too.")
+        else:
+            HALT_FILE.unlink(missing_ok=True)
+            print(f"Kill switch OFF (and {HALT_FILE} removed; commit that to resume the Actions job).")
+        return 0
+    s = store.get()
+    exp = Experiment.load(args.experiment)
+    a = exp.account
+    limits = Limits(
+        halted=halted(s.paper_halted),
+        max_daily_loss=s.paper_max_daily_loss,
+        max_orders=s.paper_max_orders,
+        max_gross=min(1.0, float(a["max_gross_exposure"])),
+        allow_short=bool(a["allow_short"]),
+        fractional=bool(a["fractional"]),
+    )
+    try:
+        client = PaperClient(*s.alpaca_credentials())
+        return run(
+            exp,
+            client,
+            _journal_fetcher(),
+            limits,
+            submit=args.submit,
+            orders_path=Path(args.orders),
+            halt_check=lambda: halted(store.get().paper_halted),
+            version=code_version(),
+        )
+    except (PaperAPIError, StaleData) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -375,6 +429,16 @@ def main(argv: list[str] | None = None) -> int:
         if name == "score":
             jp.add_argument("--report", default="journal/REPORT.md")
         jp.set_defaults(func=func)
+
+    p = sub.add_parser(
+        "paper", help="trade the experiment on an Alpaca PAPER account (dry run unless --submit; never real money)"
+    )
+    p.add_argument("paper_command", nargs="?", choices=("halt", "resume"), help="turn the kill switch on or off")
+    p.add_argument("--submit", action="store_true", help="send the orders (default: print them only)")
+    p.add_argument("--reason", default="", help="with halt: why (written to journal/PAPER_HALTED)")
+    p.add_argument("--experiment", default="journal/experiment.json")
+    p.add_argument("--orders", default="journal/paper_orders.csv")
+    p.set_defaults(func=cmd_paper)
 
     args = parser.parse_args(argv)
     return int(args.func(args) or 0)
