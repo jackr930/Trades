@@ -8,6 +8,7 @@ import type {
   BacktestResult,
   Backup,
   ChartResponse,
+  HoldingsState,
   LiveSnapshot,
   Meta,
   OptimizeResult,
@@ -17,6 +18,7 @@ import type {
   SimOrder,
   SimState,
   TrackRecord,
+  VsSpyResult,
 } from "./types";
 
 export class ApiError extends Error {
@@ -124,6 +126,12 @@ export const api = {
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  vsSpy: (universe: "watchlist" | "sectors") => post<VsSpyResult>("/api/vs-spy", { universe }),
+  holdings: () => request<HoldingsState>("/api/holdings"),
+  importHoldings: (text: string) =>
+    post<HoldingsState & { broker: string; imported: number; notes: string[] }>("/api/holdings/import", { text }),
+  deleteHoldings: (account?: string) =>
+    request<HoldingsState>(`/api/holdings${account ? `?account=${encodeURIComponent(account)}` : ""}`, { method: "DELETE" }),
   trackRecord: () => request<{ source: string; record: TrackRecord | null }>("/api/track-record"),
   backup: () => request<Backup>("/api/backup"),
   restore: (backup: unknown) =>

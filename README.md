@@ -27,8 +27,9 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
 | **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x costs. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
+| **Today and Portfolio** | The home screen in plain English: today's suggestions and how much of the account they add up to, whether the calls are proven yet, a one-click "Is this better than just buying SPY?" and your real holdings, imported read-only from a Schwab, Fidelity, Vanguard or Robinhood CSV export. A first-run guide sets things up, an essentials mode hides the research tools, and the Library has a plain-English glossary. |
 | **Track Record** | The forward journal at a glance: the calls logged each evening before their outcome was known, how they did against SPY at 5 and 21 sessions, how many independent results the pre-registered rule still needs and roughly when a verdict becomes possible, the latest calls, the paper account's fills, and any problem the journal's health check found. |
-| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
+| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), a plain-English glossary, plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
 
 | Strategy simulator: results by hidden regime | Strategy Lab |
 | --- | --- |
@@ -158,7 +159,22 @@ trades serve                                          # open http://127.0.0.1:80
 ```
 
 The app starts on an offline **synthetic demo market** (clearly labelled, with an accelerated clock) so everything
-works without an internet connection or API key. Switch to real data under **Settings**.
+works without an internet connection or API key. A short first-run guide asks which prices to use (Yahoo needs no
+key), your account size, account type and tax bracket, and whether to show the essentials (Today, Portfolio, Track
+Record, Library, Settings) or everything; all of it can be changed later under **Settings**.
+
+**Today** is the home screen: what the Live Desk suggests for your watchlist and how much of the account that adds
+up to, whether those calls are proven yet (from the forward test), and a one-click **"Is this better than just
+buying SPY?"**: the Live Desk's consensus under your settings, on your watchlist or the nine sector ETFs, backtested
+from 2010 against SPY after costs and your taxes, with the probability that it really grows faster. It is the
+Strategy Lab's backtest with nothing left to choose, so it is logged in the research log like any other.
+
+**Portfolio** imports your real holdings from a broker's CSV export, read-only: Schwab (Accounts -> Positions ->
+Export), Fidelity (Positions -> Download), Vanguard (Balances and holdings -> Download) or Robinhood (account
+activity report; positions are rebuilt from buys and sells at average cost, without splits or transfers). Other
+files work if they have a symbol column and a quantity or shares column. Re-importing an account replaces it.
+Each account is marked taxable or tax-advantaged (guessed from its name, e.g. "Roth IRA"; correct it on the page).
+Holdings are stored with your settings, included in backups, and never sent anywhere.
 
 Or with Docker:
 

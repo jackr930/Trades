@@ -488,9 +488,51 @@ export interface Settings {
   paper_max_daily_loss: number;
   paper_max_orders: number;
   journal_source: string;
+  onboarded: boolean;
+  ui_mode: "full" | "simple";
+  holdings: Holding[];
+  account_types: Record<string, AccountType>;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;
+}
+
+// ---- your money ------------------------------------------------------------------------
+
+export type AccountType = "taxable" | "tax_advantaged";
+
+export interface Holding {
+  account: string;
+  symbol: string;
+  quantity: Num;
+  value: Num;
+  cost_basis: Num;
+  cash: boolean;
+}
+
+export interface HoldingsState {
+  holdings: Holding[];
+  account_types: Record<string, AccountType>;
+  summary: {
+    total_value: number;
+    unrealised: number;
+    accounts: Record<string, { type: AccountType; value: number; cash: number; positions: number }>;
+  };
+}
+
+export interface VsSpyResult {
+  universe: "watchlist" | "sectors";
+  symbols: string[];
+  demo: boolean;
+  benchmark: string | null;
+  start_time: number;
+  end_time: number;
+  taxable: boolean;
+  strategy: Record<string, Num>;
+  spy: Record<string, Num>;
+  p_beats: Num;
+  research_log?: ResearchLog;
+  warnings: string[];
 }
 
 // ---- forward track record ----------------------------------------------------------

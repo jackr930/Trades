@@ -3,6 +3,7 @@ import { useApp, type Route } from "../state";
 import type { Meta, StrategyMeta } from "../types";
 import { EvidenceBadge, ReferenceList, Tabs } from "../components/ui";
 import { CONCEPTS } from "../concepts";
+import { GLOSSARY } from "../glossary";
 
 function shortCite(authors: string): string {
   const first = authors.split(",")[0].trim();
@@ -22,7 +23,10 @@ const FAMILIES: [Family, string][] = [
 export default function Library({ route }: { route: Route }) {
   const { meta, navigate } = useApp() as { meta: Meta; navigate: (p: string, q?: Record<string, string>) => void };
   const selectedId = route.params.get("strategy");
-  const [tab, setTab] = useState<"strategies" | "concepts">(route.params.get("tab") === "concepts" ? "concepts" : "strategies");
+  const [tab, setTab] = useState<"strategies" | "concepts" | "glossary">(() => {
+    const t = route.params.get("tab");
+    return t === "concepts" || t === "glossary" ? t : "strategies";
+  });
   const [family, setFamily] = useState<Family>(() => FAMILIES.find(([f]) => f === route.params.get("family"))?.[0] ?? "all");
   const selected = meta.strategies.find((s) => s.id === selectedId) ?? null;
   const sorted = useMemo(
@@ -60,6 +64,7 @@ export default function Library({ route }: { route: Route }) {
         tabs={[
           ["strategies", "Strategies"],
           ["concepts", "Concepts every quant should know"],
+          ["glossary", "Glossary"],
         ]}
         value={tab}
         onChange={setTab}
@@ -109,6 +114,17 @@ export default function Library({ route }: { route: Route }) {
             </section>
           ))}
         </>
+      ) : tab === "glossary" ? (
+        <div className="card prose" style={{ maxWidth: "90ch" }}>
+          <dl className="glossary">
+            {GLOSSARY.map(([term, text]) => (
+              <div key={term}>
+                <dt>{term}</dt>
+                <dd>{text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       ) : (
         <div className="stack">
           {CONCEPTS.map((c) => (

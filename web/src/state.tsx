@@ -8,9 +8,9 @@ export interface Route {
 }
 
 function parseHash(): Route {
-  const raw = window.location.hash.replace(/^#/, "") || "/live";
+  const raw = window.location.hash.replace(/^#/, "") || "/today";
   const [path, query = ""] = raw.split("?");
-  return { path: path || "/live", params: new URLSearchParams(query) };
+  return { path: path || "/today", params: new URLSearchParams(query) };
 }
 
 export function useRoute(): [Route, (path: string, params?: Record<string, string>) => void] {
