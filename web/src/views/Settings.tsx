@@ -515,6 +515,26 @@ export default function SettingsView() {
         <div className="card-header">
           <h2>Appearance</h2>
         </div>
+        <div className="col" style={{ marginBottom: 12 }}>
+          <label className="check">
+            <input
+              type="radio"
+              name="ui_mode"
+              checked={settings.ui_mode === "simple"}
+              onChange={() => void save({ ui_mode: "simple" }, "Showing the essentials")}
+            />
+            Essentials: Today, Portfolio, Track Record, Library and Settings
+          </label>
+          <label className="check">
+            <input type="radio" name="ui_mode" checked={settings.ui_mode === "full"} onChange={() => void save({ ui_mode: "full" }, "Showing everything")} />
+            Everything: adds the Live Desk, the Strategy Lab and the simulators
+          </label>
+          <div>
+            <button className="btn" onClick={() => void save({ onboarded: false }, "Starting the guide")}>
+              Run the first-run guide again
+            </button>
+          </div>
+        </div>
         <div className="form-grid">
           <label className="field">
             <span>Theme</span>

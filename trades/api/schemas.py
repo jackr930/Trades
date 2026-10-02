@@ -86,3 +86,11 @@ class StepBody(BaseModel):
 
 class NoteBody(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class VsSpyBody(BaseModel):
+    universe: Literal["watchlist", "sectors"] = "watchlist"
+
+
+class HoldingsImportBody(BaseModel):
+    text: str = Field(min_length=1, max_length=5_000_000)

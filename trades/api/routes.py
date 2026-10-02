@@ -14,7 +14,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
-from trades import __version__
+from trades import __version__, holdings
 from trades.advisor import AdvisorSettings
 from trades.backtest import robustness, trials
 from trades.backtest.engine import BacktestConfig
@@ -32,22 +32,27 @@ from trades.backtest.runner import (
     sanitize,
 )
 from trades.backup import make_backup, restore_backup
+from trades.config import clean_symbols
 from trades.core.timeframes import Timeframe
 from trades.data.base import HISTORY_START, DataError, align_bars, history_start, last_bar_forming
 from trades.data.synthetic import SCENARIOS, universe_info
 from trades.journal.source import load_track_record
 from trades.sim.session import DEFAULT_ADVISORS, HISTORICAL_PRESETS, SimConfig, create_session
 from trades.strategies import Kind, catalog, create_strategy, get_strategy_class
+from trades.strategies.consensus import params_from_settings
 from trades.universes import UNIVERSES
 
 from .schemas import (
     BacktestBody,
     DataBody,
+    HoldingsImportBody,
     NoteBody,
     OptimizeBody,
     OrderBody,
     RecommendBody,
     StepBody,
+    StrategyBody,
+    VsSpyBody,
     WatchlistBody,
 )
 
@@ -117,8 +122,10 @@ def _benchmark(c, body, data, provider: str) -> Benchmark | None:
     """The benchmark chosen in the request's config (default: equal-weight of the symbols)."""
     key = (body.config or {}).get("benchmark", "ew")
     spec = BENCHMARKS.get(key)
+    if spec is None and clean_symbols([key]) == [str(key)]:  # a single symbol, such as SPY
+        spec = {"label": f"{key} buy & hold", "weights": {key: 1.0}}
     if spec is None:
-        raise ValueError(f"unknown benchmark {key!r}; choose one of {', '.join(BENCHMARKS)}")
+        raise ValueError(f"unknown benchmark {key!r}; choose a symbol or one of {', '.join(BENCHMARKS)}")
     if spec["weights"] is None:
         return None
     index = next(iter(data.values())).index
@@ -222,6 +229,51 @@ async def restore(request: Request, body: dict[str, Any]):
     c.recommender.clear()
     c.live.poke()
     return {**summary, "settings_now": c.settings.get().public_dict()}
+
+
+# --------------------------------------------------------------------------------------
+# Your holdings, imported from a broker's CSV export (read-only)
+# --------------------------------------------------------------------------------------
+
+
+def _holdings_payload(c) -> dict:
+    s = c.settings.get()
+    return sanitize(
+        {
+            "holdings": s.holdings,
+            "account_types": s.account_types,
+            "summary": holdings.summary(s.holdings, s.account_types),
+        }
+    )
+
+
+@router.get("/holdings")
+async def get_holdings(request: Request):
+    return _holdings_payload(ctx(request))
+
+
+@router.post("/holdings/import")
+async def import_holdings(request: Request, body: HoldingsImportBody):
+    """Replace the accounts in the file with its positions; other accounts stay as they were."""
+    c = ctx(request)
+    parsed = holdings.parse(body.text)
+    s = c.settings.get()
+    types = dict(s.account_types)
+    for h in parsed["holdings"]:
+        types.setdefault(h["account"], holdings.account_type(h["account"]))
+    c.settings.update({"holdings": holdings.merge(s.holdings, parsed["holdings"]), "account_types": types})
+    return {**_holdings_payload(c), "broker": parsed["broker"], "imported": len(parsed["holdings"]), "notes": parsed["notes"]}
+
+
+@router.delete("/holdings")
+async def delete_holdings(request: Request, account: str | None = None):
+    """Forget the imported holdings: one account's, or all of them."""
+    c = ctx(request)
+    s = c.settings.get()
+    keep = [h for h in s.holdings if account is not None and h["account"] != account]
+    types = {a: t for a, t in s.account_types.items() if account is not None and a != account}
+    c.settings.update({"holdings": keep, "account_types": types})
+    return _holdings_payload(c)
 
 
 # --------------------------------------------------------------------------------------
@@ -387,6 +439,52 @@ async def backtest(request: Request, body: BacktestBody):
         return sanitize(payload)
 
     return await run_in_threadpool(work)
+
+
+VS_SPY_START = "2010-01-01"  # the start the decision rule registers for the backtest
+VS_KEYS = ("cagr", "after_tax_cagr_if_sold", "max_drawdown", "sharpe", "total_return")
+
+
+@router.post("/vs-spy")
+async def vs_spy(request: Request, body: VsSpyBody):
+    """One click: would the Live Desk's consensus have beaten simply buying SPY, after costs and taxes?
+
+    It is the Strategy Lab's backtest with nothing left to choose: the consensus under your
+    Live Desk settings, on your watchlist or the nine sector ETFs, from 2010, against SPY.
+    """
+    c = ctx(request)
+    s = c.settings.get()
+    demo = s.provider == "synthetic"
+    if body.universe == "sectors":
+        if demo:
+            raise ValueError("The sector ETFs need real prices: choose Yahoo (no key needed) as the data source in Settings.")
+        symbols = list(UNIVERSES["sectors"]["symbols"])
+    else:
+        symbols = list(s.watchlists.get(s.provider) or [])
+    if not symbols:
+        raise ValueError("Your watchlist is empty: add symbols on the Live Desk first.")
+    run = BacktestBody(
+        strategy=StrategyBody(id="consensus", params=params_from_settings(s)),
+        symbols=symbols,
+        start=VS_SPY_START,
+        config={"benchmark": "SIMIDX" if demo else "SPY"},  # the demo market's index stands in for SPY
+    )
+    res = await backtest(request, run)
+    bench = res.get("benchmark") or {}
+    return {
+        "universe": body.universe,
+        "symbols": symbols,
+        "demo": demo,
+        "benchmark": bench.get("label"),
+        "start_time": res["start_time"],
+        "end_time": res["end_time"],
+        "taxable": res["metrics"].get("after_tax_cagr_if_sold") is not None,
+        "strategy": {k: res["metrics"].get(k) for k in VS_KEYS},
+        "spy": {k: (bench.get("metrics") or {}).get(k) for k in VS_KEYS},
+        "p_beats": res["metrics"].get("p_beats_growth"),
+        "research_log": res.get("research_log"),
+        "warnings": res.get("warnings", []),
+    }
 
 
 @router.post("/optimize")

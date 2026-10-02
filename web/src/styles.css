@@ -1490,3 +1490,41 @@ table.leaderboard tbody tr.selected {
     font-size: 40px;
   }
 }
+
+/* ---- dialogs (the first-run guide) ------------------------------------------------- */
+.dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+.dialog h2 {
+  margin: 12px 0 8px;
+}
+.dialog ul {
+  padding-left: 20px;
+}
+.dialog li + li {
+  margin-top: 6px;
+}
+
+.glossary {
+  margin: 0;
+}
+.glossary > div + div {
+  margin-top: 12px;
+}
+.glossary dt {
+  font-weight: 600;
+}
+.glossary dd {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}

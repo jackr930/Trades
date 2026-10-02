@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from trades.holdings import valid as valid_holdings
+
 SECRET_FIELDS = ("alpaca_key_id", "alpaca_secret_key")
 MASK_PREFIX = "****"
 
@@ -82,6 +84,10 @@ class Settings:
     slippage_bps: float = 5.0
     cash_yield: str = "tbill"  # tbill: idle cash earns a T-bill ETF's return (BIL); none: it earns nothing
     journal_source: str = ""  # where the Track Record page reads from: "" = ./journal, or a raw GitHub URL
+    onboarded: bool = False  # the first-run guide has been completed or skipped
+    ui_mode: str = "full"  # full: every page; simple: Today, Track Record, Plan, Library, Settings
+    holdings: list[dict[str, Any]] = field(default_factory=list)  # imported from a broker CSV (read-only)
+    account_types: dict[str, str] = field(default_factory=dict)  # account name -> taxable | tax_advantaged
     # Paper trading (Alpaca's paper API only; see trades.paper)
     paper_halted: bool = False  # kill switch: `trades paper halt` / `trades paper resume`
     paper_max_daily_loss: float = 0.03  # no orders after the paper account lost more since the prior close
@@ -142,6 +148,10 @@ _VALIDATORS = {
     "account_type": lambda v: v in ("taxable", "tax_advantaged"),
     "cash_yield": lambda v: v in ("tbill", "none"),
     "journal_source": valid_journal_source,
+    "onboarded": lambda v: isinstance(v, bool),
+    "ui_mode": lambda v: v in ("full", "simple"),
+    "holdings": valid_holdings,
+    "account_types": lambda v: isinstance(v, dict) and all(t in ("taxable", "tax_advantaged") for t in v.values()),
     "state_tax_rate": lambda v: 0 <= float(v) <= 0.2,
     "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "long_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
@@ -230,7 +240,7 @@ class SettingsStore:
                     value = [[str(a).strip().upper(), str(b).strip().upper()] for a, b in value]
                 if key == "watchlists":
                     value = {
-                        str(pid): _clean_symbols(syms)
+                        str(pid): clean_symbols(syms)
                         for pid, syms in dict(value).items()
                         if isinstance(syms, list)
                     }
@@ -253,7 +263,7 @@ class SettingsStore:
         tmp.replace(self.path)
 
 
-def _clean_symbols(symbols: list[Any]) -> list[str]:
+def clean_symbols(symbols: list[Any]) -> list[str]:
     out: list[str] = []
     for s in symbols:
         sym = str(s).strip().upper()

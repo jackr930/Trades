@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppProvider, useApp, useRoute, type Route } from "./state";
 import { Disclaimer, ErrorBox, Spinner } from "./components/ui";
 import { applyTheme, loadTheme, type ThemeChoice } from "./theme";
@@ -7,15 +7,21 @@ import StrategyLab from "./views/StrategyLab";
 import Simulator from "./views/Simulator";
 import Library from "./views/Library";
 import TrackRecordView from "./views/TrackRecord";
+import Today from "./views/Today";
+import Portfolio from "./views/Portfolio";
+import Onboarding from "./components/Onboarding";
 import SettingsView from "./views/Settings";
 
-const NAV: [string, string][] = [
-  ["/live", "Live Desk"],
-  ["/lab", "Strategy Lab"],
-  ["/track", "Track Record"],
-  ["/sim", "Simulator"],
-  ["/library", "Library"],
-  ["/settings", "Settings"],
+// [path, label, shown in the simple mode too]
+const NAV: [string, string, boolean][] = [
+  ["/today", "Today", true],
+  ["/live", "Live Desk", false],
+  ["/lab", "Strategy Lab", false],
+  ["/track", "Track Record", true],
+  ["/portfolio", "Portfolio", true],
+  ["/sim", "Simulator", false],
+  ["/library", "Library", true],
+  ["/settings", "Settings", true],
 ];
 
 const FALLBACK_DISCLAIMER =
@@ -64,6 +70,12 @@ function Shell({ route }: { route: Route }) {
     case "/track":
       view = <TrackRecordView />;
       break;
+    case "/portfolio":
+      view = <Portfolio />;
+      break;
+    case "/live":
+      view = <LiveDesk />;
+      break;
     case "/library":
       view = <Library route={route} />;
       break;
@@ -71,25 +83,21 @@ function Shell({ route }: { route: Route }) {
       view = <SettingsView />;
       break;
     default:
-      view = <LiveDesk />;
+      view = <Today />;
   }
+  const simple = settings?.ui_mode === "simple";
+  const nav = NAV.filter(([path, , essential]) => essential || !simple || path === route.path);
   return (
     <div className="app">
       <header className="topbar">
-        <a className="brand" href="#/live" style={{ color: "inherit", textDecoration: "none" }}>
+        <a className="brand" href="#/today" style={{ color: "inherit", textDecoration: "none" }}>
           <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
             <rect width="32" height="32" rx="7" fill="var(--accent)" />
             <path d="M6 21l6-6 5 4 9-10" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span>Trades</span>
         </a>
-        <nav className="nav" aria-label="Main">
-          {NAV.map(([path, label]) => (
-            <a key={path} href={`#${path}`} aria-current={route.path === path || (path === "/live" && route.path === "/") ? "page" : undefined}>
-              {label}
-            </a>
-          ))}
-        </nav>
+        <Nav items={nav} current={route.path} />
         <span className="spacer" />
         <ThemeSelect />
       </header>
@@ -115,7 +123,25 @@ function Shell({ route }: { route: Route }) {
           view
         )}
       </main>
+      {settings && meta && !settings.onboarded ? <Onboarding settings={settings} /> : null}
       <Disclaimer text={meta?.disclaimer ?? FALLBACK_DISCLAIMER} />
     </div>
+  );
+}
+
+function Nav({ items, current }: { items: [string, string, boolean][]; current: string }) {
+  const ref = useRef<HTMLElement>(null);
+  // On a phone the links scroll sideways: keep the current page's link in view.
+  useEffect(() => {
+    ref.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [current]);
+  return (
+    <nav className="nav" aria-label="Main" ref={ref}>
+      {items.map(([path, label]) => (
+        <a key={path} href={`#${path}`} aria-current={current === path || (path === "/today" && current === "/") ? "page" : undefined}>
+          {label}
+        </a>
+      ))}
+    </nav>
   );
 }
