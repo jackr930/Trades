@@ -97,6 +97,7 @@ def test_cli_score_writes_the_track_record_and_health_and_digest_read_it(tmp_pat
     assert cli.main(["journal", "score", *paths, "--report", str(tmp_path / "REPORT.md")]) == 0
     rec = json.loads((tmp_path / "track_record.json").read_text())
     assert rec["experiment_id"] == exp.id and rec["health"] == [] and rec["experiments"][0]["sessions"] == 1
+    assert rec["decision"]["status"] == "NOT YET"  # no backtest check, no rule, a one-day journal
     capsys.readouterr()
     assert cli.main(["journal", "health", *paths]) == 0 and "healthy" in capsys.readouterr().out
     assert cli.main(["journal", "digest", *paths]) == 0 and exp.id in capsys.readouterr().out
@@ -134,15 +135,16 @@ def test_backup_and_restore_keep_research_history_but_never_keys(tmp_path):
     first = create_app(tmp_path / "a" / "settings.json", start_live=False, web_dist=tmp_path / "no-dist")
     with TestClient(first) as client:
         client.put("/api/settings", json={"alpaca_secret_key": "supersecret", "state_tax_rate": 0.05})
-        trials.record("backtest", "tsmom", "c1", ["SPY"], 0.5)
+        trials.record("backtest", "tsmom", "c1", ["SPY"], 0.5, tmp_path / "a" / "trials.jsonl")  # this app's home
         backup = client.get("/api/backup").json()
     assert "supersecret" not in json.dumps(backup) and backup["settings"]["state_tax_rate"] == 0.05
     assert "tsmom" in backup["files"]["trials.jsonl"]
-    trials.log_path().unlink()  # a fresh server: the research log is gone
+    # A fresh server with its own, empty home: restoring brings the research log back.
     second = create_app(tmp_path / "b" / "settings.json", start_live=False, web_dist=tmp_path / "no-dist")
     with TestClient(second) as client:
         r = client.post("/api/restore", json=backup).json()
         assert r["lines_added"]["trials.jsonl"] == 1 and r["settings_now"]["state_tax_rate"] == 0.05
+        assert "tsmom" in (tmp_path / "b" / "trials.jsonl").read_text()
         assert r["settings_now"]["alpaca_secret_key"] == ""
         assert client.post("/api/restore", json=backup).json()["lines_added"]["trials.jsonl"] == 0  # no duplicates
         assert client.post("/api/restore", json={"settings": {}}).status_code == 400

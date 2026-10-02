@@ -214,7 +214,7 @@ async def put_settings(request: Request, patch: dict[str, Any]):
 
 
 def _backup_files(c) -> dict:
-    return {"trials.jsonl": trials.log_path(), "sim_history.jsonl": c.sims.history_path}
+    return {"trials.jsonl": c.home / "trials.jsonl", "sim_history.jsonl": c.sims.history_path}
 
 
 @router.get("/backup")
@@ -222,6 +222,24 @@ async def backup(request: Request):
     """Settings (without API keys), the research log and the simulator history, as one JSON file."""
     c = ctx(request)
     return make_backup(c.settings, _backup_files(c))
+
+
+@router.post("/delete-my-data")
+async def delete_my_data(request: Request, body: dict[str, Any]):
+    """Delete everything this server keeps for you: settings and API keys, holdings, the research
+    log and the simulator history. The committed journal is in the repository, not here."""
+    if body.get("confirm") != "delete everything":
+        raise ValueError('send {"confirm": "delete everything"} to delete your data')
+    c = ctx(request)
+    deleted = [name for name, path in _backup_files(c).items() if path is not None and path.exists()]
+    for path in _backup_files(c).values():
+        if path is not None:
+            path.unlink(missing_ok=True)
+    c.settings.reset()
+    c.data.invalidate()
+    c.recommender.clear()
+    c.live.poke()
+    return {"deleted": ["settings.json", *deleted], "settings_now": c.settings.get().public_dict()}
 
 
 @router.post("/restore")
@@ -500,7 +518,8 @@ async def backtest(request: Request, body: BacktestBody):
             )
         payload["warnings"] += notes
         payload["research_log"] = trials.record_and_summarise(
-            "backtest", spec, list(data), bt.metrics, len(bt.equity) - 1, run_cfg.periods_per_year
+            "backtest", spec, list(data), bt.metrics, len(bt.equity) - 1, run_cfg.periods_per_year,
+            c.home / "trials.jsonl",
         )
         payload["tax"] = asdict(tax)
         payload["cost_sensitivity"] = cost_sensitivity(bt, tax)
@@ -634,7 +653,7 @@ async def optimize(request: Request, body: OptimizeBody):
         res["provider"] = provider
         res["notes"] = notes
         if body.mode == "grid":
-            trials.record_grid(body.strategy.id, list(data), res, body.strategy.params)
+            trials.record_grid(body.strategy.id, list(data), res, body.strategy.params, c.home / "trials.jsonl")
         res["grid"] = grid
         return sanitize(res)
 
