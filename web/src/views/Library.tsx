@@ -226,7 +226,9 @@ function StrategyDetail({ s, counterpart, onBack, onTry, onRace, onOpen }: {
                 {s.params.map((p) => (
                   <tr key={p.name}>
                     <td>{p.label}</td>
-                    <td className="num">{String(p.default) || "(blank)"}</td>
+                    <td className="num">
+                      {p.kind === "list" ? `${(p.default as unknown[]).length} items` : String(p.default) || "(blank)"}
+                    </td>
                     <td className="num">
                       {p.kind === "choice" ? p.choices.join(" / ") : p.min !== null && p.max !== null ? `${p.min} – ${p.max}` : "–"}
                     </td>

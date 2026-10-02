@@ -3,9 +3,12 @@
 For every symbol the recommender runs each enabled strategy, records its vote
 (+1 bullish / -1 bearish / 0 neutral) with a plain-language explanation, attaches the
 strategy's historical evidence *on that symbol* (a backtest on completed bars), and
-combines the votes into a consensus. Position sizing follows fixed-fractional risk
-management: size so that hitting a protective stop at ``stop_atr`` x ATR costs
-``risk_per_trade`` of equity, capped at ``max_position_pct`` and scaled by conviction.
+combines the votes into a consensus with ``trades.strategies.consensus.decide``: the same
+function the backtestable ``consensus`` strategy calls at every bar. Position sizing follows
+fixed-fractional risk management: size so that hitting a protective stop at ``stop_atr`` x
+ATR costs ``risk_per_trade`` of equity, capped at ``max_position_pct`` and scaled by
+conviction; a neutral (HOLD) consensus suggests no position, and if the suggestions add up
+to more than ``max_gross`` of equity they all shrink in proportion.
 
 This produces information for a human to evaluate. It never sends orders anywhere.
 """
@@ -18,15 +21,25 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
-from trades.backtest.engine import BacktestConfig
+from trades.backtest.engine import BacktestConfig, round_qty
 from trades.backtest.runner import StrategySpec, backtest_strategy
 from trades.core import indicators as ind
 from trades.data.base import align_bars
 from trades.strategies import Kind, get_strategy_class
+from trades.strategies.consensus import (
+    ATR_LENGTH,
+    ConsensusRules,
+    Decision,
+    consensus_label,
+    decide,
+    vote_of,
+)
 
+__all__ = ["AdvisorSettings", "Recommender", "consensus_label", "risk_profile", "suggest_position"]
+
+INACTIVE = ("warming_up", "error")  # votes that do not count towards the consensus
 EVIDENCE_KEYS = ("cagr", "sharpe", "max_drawdown", "win_rate", "n_trades", "psr", "exposure", "total_return")
 
 
@@ -34,6 +47,7 @@ EVIDENCE_KEYS = ("cagr", "sharpe", "max_drawdown", "win_rate", "n_trades", "psr"
 class AdvisorSettings:
     strategies: list[StrategySpec]
     account_equity: float = 100_000.0
+    fractional: bool = False  # suggest fractional shares (else whole shares, rounded down)
     risk_per_trade: float = 0.01
     stop_atr: float = 2.0
     max_position_pct: float = 0.20
@@ -43,6 +57,18 @@ class AdvisorSettings:
     pairs: list[tuple[str, str]] = field(default_factory=list)
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
+    weighting: str = "equal"  # equal | by_category
+    max_gross: float = 1.0  # portfolio cap on the sum of suggested positions
+
+    def rules(self) -> ConsensusRules:
+        return ConsensusRules(
+            weighting=self.weighting,
+            allow_short=self.allow_short,
+            risk_per_trade=self.risk_per_trade,
+            stop_atr=self.stop_atr,
+            max_position_pct=self.max_position_pct,
+            max_gross=self.max_gross,
+        )
 
     @classmethod
     def from_settings(
@@ -52,6 +78,7 @@ class AdvisorSettings:
         return cls(
             strategies=specs,
             account_equity=s.account_equity,
+            fractional=s.fractional_shares,
             risk_per_trade=s.risk_per_trade,
             stop_atr=s.stop_atr,
             max_position_pct=s.max_position_pct,
@@ -59,6 +86,8 @@ class AdvisorSettings:
             periods_per_year=periods_per_year,
             commission_bps=s.commission_bps,
             slippage_bps=s.slippage_bps,
+            weighting=s.consensus_weighting,
+            max_gross=s.max_gross_exposure,
         )
 
 
@@ -69,19 +98,6 @@ def fingerprint(df: pd.DataFrame) -> tuple:
         return (0,)
     c = df["close"]
     return (len(df), str(df.index[0]), str(df.index[-1]), float(c.iloc[0]), float(c.iloc[-1]))
-
-
-def consensus_label(score: float, allow_short: bool) -> tuple[str, str]:
-    """Map a consensus score in [-1, 1] to (action, label)."""
-    if score >= 0.5:
-        return "BUY", "Strong buy"
-    if score >= 0.2:
-        return "BUY", "Buy"
-    if score <= -0.5:
-        return ("SHORT", "Strong sell / short") if allow_short else ("SELL", "Strong sell / avoid")
-    if score <= -0.2:
-        return ("SHORT", "Sell / short") if allow_short else ("SELL", "Sell / avoid")
-    return "HOLD", "Neutral"
 
 
 class Recommender:
@@ -156,6 +172,9 @@ class Recommender:
             except KeyError as exc:
                 notes.append(str(exc))
                 continue
+            if cls.sizes_itself:
+                notes.append(f"{cls.name} combines the other strategies, so it cannot be one of them.")
+                continue
             if cls.kind is Kind.SINGLE:
                 for sym in symbols:
                     self._single_vote(spec, sym, data[sym], completed[sym], settings, namespace, votes)
@@ -169,12 +188,36 @@ class Recommender:
                     if a in data and b in data:
                         self._group_vote(spec, [a, b], data, completed, settings, namespace, votes)
 
+        # One call for the whole watchlist: the portfolio cap looks at every suggestion together.
+        rules = settings.rules()
+        risks = {sym: risk_profile(data[sym], settings.periods_per_year) for sym in symbols}
+        ballots = {
+            sym: [(v["category"], float(v["vote"])) for v in votes[sym] if v["state"] not in INACTIVE]
+            for sym in symbols
+        }
+        prices = {sym: float(data[sym]["close"].iloc[-1]) for sym in symbols}
+        decisions = decide(ballots, prices, {sym: risks[sym]["atr"] for sym in symbols}, rules)
+        names = names or {}
         recs = [
-            self._summarise(sym, data[sym], votes[sym], settings, forming[sym], (names or {}).get(sym))
+            self._summarise(sym, data[sym], votes[sym], decisions[sym], risks[sym], settings, forming[sym], names.get(sym))
             for sym in symbols
         ]
         recs.sort(key=lambda r: -abs(r["consensus"]["score"]))
-        return {"recommendations": recs, "notes": notes, "provisional": any(forming.values())}
+        uncapped = sum(abs(d.uncapped_weight) for d in decisions.values())
+        portfolio = {
+            "gross": sum(abs(d.weight) for d in decisions.values()),
+            "uncapped_gross": uncapped,
+            "cap": rules.max_gross,
+            "scale": next(iter(decisions.values())).scale if decisions else 1.0,
+            "positions": sum(abs(d.weight) > 1e-12 for d in decisions.values()),
+            "weighting": rules.weighting,
+        }
+        return {
+            "recommendations": recs,
+            "notes": notes,
+            "provisional": any(forming.values()),
+            "portfolio": portfolio,
+        }
 
     def _single_vote(self, spec, sym, df, done_df, settings, namespace, votes):
         try:
@@ -225,7 +268,7 @@ class Recommender:
     @staticmethod
     def _vote(strat, ex, evidence, group=None) -> dict[str, Any]:
         # A hedge leg (e.g. in statistical arbitrage) offsets other positions: it is no view on the symbol.
-        direction = 0 if ex.state in ("flat", "warming_up", "hedge") else (1 if ex.signal > 0 else -1)
+        direction = int(vote_of(ex.state))
         return {
             "strategy_id": strat.id,
             "strategy_name": strat.name,
@@ -263,22 +306,16 @@ class Recommender:
             "params": spec.params,
         }
 
-    def _summarise(self, sym, df, votes, settings, provisional, name) -> dict[str, Any]:
-        active = [v for v in votes if v["state"] not in ("warming_up", "error")]
-        n = len(active)
-        score = float(np.mean([v["vote"] for v in active])) if n else 0.0
-        action, label = consensus_label(score, settings.allow_short)
-        bull = sum(v["vote"] > 0 for v in active)
-        bear = sum(v["vote"] < 0 for v in active)
+    def _summarise(self, sym, df, votes, d: Decision, risk, settings, provisional, name) -> dict[str, Any]:
         close = df["close"]
         price = float(close.iloc[-1])
         prev = float(close.iloc[-2]) if len(close) > 1 else float("nan")
-        risk = risk_profile(df, settings.periods_per_year)
-        sizing = suggest_position(price, risk.get("atr"), score, settings)
-        flags = list(risk.pop("flags"))
+        sizing = suggest_position(d, price, settings)
+        flags = list(risk["flags"])
         if provisional:
             flags.insert(0, "Signals use today's still-forming bar: they can change before the close.")
-        fresh = [v["strategy_name"] for v in active if v["fresh"]]
+        fresh = [v["strategy_name"] for v in votes if v["state"] not in INACTIVE and v["fresh"]]
+        n = d.n_votes
         return {
             "symbol": sym,
             "name": name,
@@ -287,26 +324,27 @@ class Recommender:
             "as_of": int(df.index[-1].timestamp()),
             "provisional": provisional,
             "consensus": {
-                "score": score,
-                "action": action,
-                "label": label,
-                "bullish": bull,
-                "bearish": bear,
-                "neutral": n - bull - bear,
+                "score": d.score,
+                "action": d.action,
+                "label": d.label,
+                "bullish": d.bullish,
+                "bearish": d.bearish,
+                "neutral": d.neutral,
                 "n_votes": n,
-                "agreement": (max(bull, bear, n - bull - bear) / n) if n else None,
+                "agreement": (max(d.bullish, d.bearish, d.neutral) / n) if n else None,
+                "weighting": settings.weighting,
             },
             "fresh_signals": fresh,
             "votes": votes,
             "sizing": sizing,
-            "risk": {**risk, "flags": flags},
+            "risk": {**{k: v for k, v in risk.items() if k != "flags"}, "flags": flags},
         }
 
 
 def risk_profile(df: pd.DataFrame, ppy: int = 252) -> dict[str, Any]:
     close = df["close"]
     rets = close.pct_change(fill_method=None)
-    atr = ind.atr(df["high"], df["low"], close, 20)
+    atr = ind.atr(df["high"], df["low"], close, ATR_LENGTH)
     atr_v = float(atr.iloc[-1]) if len(atr) and math.isfinite(atr.iloc[-1]) else None
     vol20 = float(rets.iloc[-20:].std() * math.sqrt(ppy)) if len(rets) > 21 else None
     vol1y = float(rets.iloc[-ppy:].std() * math.sqrt(ppy)) if len(rets) > 60 else None
@@ -337,14 +375,14 @@ def risk_profile(df: pd.DataFrame, ppy: int = 252) -> dict[str, Any]:
     }
 
 
-def suggest_position(
-    price: float, atr: float | None, score: float, settings: AdvisorSettings
-) -> dict[str, Any]:
+def suggest_position(d: Decision, price: float, settings: AdvisorSettings) -> dict[str, Any]:
+    """Describe a consensus decision as a position on the account: shares, stop and the reasoning.
+
+    The weight comes from ``decide``; shares are rounded the way the backtest engine rounds an
+    order, so the Live Desk suggests exactly what a backtest of the consensus would trade.
+    """
     equity = settings.account_equity
-    side = "long" if score > 0 else "short" if score < 0 else "flat"
-    if side == "short" and not settings.allow_short:
-        side = "flat"
-    if side == "flat" or not atr or atr <= 0 or price <= 0:
+    if d.side == "flat" or abs(d.weight) <= 1e-12:
         return {
             "side": "flat",
             "shares": 0,
@@ -352,35 +390,34 @@ def suggest_position(
             "notional": 0.0,
             "stop": None,
             "risk_amount": 0.0,
-            "conviction": abs(score),
-            "explanation": "No position suggested: the strategies do not agree on a direction."
-            if side == "flat" and score == 0
-            else "No position suggested (shorting disabled or not enough data).",
+            "conviction": d.conviction,
+            "explanation": d.reason or "No position suggested.",
         }
-    stop_dist = settings.stop_atr * atr
-    risk_budget = equity * settings.risk_per_trade
-    risk_shares = risk_budget / stop_dist
-    cap_shares = equity * settings.max_position_pct / price
-    base = min(risk_shares, cap_shares)
-    conviction = min(abs(score), 1.0)
-    shares = math.floor(base * conviction)
-    limited_by = "risk budget" if risk_shares <= cap_shares else "max position size"
-    stop = price - stop_dist if side == "long" else price + stop_dist
+    shares = abs(round_qty(d.weight * equity / price, settings.fractional))
+    stop_dist = d.stop_distance or 0.0
+    stop = price - stop_dist if d.side == "long" else price + stop_dist
     expl = (
-        f"Risking {settings.risk_per_trade:.1%} of ${equity:,.0f} (${risk_budget:,.0f}) with a stop "
-        f"{settings.stop_atr:g} x ATR (${stop_dist:,.2f}) away allows {risk_shares:,.0f} shares; the "
-        f"{settings.max_position_pct:.0%} position cap allows {cap_shares:,.0f}. Limited by the {limited_by}, "
-        f"then scaled by {conviction:.0%} conviction -> {shares:,} shares."
+        f"Risking {settings.risk_per_trade:.1%} of ${equity:,.0f} with a stop {settings.stop_atr:g} x ATR "
+        f"(${stop_dist:,.2f}) away allows {d.risk_weight:.1%} of equity; the position cap allows "
+        f"{settings.max_position_pct:.0%}. Limited by the {d.limited_by}, then scaled by {d.conviction:.0%} "
+        "conviction"
     )
+    if d.scale < 1 - 1e-12:
+        expl += (
+            f" and by {d.scale:.0%} so that all suggestions together stay within the "
+            f"{settings.max_gross:.0%} portfolio cap"
+        )
+    expl += f" -> {abs(d.weight):.1%} of equity, {shares:,.{4 if settings.fractional else 0}f} shares."
     return {
-        "side": side,
+        "side": d.side,
         "shares": shares,
-        "weight": shares * price / equity,
+        "weight": d.weight,
         "notional": shares * price,
         "stop": stop,
         "stop_distance": stop_dist,
         "risk_amount": shares * stop_dist,
-        "conviction": conviction,
-        "limited_by": limited_by,
+        "conviction": d.conviction,
+        "limited_by": d.limited_by,
+        "portfolio_scale": d.scale,
         "explanation": expl,
     }

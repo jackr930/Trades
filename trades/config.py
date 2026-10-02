@@ -35,6 +35,9 @@ DEFAULT_ADVISORS: list[dict[str, Any]] = [
     {"id": "pairs_trading", "params": {}},
 ]
 
+DEFAULT_PAIRS: list[list[str]] = [["SIMPRA", "SIMPRB"]]  # the demo market's cointegrated pair
+WEIGHTINGS = ("equal", "by_category")  # how the Live Desk averages votes (see trades.strategies.consensus)
+
 
 def trades_home() -> Path:
     return Path(os.environ.get("TRADES_HOME", Path.home() / ".trades")).expanduser()
@@ -48,21 +51,37 @@ class Settings:
         default_factory=lambda: {k: list(v) for k, v in DEFAULT_WATCHLISTS.items()}
     )
     advisors: list[dict[str, Any]] = field(default_factory=lambda: [dict(a) for a in DEFAULT_ADVISORS])
-    pairs: list[list[str]] = field(default_factory=lambda: [["SIMPRA", "SIMPRB"]])  # for pairs trading
+    pairs: list[list[str]] = field(default_factory=lambda: [list(p) for p in DEFAULT_PAIRS])  # for pairs trading
+    consensus_weighting: str = "equal"  # "equal": every vote counts once; "by_category": categories count once
     alpaca_key_id: str = ""
     alpaca_secret_key: str = ""
     alpaca_feed: str = "iex"
     csv_dir: str = ""
     synthetic_seed: int = 7
-    account_equity: float = 100_000.0
+    # Account profile: the default for the Lab, the simulators and the Live Desk.
+    account_equity: float = 100_000.0  # starting equity
+    fractional_shares: bool = False
+    account_type: str = "taxable"  # taxable | tax_advantaged (IRA, 401(k): no tax as you go)
+    short_term_tax_rate: float = 0.22  # estimates: replace with your own federal bracket
+    long_term_tax_rate: float = 0.15
     risk_per_trade: float = 0.01  # fraction of equity lost if the protective stop is hit
     stop_atr: float = 2.0  # protective stop distance in ATRs
     max_position_pct: float = 0.20  # cap on any single position, fraction of equity
+    max_gross_exposure: float = 1.0  # cap on all suggested positions together (1.0 = 100% of equity)
     allow_short: bool = False
     commission_bps: float = 0.0
     slippage_bps: float = 5.0
+    # Paper trading (Alpaca's paper API only; see trades.paper)
+    paper_halted: bool = False  # kill switch: `trades paper halt` / `trades paper resume`
+    paper_max_daily_loss: float = 0.03  # no orders after the paper account lost more since the prior close
+    paper_max_orders: int = 20  # per run
     poll_seconds: float = 15.0
     demo_speed: float = 60.0  # synthetic live clock: simulated seconds per real second
+
+    def tax_profile(self):
+        from trades.backtest.tax import TaxProfile
+
+        return TaxProfile(self.account_type, self.short_term_tax_rate, self.long_term_tax_rate)
 
     def watchlist(self, provider: str | None = None) -> list[str]:
         pid = provider or self.provider
@@ -107,11 +126,18 @@ _VALIDATORS = {
     "timeframe": lambda v: v in ("1m", "5m", "15m", "1h", "1d"),
     "alpaca_feed": lambda v: v in ("iex", "sip", "delayed_sip"),
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
+    "account_type": lambda v: v in ("taxable", "tax_advantaged"),
+    "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
+    "long_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,
     "risk_per_trade": lambda v: 0 < float(v) <= 0.1,
     "stop_atr": lambda v: 0.25 <= float(v) <= 10,
     "max_position_pct": lambda v: 0 < float(v) <= 1.0,
+    "max_gross_exposure": lambda v: 0.1 <= float(v) <= 2.0,
+    "consensus_weighting": lambda v: v in WEIGHTINGS,
     "commission_bps": lambda v: 0 <= float(v) <= 100,
     "slippage_bps": lambda v: 0 <= float(v) <= 200,
+    "paper_max_daily_loss": lambda v: 0.001 <= float(v) <= 0.5,
+    "paper_max_orders": lambda v: 1 <= int(v) <= 200,
     "poll_seconds": lambda v: 2 <= float(v) <= 3600,
     "demo_speed": lambda v: 1 <= float(v) <= 3600,
 }

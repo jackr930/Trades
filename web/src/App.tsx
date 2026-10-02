@@ -17,7 +17,7 @@ const NAV: [string, string][] = [
 ];
 
 const FALLBACK_DISCLAIMER =
-  "Educational software. Not investment advice. This app never connects to a brokerage account and never places real orders.";
+  "Educational software. Not investment advice. This app never places real-money orders; its optional paper trader uses an Alpaca paper (practice) account only.";
 
 export default function App() {
   const [route, navigate] = useRoute();

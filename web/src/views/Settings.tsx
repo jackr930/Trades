@@ -183,14 +183,72 @@ export default function SettingsView() {
 
       <div className="card">
         <div className="card-header">
+          <h2>Your account</h2>
+          <span className="sub">The default for the Strategy Lab, the simulator, practice mode and the Live Desk</span>
+        </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>Starting equity ($)</span>
+            <input className="input num" type="number" min={100} {...num("account_equity")} />
+          </label>
+          <label className="field">
+            <span>Account type</span>
+            <select
+              className="input"
+              value={draft.account_type}
+              onChange={(e) => setDraft({ ...draft, account_type: e.target.value as Settings["account_type"] })}
+            >
+              <option value="taxable">Taxable (brokerage account)</option>
+              <option value="tax_advantaged">Tax-advantaged (IRA, 401(k))</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>
+              Short-term tax rate (%){" "}
+              <Help text="Federal tax on gains held one year or less (taxed like income). 22% is only an estimate: replace it with your own bracket." />
+            </span>
+            <input className="input num" type="number" step={1} disabled={draft.account_type !== "taxable"} {...num("short_term_tax_rate", 100)} />
+          </label>
+          <label className="field">
+            <span>
+              Long-term tax rate (%){" "}
+              <Help text="Federal tax on gains held more than a year (0%, 15% or 20% depending on income). 15% is only an estimate: replace it with your own." />
+            </span>
+            <input className="input num" type="number" step={1} disabled={draft.account_type !== "taxable"} {...num("long_term_tax_rate", 100)} />
+          </label>
+        </div>
+        <label className="check" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={draft.fractional_shares} onChange={(e) => setDraft({ ...draft, fractional_shares: e.target.checked })} />
+          My broker supports fractional shares
+        </label>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          The tax rates are estimates for illustration; replace them with your own federal bracket. After-tax results use
+          average cost (not tax lots), ignore wash sales and state tax, and never offset losses against other income.
+        </p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button
+            className="btn primary"
+            onClick={() =>
+              void save({
+                account_equity: draft.account_equity,
+                fractional_shares: draft.fractional_shares,
+                account_type: draft.account_type,
+                short_term_tax_rate: draft.short_term_tax_rate,
+                long_term_tax_rate: draft.long_term_tax_rate,
+              })
+            }
+          >
+            Save account
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
           <h2>Risk and sizing</h2>
           <span className="sub">How the Live Desk sizes its suggested positions</span>
         </div>
         <div className="form-grid">
-          <label className="field">
-            <span>Account size ($)</span>
-            <input className="input num" type="number" {...num("account_equity")} />
-          </label>
           <label className="field">
             <span>
               Risk per trade (%) <Help text="Loss if the protective stop is hit, as a share of the account. 0.5-2% is typical." />
@@ -204,6 +262,13 @@ export default function SettingsView() {
           <label className="field">
             <span>Max position (% of account)</span>
             <input className="input num" type="number" step={1} {...num("max_position_pct", 100)} />
+          </label>
+          <label className="field">
+            <span>
+              Portfolio cap (% of account){" "}
+              <Help text="All suggested positions together. If they add up to more, every suggestion shrinks in proportion. 100% means no borrowing." />
+            </span>
+            <input className="input num" type="number" step={5} {...num("max_gross_exposure", 100)} />
           </label>
           <label className="field">
             <span>Slippage (bps)</span>
@@ -223,10 +288,10 @@ export default function SettingsView() {
             className="btn primary"
             onClick={() =>
               void save({
-                account_equity: draft.account_equity,
                 risk_per_trade: draft.risk_per_trade,
                 stop_atr: draft.stop_atr,
                 max_position_pct: draft.max_position_pct,
+                max_gross_exposure: draft.max_gross_exposure,
                 slippage_bps: draft.slippage_bps,
                 commission_bps: draft.commission_bps,
                 allow_short: draft.allow_short,
@@ -245,7 +310,7 @@ export default function SettingsView() {
         </div>
         <div className="col" style={{ gap: 6 }}>
           {meta.strategies
-            .filter((s) => s.id !== "buy_hold")
+            .filter((s) => s.id !== "buy_hold" && !s.sizes_itself)
             .map((s) => (
               <label key={s.id} className="check">
                 <input type="checkbox" checked={advisorIds.has(s.id)} onChange={(e) => toggleAdvisor(s.id, e.target.checked)} />
@@ -255,6 +320,20 @@ export default function SettingsView() {
               </label>
             ))}
         </div>
+        <label className="field" style={{ marginTop: 14, maxWidth: 420 }}>
+          <span>
+            Combine the votes{" "}
+            <Help text="Equal: every strategy's vote counts once, so four trend rules that agree count four times. By category: votes are averaged within each category (trend, mean reversion, momentum, ...) first, then the categories are averaged." />
+          </span>
+          <select
+            className="input"
+            value={draft.consensus_weighting}
+            onChange={(e) => setDraft({ ...draft, consensus_weighting: e.target.value as Settings["consensus_weighting"] })}
+          >
+            <option value="equal">Equally (one vote per strategy)</option>
+            <option value="by_category">By category (one vote per kind of strategy)</option>
+          </select>
+        </label>
         <h3 className="section-title" style={{ marginTop: 14 }}>
           Pairs for pairs trading
         </h3>
@@ -287,9 +366,65 @@ export default function SettingsView() {
         <div className="row" style={{ marginTop: 12 }}>
           <button
             className="btn primary"
-            onClick={() => void save({ advisors: draft.advisors, pairs: draft.pairs.filter((p) => p[0] && p[1]) })}
+            onClick={() =>
+              void save({
+                advisors: draft.advisors,
+                pairs: draft.pairs.filter((p) => p[0] && p[1]),
+                consensus_weighting: draft.consensus_weighting,
+              })
+            }
           >
             Save strategies
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <h2>Paper trading (Alpaca paper account)</h2>
+          <span className="sub">Practice money only: there is no live-trading endpoint in this app</span>
+        </div>
+        <dl className="kv">
+          <dt>Endpoint</dt>
+          <dd>
+            <code>https://paper-api.alpaca.markets</code> (fixed)
+          </dd>
+          <dt>API key</dt>
+          <dd>{draft.has_alpaca_credentials ? "Uses your Alpaca key above" : "Add an Alpaca paper key under Market data source"}</dd>
+        </dl>
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <label className="field">
+            <span>
+              Max daily loss (%) <Help text="No new orders if the paper account fell more than this since the prior close." />
+            </span>
+            <input className="input num" type="number" step={0.5} {...num("paper_max_daily_loss", 100)} />
+          </label>
+          <label className="field">
+            <span>Max orders per run</span>
+            <input className="input num" type="number" step={1} min={1} {...num("paper_max_orders")} />
+          </label>
+        </div>
+        <label className="check" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={draft.paper_halted} onChange={(e) => setDraft({ ...draft, paper_halted: e.target.checked })} />
+          Kill switch: send no paper orders
+        </label>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          Orders are planned and sent from the command line: <code>trades paper</code> prints them, <code>trades paper --submit</code>{" "}
+          sends them, <code>trades paper halt</code> turns the kill switch on (and writes <code>journal/PAPER_HALTED</code>, which
+          stops the GitHub Actions job once committed). Set your Alpaca paper balance to the amount you would really trade.
+        </p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button
+            className="btn primary"
+            onClick={() =>
+              void save({
+                paper_halted: draft.paper_halted,
+                paper_max_daily_loss: draft.paper_max_daily_loss,
+                paper_max_orders: draft.paper_max_orders,
+              })
+            }
+          >
+            Save paper trading
           </button>
         </div>
       </div>

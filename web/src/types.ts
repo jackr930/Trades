@@ -5,8 +5,9 @@ export type Num = number | null;
 export interface ParamSpec {
   name: string;
   label: string;
-  default: number | string | boolean;
-  kind: "int" | "float" | "bool" | "choice" | "symbol";
+  default: number | string | boolean | unknown[];
+  /** "list": a JSON list, e.g. the consensus strategy's member strategies. */
+  kind: "int" | "float" | "bool" | "choice" | "symbol" | "list";
   min: Num;
   max: Num;
   step: Num;
@@ -57,6 +58,8 @@ export interface StrategyMeta {
   needs: string;
   /** For a modern method: the id of the classic rule it refines, to compare against. */
   counterpart: string;
+  /** Signals are already target weights (the consensus): position-sizing settings don't apply. */
+  sizes_itself: boolean;
 }
 
 export interface MetricInfo {
@@ -190,8 +193,29 @@ export interface BacktestResult {
   warnings: string[];
   pending_orders: Record<string, number>;
   benchmark?: { label: string; equity: Series; drawdown: Series; metrics: Metrics };
+  /** After-tax equity in a taxable account (null in a tax-advantaged one). */
+  after_tax_equity: Series | null;
+  tax?: { account_type: "taxable" | "tax_advantaged"; short_term_rate: number; long_term_rate: number };
+  cost_sensitivity?: CostSensitivity;
   provider: string;
   timeframe: string;
+}
+
+export interface CostSensitivityRow {
+  multiplier: number;
+  slippage_bps: number;
+  cagr: Num;
+  after_tax_cagr_if_sold: Num;
+  sharpe: Num;
+  max_drawdown: Num;
+  cost_drag: Num;
+  turnover: Num;
+}
+
+export interface CostSensitivity {
+  rows: CostSensitivityRow[];
+  benchmark: Omit<CostSensitivityRow, "multiplier" | "slippage_bps">;
+  verdict: string;
 }
 
 export interface OptimizeRow {
@@ -294,12 +318,14 @@ export interface Recommendation {
     neutral: number;
     n_votes: number;
     agreement: Num;
+    weighting: "equal" | "by_category";
   };
   fresh_signals: string[];
   votes: Vote[];
   sizing: {
     side: "long" | "short" | "flat";
     shares: number;
+    /** Signed target weight (negative = short), after the portfolio cap. */
     weight: number;
     notional: number;
     stop: Num;
@@ -307,6 +333,7 @@ export interface Recommendation {
     risk_amount: number;
     conviction: number;
     limited_by?: string;
+    portfolio_scale?: number;
     explanation: string;
   };
   risk: {
@@ -345,6 +372,15 @@ export interface MarketInfo {
   speed?: number;
 }
 
+export interface PortfolioSummary {
+  gross: number;
+  uncapped_gross: number;
+  cap: number;
+  scale: number;
+  positions: number;
+  weighting: "equal" | "by_category";
+}
+
 export interface LiveSnapshot {
   status: string;
   error: string | null;
@@ -360,6 +396,8 @@ export interface LiveSnapshot {
   recommendations: Recommendation[];
   notes: string[];
   provisional: boolean;
+  /** Suggested positions added up across the watchlist (null until the first update). */
+  portfolio: PortfolioSummary | null;
   market: MarketInfo;
   demo: boolean;
   streaming: boolean;
@@ -399,12 +437,21 @@ export interface Settings {
   csv_dir_resolved: string;
   synthetic_seed: number;
   account_equity: number;
+  fractional_shares: boolean;
+  account_type: "taxable" | "tax_advantaged";
+  short_term_tax_rate: number;
+  long_term_tax_rate: number;
   risk_per_trade: number;
   stop_atr: number;
   max_position_pct: number;
+  max_gross_exposure: number;
+  consensus_weighting: "equal" | "by_category";
   allow_short: boolean;
   commission_bps: number;
   slippage_bps: number;
+  paper_halted: boolean;
+  paper_max_daily_loss: number;
+  paper_max_orders: number;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;

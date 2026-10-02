@@ -216,6 +216,22 @@ def slice_bars(df: pd.DataFrame, start=None, end=None) -> pd.DataFrame:
     return df
 
 
+HISTORY_START = date(2008, 1, 2)  # daily history begins here everywhere (see ``history_start``)
+
+
+def history_start(start: date | None = None, warmup_bars: int = 0) -> date:
+    """Where daily history should begin: ``HISTORY_START``, or earlier when a test that
+    starts at ``start`` needs more warm-up than that.
+
+    Rules re-checked on a schedule (every 21 bars, a monthly rebalance) count from the first
+    bar of history. Loading daily bars from one fixed date keeps the Live Desk, the journal
+    and backtests on the same check days; a rolling "latest N bars" window would shift them.
+    """
+    if start is None:
+        return HISTORY_START
+    return min(HISTORY_START, start - timedelta(days=int(warmup_bars * 1.5) + 10))
+
+
 def lookback_start(timeframe: Timeframe, bars: int, end: datetime | None = None) -> datetime:
     """A start time that comfortably yields ``bars`` bars ending at ``end``."""
     end = end or datetime.now(timezone.utc)

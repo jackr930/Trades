@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, liveSocketUrl } from "../api";
 import { useApp } from "../state";
-import type { ChartResponse, LiveSnapshot, Recommendation, Vote } from "../types";
+import type { ChartResponse, LiveSnapshot, PortfolioSummary, Recommendation, Vote } from "../types";
 import PriceChart, { type PriceMarker } from "../components/PriceChart";
 import Sparkline from "../components/Sparkline";
 import {
@@ -175,6 +175,7 @@ export default function LiveDesk() {
             <h2>Watchlist</h2>
             <span className="sub">{snap.timeframe === "1d" ? "Daily signals" : `${snap.timeframe} bars`}</span>
           </div>
+          {snap.portfolio ? <ExposureLine p={snap.portfolio} /> : null}
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -183,7 +184,7 @@ export default function LiveDesk() {
                   <th className="num">Last</th>
                   <th className="hide-sm">Trend</th>
                   <th>
-                    Signal <Help text="Consensus of the enabled strategies: the average of their votes (+1 bullish, 0 neutral, -1 bearish). A dot marks a signal that changed on the latest bar." />
+                    Signal <Help text="Consensus of the enabled strategies: the average of their votes (+1 bullish, 0 neutral, -1 bearish), or the average of each category's average if you chose that in Settings. Neutral means no position. A dot marks a signal that changed on the latest bar." />
                   </th>
                 </tr>
               </thead>
@@ -402,7 +403,7 @@ function SymbolDetail({ rec, snap, onPractice }: {
         <div className="card">
           <div className="card-header">
             <h2>Suggested position</h2>
-            <span className="sub">on a hypothetical {fmtMoney(settings?.account_equity ?? null)} account</span>
+            <span className="sub">on your {fmtMoney(settings?.account_equity ?? null)} account (Settings)</span>
           </div>
           {s.side === "flat" ? (
             <p className="secondary">{s.explanation}</p>
@@ -412,7 +413,7 @@ function SymbolDetail({ rec, snap, onPractice }: {
                 <span className={`badge ${s.side === "long" ? "up" : "down"}`}>{s.side === "long" ? "▲ Long" : "▼ Short"}</span>
                 <span style={{ fontSize: 22, fontWeight: 600 }}>{s.shares.toLocaleString()} shares</span>
                 <span className="muted">
-                  {fmtMoney(s.notional)} ({fmtPct(s.weight, 1, false)} of equity)
+                  {fmtMoney(s.notional)} ({fmtPct(Math.abs(s.weight), 1, false)} of equity)
                 </span>
               </div>
               <dl className="kv" style={{ marginTop: 12 }}>
@@ -474,6 +475,18 @@ function SymbolDetail({ rec, snap, onPractice }: {
         ))}
       </div>
     </>
+  );
+}
+
+/** All suggested positions added up: what following the whole Live Desk would put to work. */
+function ExposureLine({ p }: { p: PortfolioSummary }) {
+  return (
+    <div className="small secondary" style={{ padding: "6px 12px 0" }}>
+      Total suggested exposure <b>{fmtPct(p.gross, 0, false)}</b> of equity in {p.positions} position{p.positions === 1 ? "" : "s"}{" "}
+      (cap {fmtPct(p.cap, 0, false)}).
+      {p.scale < 1 ? ` Every suggestion was scaled to ${fmtPct(p.scale, 0, false)} because together they came to ${fmtPct(p.uncapped_gross, 0, false)}.` : ""}{" "}
+      <Help text="The sum of all suggested positions on the watchlist. Each one is sized on its own first; if together they exceed the portfolio cap in Settings, all of them shrink in proportion." />
+    </div>
   );
 }
 

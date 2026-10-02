@@ -25,6 +25,27 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "better": "higher",
         "help": "Compound annual growth rate: the constant yearly return that would produce the same result.",
     },
+    "after_tax_cagr": {
+        "label": "CAGR after tax",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "CAGR after paying tax each year on realized gains (short-term at your short-term rate, held over "
+        "a year at your long-term rate), with net losses carried forward. Federal only; average cost, no "
+        "wash sales. Equal to CAGR in a tax-advantaged account.",
+    },
+    "after_tax_cagr_if_sold": {
+        "label": "After tax, if sold at end",
+        "fmt": "pct",
+        "better": "higher",
+        "help": "After-tax CAGR if every open position were also sold on the last bar and its gain taxed. "
+        "Buy-and-hold defers almost all of its tax until then, so compare on this line.",
+    },
+    "taxes_paid": {
+        "label": "Taxes paid",
+        "fmt": "money",
+        "better": "lower",
+        "help": "Tax charged on realized gains over the backtest (excluding the sale at the end).",
+    },
     "volatility": {
         "label": "Volatility",
         "fmt": "pct",
@@ -99,6 +120,13 @@ METRIC_INFO: dict[str, dict[str, Any]] = {
         "fmt": "x",
         "better": "lower",
         "help": "Traded value per year divided by average equity. High turnover makes costs matter.",
+    },
+    "cost_drag": {
+        "label": "Annual cost drag",
+        "fmt": "pct",
+        "better": "lower",
+        "help": "Commissions plus estimated slippage per year, as a share of average equity: the return the "
+        "strategy must earn just to pay for its trading.",
     },
     "n_trades": {"label": "Trades", "fmt": "int", "better": None, "help": "Closed round-trip trades."},
     "win_rate": {
@@ -220,6 +248,7 @@ def performance_metrics(
         traded = sum(abs(f.qty * f.price) for f in fills)
         out["turnover"] = traded / float(eq.mean()) / years if years > 0 else None
         out["total_costs"] = sum(f.commission + f.slippage for f in fills)
+        out["cost_drag"] = out["total_costs"] / float(eq.mean()) / years if years > 0 else None
 
     if trades is not None:
         closed = [t for t in trades if not t.is_open]

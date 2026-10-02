@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { EvidenceLevel, MetricInfo, Metrics, ParamSpec, Reference, Sizing, Trade } from "../types";
 import { evidenceLabel, fmtDate, fmtMetric, fmtMoney, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 
@@ -259,6 +259,55 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: [T, st
   );
 }
 
+/** A list parameter (e.g. member strategies) edited as JSON; only valid JSON lists are applied. */
+function ListParam({ spec, value, disabled, onChange }: {
+  spec: ParamSpec;
+  value: unknown;
+  disabled?: boolean;
+  onChange: (v: unknown) => void;
+}) {
+  const [text, setText] = useState(() => JSON.stringify(value));
+  const [bad, setBad] = useState(false);
+  const external = JSON.stringify(value);
+  useEffect(() => {
+    // Follow outside changes (e.g. "reset to defaults") without reformatting what is being typed.
+    let typed: string | null = null;
+    try {
+      typed = JSON.stringify(JSON.parse(text));
+    } catch {
+      typed = null;
+    }
+    if (typed !== external) {
+      setText(external);
+      setBad(false);
+    }
+  }, [external]);
+  return (
+    <label className="field" title={spec.help} style={{ gridColumn: "1 / -1" }}>
+      <span>{spec.label}</span>
+      <textarea
+        className="input"
+        rows={3}
+        spellCheck={false}
+        value={text}
+        disabled={disabled}
+        aria-invalid={bad}
+        onChange={(e) => {
+          setText(e.target.value);
+          try {
+            const parsed: unknown = JSON.parse(e.target.value);
+            setBad(!Array.isArray(parsed));
+            if (Array.isArray(parsed)) onChange(parsed);
+          } catch {
+            setBad(true);
+          }
+        }}
+      />
+      <span className="hint">{bad ? "Not a valid JSON list yet; the last valid value is used." : spec.help}</span>
+    </label>
+  );
+}
+
 export function ParamForm({ spec, values, onChange, disabled }: {
   spec: ParamSpec[];
   values: Record<string, unknown>;
@@ -300,6 +349,9 @@ export function ParamForm({ spec, values, onChange, disabled }: {
               <input className="input" value={String(v ?? "")} disabled={disabled} onChange={(e) => set(e.target.value.toUpperCase())} />
             </label>
           );
+        }
+        if (p.kind === "list") {
+          return <ListParam key={p.name} spec={p} value={v} disabled={disabled} onChange={set} />;
         }
         return (
           <label key={p.name} className="field" title={p.help}>

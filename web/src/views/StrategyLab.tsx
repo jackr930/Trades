@@ -3,6 +3,8 @@ import { api, type BacktestRequest } from "../api";
 import { useApp, type Route } from "../state";
 import type {
   BacktestResult,
+  CostSensitivity,
+  CostSensitivityRow,
   GridResult,
   Meta,
   OptimizeResult,
@@ -42,6 +44,11 @@ const STOCK_UNIVERSE = new Set(["stat_arb", "residual_momentum", "ml_ranker"]);
 
 function defaultSymbols(s: StrategyMeta, provider: string, settings: Settings): string[] {
   const synthetic = provider === "synthetic";
+  if (s.id === "consensus") {
+    // The Live Desk's own watchlist: the consensus is what the Live Desk suggests for it.
+    const wl = settings.watchlists[provider] ?? [];
+    return wl.length ? wl : synthetic ? [...SIM_STOCKS, "SIMIDX", "SIMPRA", "SIMPRB"] : ["SPY", "QQQ", "TLT", "GLD"];
+  }
   if (s.kind === "pair") return synthetic ? ["SIMPRA", "SIMPRB"] : ["KO", "PEP"];
   if (s.id === "dual_momentum") return synthetic ? ["SIMIDX", "SIMGLD", "SIMBND"] : ["SPY", "EFA", "AGG"];
   if (s.id === "cta_trend") return synthetic ? ["SIMIDX", "SIMBND", "SIMGLD"] : ["SPY", "TLT", "GLD"]; // diversify across markets
@@ -54,10 +61,23 @@ function defaultSymbols(s: StrategyMeta, provider: string, settings: Settings): 
   return synthetic ? ["SIMIDX"] : ["SPY"];
 }
 
-function defaultParams(s: StrategyMeta, provider: string): Record<string, unknown> {
+function defaultParams(s: StrategyMeta, provider: string, settings: Settings): Record<string, unknown> {
   const p: Record<string, unknown> = {};
   s.params.forEach((x) => (p[x.name] = x.default));
   if (s.id === "dual_momentum") p.safe_symbol = provider === "synthetic" ? "SIMBND" : "AGG";
+  if (s.id === "consensus") {
+    // Reproduce the Live Desk: its strategies, pairs, weighting and risk settings.
+    Object.assign(p, {
+      members: settings.advisors.map((a) => ({ id: a.id, params: a.params ?? {} })),
+      pairs: settings.pairs,
+      weighting: settings.consensus_weighting,
+      allow_short: settings.allow_short,
+      risk_per_trade: settings.risk_per_trade,
+      stop_atr: settings.stop_atr,
+      max_position_pct: settings.max_position_pct,
+      max_gross: settings.max_gross_exposure,
+    });
+  }
   return p;
 }
 
@@ -87,10 +107,11 @@ export default function StrategyLab({ route }: { route: Route }) {
   const [timeframe, setTimeframe] = useState("1d");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
-  const [params, setParams] = useState<Record<string, unknown>>(() => defaultParams(initial, settings.provider));
+  const [params, setParams] = useState<Record<string, unknown>>(() => defaultParams(initial, settings.provider, settings));
   const [sizing, setSizing] = useState<Partial<Sizing>>(() => baseSizing(initial));
   const [config, setConfig] = useState({
-    initial_cash: 100000,
+    initial_cash: settings.account_equity, // your account profile
+    fractional: settings.fractional_shares,
     commission_bps: settings.commission_bps,
     slippage_bps: settings.slippage_bps,
     allow_short: settings.allow_short || initial.uses_short,
@@ -105,7 +126,7 @@ export default function StrategyLab({ route }: { route: Route }) {
     const s = byId.get(id);
     if (!s) return;
     setStrategyId(id);
-    setParams(defaultParams(s, provider));
+    setParams(defaultParams(s, provider, settings));
     setSizing(baseSizing(s));
     setSymbols(defaultSymbols(s, provider, settings));
     setConfig((c) => ({ ...c, allow_short: settings.allow_short || s.uses_short }));
@@ -120,7 +141,7 @@ export default function StrategyLab({ route }: { route: Route }) {
   const changeProvider = (p: string) => {
     setProvider(p);
     setSymbols(defaultSymbols(strategy, p, settings));
-    setParams(defaultParams(strategy, p));
+    setParams(defaultParams(strategy, p, settings));
   };
 
   const request = (): BacktestRequest => ({
@@ -160,6 +181,7 @@ export default function StrategyLab({ route }: { route: Route }) {
       end: req.end ?? undefined,
       strategies: [req.strategy, ...(compare && counterpart ? [{ id: counterpart.id }] : [])],
       initial_cash: config.initial_cash,
+      fractional: config.fractional,
       slippage_bps: config.slippage_bps,
       commission_bps: config.commission_bps,
       allow_short: config.allow_short,
@@ -179,8 +201,9 @@ export default function StrategyLab({ route }: { route: Route }) {
   }, [meta]);
 
   const provInfo = meta.providers.find((p) => p.id === provider);
-  const symbolHint =
-    strategy.kind === "pair"
+  const symbolHint = strategy.sizes_itself
+    ? "The watchlist the Live Desk would watch (your Live Desk watchlist by default)."
+    : strategy.kind === "pair"
       ? "Exactly two symbols: A then B."
       : strategy.kind === "cross_sectional"
         ? `A universe to rank (${strategy.min_symbols}+ symbols; more is better).`
@@ -286,13 +309,21 @@ export default function StrategyLab({ route }: { route: Route }) {
           <div className="card">
             <h3 className="section-title">Parameters</h3>
             <ParamForm spec={strategy.params} values={params} onChange={setParams} />
-            <button className="btn small ghost" style={{ marginTop: 8 }} onClick={() => setParams(defaultParams(strategy, provider))}>
-              Reset to published defaults
+            <button className="btn small ghost" style={{ marginTop: 8 }} onClick={() => setParams(defaultParams(strategy, provider, settings))}>
+              {strategy.sizes_itself ? "Reset to my Live Desk settings" : "Reset to published defaults"}
             </button>
           </div>
           <div className="card">
             <h3 className="section-title">Position sizing</h3>
-            <SizingForm value={sizing} onChange={setSizing} />
+            {strategy.sizes_itself ? (
+              <p className="small secondary">
+                This strategy sizes its own positions exactly as the Live Desk suggests them: risk per trade, stop distance and
+                position cap scaled by conviction, then the portfolio cap across all symbols. Change those in the parameters
+                above.
+              </p>
+            ) : (
+              <SizingForm value={sizing} onChange={setSizing} />
+            )}
           </div>
           <div className="card">
             <h3 className="section-title">Costs and execution</h3>
@@ -334,10 +365,21 @@ export default function StrategyLab({ route }: { route: Route }) {
                 </select>
               </label>
             </div>
-            <label className="check" style={{ marginTop: 10 }}>
-              <input type="checkbox" checked={config.allow_short} onChange={(e) => setConfig({ ...config, allow_short: e.target.checked })} />
+            <div className="col" style={{ gap: 6, marginTop: 10 }}>
+            <label className="check">
+              <input type="checkbox" checked={config.fractional} onChange={(e) => setConfig({ ...config, fractional: e.target.checked })} />
+              Fractional shares
+            </label>
+            <label className="check" title={strategy.sizes_itself ? "Set by the strategy's own short-selling parameter" : undefined}>
+              <input
+                type="checkbox"
+                checked={strategy.sizes_itself ? Boolean(params.allow_short) : config.allow_short}
+                disabled={strategy.sizes_itself}
+                onChange={(e) => setConfig({ ...config, allow_short: e.target.checked })}
+              />
               Allow short selling
             </label>
+            </div>
             <p className="small muted" style={{ marginTop: 8 }}>
               Signals are computed at a bar's close and filled on the next bar, so a strategy can never trade on information it
               would not have had (no look-ahead bias).
@@ -408,6 +450,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
   const equityLines = useMemo(
     () => [
       { id: "strategy", label: res.strategy.name, data: res.equity, color: colors.series[0] },
+      ...(res.after_tax_equity ? [{ id: "after_tax", label: `${res.strategy.name}, after tax`, data: res.after_tax_equity, color: colors.series[1] }] : []),
       ...(res.benchmark ? [{ id: "bench", label: res.benchmark.label, data: res.benchmark.equity, color: colors.deemph }] : []),
     ],
     [res, colors],
@@ -431,7 +474,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
     <>
       <Warnings items={res.warnings} />
       <MetricTiles
-        keys={["total_return", "cagr", "sharpe", "max_drawdown", "psr", "n_trades", "win_rate", "exposure"]}
+        keys={["total_return", "cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", "psr", "n_trades", "exposure"]}
         metrics={res.metrics}
         benchmark={res.benchmark?.metrics}
         info={meta.metrics}
@@ -469,6 +512,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         </div>
         <LineChart lines={ddLines} format={(v) => fmtPct(v, 1)} height={160} label="Drawdown" />
       </div>
+      {res.cost_sensitivity ? <CostSensitivityCard cs={res.cost_sensitivity} tax={res.tax} /> : null}
       {res.charts.map((ch) => (
         <TradeChart key={ch.symbol} chart={ch} timeframe={res.timeframe} />
       ))}
@@ -515,6 +559,63 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         <TradesTable trades={res.trades} showSymbol={res.symbols.length > 1} />
       </div>
     </>
+  );
+}
+
+/** The same backtest at 1x, 2x and 4x slippage: does the edge survive higher trading costs? */
+function CostSensitivityCard({ cs, tax }: { cs: NonNullable<BacktestResult["cost_sensitivity"]>; tax: BacktestResult["tax"] }) {
+  const taxable = tax?.account_type === "taxable";
+  const cols: [string, (r: CostSensitivityRow | CostSensitivity["benchmark"]) => string][] = [
+    ["CAGR", (r) => fmtPct(r.cagr)],
+    [taxable ? "After tax, if sold" : "After tax", (r) => fmtPct(r.after_tax_cagr_if_sold)],
+    ["Sharpe", (r) => fmtNum(r.sharpe)],
+    ["Max drawdown", (r) => fmtPct(r.max_drawdown)],
+    ["Cost drag / yr", (r) => fmtPct(r.cost_drag, 2, false)],
+  ];
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Cost sensitivity</h2>
+        <span className="sub">The same backtest with slippage doubled and quadrupled</span>
+      </div>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Slippage</th>
+              {cols.map(([label]) => (
+                <th key={label} className="num">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {cs.rows.map((r) => (
+              <tr key={r.multiplier}>
+                <td>
+                  {r.multiplier}x ({fmtNum(r.slippage_bps, 1)} bps)
+                </td>
+                {cols.map(([label, f]) => (
+                  <td key={label} className="num">
+                    {f(r)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr className="muted">
+              <td>Buy &amp; hold</td>
+              {cols.map(([label, f]) => (
+                <td key={label} className="num">
+                  {f(cs.benchmark)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style={{ marginTop: 10 }}>{cs.verdict}</p>
+    </div>
   );
 }
 

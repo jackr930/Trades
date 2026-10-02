@@ -81,7 +81,7 @@ function Setup({ initialSource, initialStrategies, onStarted, onOpen }: {
   const [chosen, setChosen] = useState<string[]>([]);
   const [params, setParams] = useState<Record<string, Record<string, unknown>>>({});
   const [editing, setEditing] = useState<string | null>(null);
-  const [cash, setCash] = useState(100000);
+  const [cash, setCash] = useState(settings.account_equity); // your account profile
   const [slippage, setSlippage] = useState(settings.slippage_bps);
   const [commission, setCommission] = useState(settings.commission_bps);
   const [allowShort, setAllowShort] = useState(true);
@@ -121,6 +121,7 @@ function Setup({ initialSource, initialStrategies, onStarted, onOpen }: {
       symbols: syms,
       strategies: chosen.map((id) => ({ id, params: params[id] ?? {} })),
       initial_cash: cash,
+      fractional: settings.fractional_shares,
       slippage_bps: slippage,
       commission_bps: commission,
       allow_short: allowShort,
@@ -338,7 +339,7 @@ function Setup({ initialSource, initialStrategies, onStarted, onOpen }: {
         <div className="form-grid">
           <label className="field">
             <span>Cash per strategy ($)</span>
-            <input className="input num" type="number" min={1000} value={cash} onChange={(e) => setCash(Number(e.target.value))} />
+            <input className="input num" type="number" min={100} value={cash} onChange={(e) => setCash(Number(e.target.value))} />
           </label>
           <label className="field">
             <span>Slippage (bps per fill)</span>

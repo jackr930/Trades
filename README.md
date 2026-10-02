@@ -13,7 +13,8 @@ pair) or the connected real-time feed.
 The Live Desk turns the same strategies into plain-language recommendations, the Strategy Lab backtests and
 optimises them honestly, and a practice mode lets you trade yourself and get a scorecard on your *process*.
 
-> **Recommendations only.** Trades never connects to a brokerage account and never places real orders.
+> **No real money.** Trades never places real-money orders and has no path to a live brokerage account. The
+> optional paper trader sends orders only to an Alpaca *paper* (practice) account.
 > It is educational software, not investment advice.
 
 ![Live Desk](docs/screenshots/live-desk.jpg)
@@ -23,10 +24,10 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | Area | What it does |
 | --- | --- |
 | **Strategy simulator** | Pick strategies and a market, press play. Each strategy decides at every bar's close using only the past and fills at the next open, in its own paper account, so you watch them react in real time. Markets: a **simulated market** (regime-switching, fat tails, volatility clustering, a cointegrated pair) where you can inject a crash, rally, volatility spike, forced regime, earnings gap or pair break mid-run; a **historical replay** at any speed; or a **real-time forward test** on Yahoo or Alpaca data, trading as each bar completes. A live leaderboard, equity race and a feed of every trade *with its reason*; at the end, risk-adjusted results and each strategy's return in every hidden regime. |
-| **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. |
-| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns and trade lists. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
+| **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
+| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x slippage. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
-| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing and behavioural biases. |
+| **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
 
 | Strategy simulator: results by hidden regime | Strategy Lab |
 | --- | --- |
@@ -86,6 +87,37 @@ Open **Simulator -> Test strategies**, pick a market and a set of strategies, an
 | Low-volatility anomaly | Defensive factor | Strong | Ang et al. (2006), *JF*; Frazzini & Pedersen (2014), *JFE* |
 | Short-term reversal | Mean reversion | Moderate | Lehmann (1990); Jegadeesh (1990); Avramov, Chordia & Goyal (2006) |
 | Buy and hold | Benchmark | — | Sharpe (1991), *FAJ* |
+
+### The Live Desk consensus
+
+What you would actually trade on is the Live Desk's consensus, not any single strategy, so it is a strategy too
+(`consensus`), runnable from the Strategy Lab, the simulator and the command line. One function,
+`trades.strategies.consensus.decide`, goes from votes to a suggested position, and both the Live Desk and the
+`consensus` strategy call it:
+
+1. **Score.** The average vote of the strategies that are not warming up (+1 bullish, 0 neutral, -1 bearish).
+   Four of the eight default strategies are trend rules and a fifth is momentum, so their votes are correlated.
+   **Settings -> Combine the votes -> By category** averages within each category (trend following, mean
+   reversion, momentum, statistical arbitrage) first and then across categories, so agreeing trend rules count once.
+2. **Action.** Score >= +0.2 buy (>= +0.5 strong buy); <= -0.2 sell, or short if shorting is allowed; anything
+   in between is **Neutral, with no position**.
+3. **Weight.** Conviction (the absolute score) x min(risk per trade x price / (stop ATRs x ATR(20)), max
+   position). Account equity cancels out, so this is the same weight on a $1,000 or a $1,000,000 account.
+4. **Portfolio cap.** If the suggestions add up to more than the cap (100% of equity by default, up to 200% in
+   Settings), every one of them shrinks in proportion.
+
+The strategy's members default to the Live Desk's strategy list; the Lab and the command line fill in your
+saved Live Desk settings (strategies, pairs, weighting, risk per trade, stop, position cap, portfolio cap,
+shorting), so a backtest tests what the Live Desk would have told you. A test runs the Live Desk on data cut off
+at several bars and checks that it gives the same action and weight as the strategy at those bars; the
+no-look-ahead test covers the strategy like every other.
+
+Rules re-checked on a fixed schedule (time-series momentum every 21 bars, cross-sectional momentum's monthly
+rebalance) count that schedule from the first bar of history, so the same rule fed a different start date checks
+on different days. Daily history therefore always starts on 2 January 2008: on the Live Desk, in
+`trades recommend`, the forward journal and every backtest that starts after early 2009, so all of them check on
+the same days. A backtest that starts earlier (or with blank dates in the Lab) loads more history and may check
+on other days. If a provider's history begins later than 2008, its first bar is used, in every view alike.
 
 ### Modern quant methods
 
@@ -169,7 +201,7 @@ quota, and resumes as soon as someone does.
 | Provider | Key needed | Latency | Notes |
 | --- | --- | --- | --- |
 | **Yahoo Finance** (via `yfinance`) | No | Near real-time, polled | Decades of daily history; intraday limited to 7-60 days. Unofficial API, for personal use. |
-| **Alpaca Market Data** | Free account | Real-time, streamed | Free plan uses the IEX exchange feed; a paid plan unlocks the consolidated SIP feed. Trades uses only Alpaca's *data* API, never its trading API. |
+| **Alpaca Market Data** | Free account | Real-time, streamed | Free plan uses the IEX exchange feed; a paid plan unlocks the consolidated SIP feed. The data provider uses only Alpaca's *data* API; the optional [paper trader](#paper-trading-alpaca-paper-account-only) uses only the *paper* trading API. |
 | **CSV files** | No | Static | Put `SYMBOL.csv` files (Date, Open, High, Low, Close, Volume) in `~/.trades/data`. |
 | **Synthetic** | No | Simulated | Regime-switching GARCH market with jumps; not real data. |
 
@@ -182,6 +214,30 @@ file mode 0600. Keys are masked whenever the UI reads them back. The server list
 needs no login there; to make it reachable from other machines, use the password-protected setup in
 [Put it online](#put-it-online-render).
 
+## Your account: costs and taxes
+
+**Settings -> Your account** holds one account profile, the default for the Strategy Lab, the strategy simulator,
+practice mode and the Live Desk:
+
+- **Starting equity** (from $100 everywhere, including the simulators);
+- **Fractional shares** on or off: the Live Desk suggests fractional share counts when on, whole shares (rounded
+  down) when off, and backtests and simulations trade the same way;
+- **Account type**: taxable, or tax-advantaged (an IRA or 401(k), which pays no tax as it goes);
+- **Short- and long-term tax rates**, 22% and 15% by default. These are estimates: replace them with your own
+  federal bracket.
+
+After-tax results are computed from a backtest's fills afterwards; the engine is unchanged. Every fill records the
+gain it realized and how long the shares it closed had been held. Each calendar year, gains are split into
+short-term (held one year or less) and long-term, netted, with any net loss carried forward, and tax is charged on
+the year's last bar. Buy-and-hold is taxed only on what it realizes (normally nothing), so the Lab also shows an
+**"after tax, if sold at end"** line for both: that is the fair comparison. Simplifications: average cost instead
+of tax lots, no wash-sale rule, no $3,000 offset against ordinary income, federal tax only, and dividends are not
+taxed separately. A tax-advantaged account shows after-tax equal to pre-tax.
+
+After every Lab backtest, the **cost sensitivity** card reruns it at 2x and 4x the slippage and says whether the
+strategy still beats buy-and-hold at double costs (after tax, if sold at the end, in a taxable account).
+`trades backtest` prints the after-tax lines too.
+
 ## How results are kept honest
 
 Backtests go wrong in predictable ways, and the engine is built to avoid the common traps:
@@ -190,7 +246,10 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
   (or close). The test suite truncates the data at several points and checks that every strategy's past signals,
   indicators and position sizes never change when future bars are added.
 - **Costs are always on.** Slippage (default 5 bps per fill), optional commissions and short-borrow fees. The Lab
-  warns you when costs eat a large share of gross profits.
+  warns you when costs eat a large share of gross profits and reports the annual cost drag (costs per year as a
+  share of average equity).
+- **What is researched is what is recommended.** The Live Desk's consensus and the `consensus` strategy share one
+  decision function, and a test checks they agree bar by bar.
 - **Statistics that tell you how much to trust a number.** Each backtest reports the Probabilistic Sharpe Ratio
   (Bailey & López de Prado 2012) alongside the Sharpe ratio. Parameter searches report the Deflated Sharpe Ratio
   (2014), and walk-forward analysis compares in-sample with out-of-sample results.
@@ -213,9 +272,109 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
 trades strategies -v                                  # list strategies with references
 trades backtest tsmom SPY --provider yahoo --start 2010-01-01
 trades backtest pairs_trading KO PEP --provider yahoo --short
+trades backtest consensus SPY QQQ AAPL MSFT --provider yahoo --start 2010-01-01 --benchmark SPY
+trades backtest consensus XLB XLE XLF XLI XLK XLP XLU XLV XLY --provider yahoo --start 2010-01-01 \
+    --walk-forward --grid weighting=equal,by_category    # re-choose the weighting each year on past data
 trades recommend AAPL MSFT NVDA --provider yahoo -v   # print recommendations
+trades journal record && trades journal score         # forward journal (see below)
+trades paper                                          # paper-trading dry run (see below)
 trades serve --port 8000
 ```
+
+`trades backtest consensus` uses your saved Live Desk settings unless you override them with `--param`, for
+example `--param weighting=by_category`. `--benchmark SPY` adds SPY buy-and-hold over the same bars next to the
+equal-weight buy-and-hold of your symbols.
+
+Does the consensus beat buy-and-hold after costs? `python scripts/consensus_check.py --provider yahoo` prints a
+Markdown table for the default Yahoo watchlist and for the nine original sector SPDR ETFs (a set nobody picked
+for having won): plain backtests from 2010 with both weightings, a walk-forward test that re-chooses the
+weighting each year using only earlier data, and SPY and equal-weight buy-and-hold over the same bars.
+
+## Forward journal
+
+A backtest, however honest, tests rules you chose after seeing the history. The forward journal records the Live
+Desk's recommendations *before* their outcome exists, every trading day, and scores them once it does.
+
+- **The experiment is a committed file.** `journal/experiment.json` fixes the watchlist, the strategies and pairs,
+  how votes are combined, the account's risk settings, the benchmark, the data providers and the first bar of
+  history (2 January 2008, as on the Live Desk). Every row carries the **experiment id** (a short hash of that
+  definition) and the **code version** (`git rev-parse HEAD:trades`, the hash of the `trades` package, which only
+  changes when the code does). Changing a rule starts a new experiment; the scorer never mixes two.
+- **`trades journal record`** runs after the close. On weekends and holidays, or before the session has closed,
+  it exits without writing. It uses completed bars only, and if the provider's latest bar is not today's session it
+  retries with backoff (1, 3 and 10 minutes), tries the next provider, and finally fails without writing anything:
+  stale data is never logged as today's. Rows are appended to `journal/recommendations.csv` once per (session,
+  symbol, experiment), so rerunning is harmless. Columns: run time (UTC), session date, symbol, close, score,
+  label, bullish/bearish/neutral counts, each strategy's vote as compact JSON (`null` while warming up), the
+  suggested side, weight and stop, experiment id, code version and data provider.
+- **`trades journal score`** writes `journal/REPORT.md`. A row's outcome is the symbol's return from the next
+  session's open (when the backtest engine would have filled) to the close 5 and 21 sessions later, minus SPY's
+  return over the same window; rows whose window has not passed are left out. Outcomes are averaged within each
+  day first, because symbols on the same day move together, and only days at least one horizon apart are used, so
+  overlapping windows are not counted twice. Per label it reports the number of independent days, the mean excess
+  return, the hit rate against SPY and the t-statistic; per strategy, the mean excess return on days it voted
+  bullish versus days it voted neutral or bearish. Below about 60 independent days it says plainly that it is
+  too early to conclude anything. At 21 sessions that takes about five years: forward evidence is slow.
+- **GitHub Actions** (`.github/workflows/journal.yml`) runs record and score at 22:15 UTC on weekdays (after the
+  close in both EDT and EST) and commits the results as `github-actions[bot]`. Scheduled workflows only run on the
+  repository's default branch. Yahoo needs no key; if it fails, the journal falls back to Alpaca's data API with
+  the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` repository secrets (Settings -> Secrets and variables ->
+  Actions). You can also start it by hand from the Actions tab.
+
+```bash
+trades journal record     # after the close; does nothing on weekends and holidays
+trades journal score      # rewrites journal/REPORT.md
+```
+
+## Paper trading (Alpaca paper account only)
+
+`trades paper` trades the journal's experiment (by default the Live Desk consensus) on an
+[Alpaca](https://alpaca.markets) **paper** account, so the forward test includes real order handling: queued
+orders, fills, partial fills and slippage. It talks only to `https://paper-api.alpaca.markets`. That address is
+hard-coded, every request is checked against it, redirects are not followed, and there is no setting, flag or code
+path for Alpaca's live endpoint. **Moving to real money is out of scope for this app.**
+
+**Before you start, reset your Alpaca paper account's balance to the amount you would really trade** (in Alpaca's
+dashboard), so that position sizes, whole-share rounding and the costs per trade look like yours. It uses the same
+Alpaca key as the data provider (Settings, or `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`); generate it from the
+*paper* account.
+
+Each run, in the evening after the close:
+
+1. **Reconciles** earlier orders: their status and Alpaca's fill price, next to the price the backtest engine would
+   have assumed (that session's open moved against you by the slippage setting, 5 bps by default).
+2. **Computes target weights** from completed bars, exactly as a backtest does.
+3. **Reads the paper account's actual positions and equity** from Alpaca (it never assumes earlier orders filled)
+   and orders the difference, rounded to whole shares unless the experiment's account allows fractional shares,
+   skipping re-sizing trades under 0.5% of equity as the backtest engine does.
+4. **Matches the engine's next-open fill.** Whole-share orders go to the opening auction (`time_in_force` "opg").
+   Alpaca does not accept fractional quantities in the auction, so those go as day market orders queued for the
+   open. Alpaca accepts auction orders before 9:28am ET or after 7:00pm ET, so orders are only sent in that window
+   (the GitHub job runs at 00:30 UTC, which is 8:30pm EDT / 7:30pm EST). Alpaca allows no fractional short sales,
+   so shorts are whole shares, and a position is closed before it flips. Note that Alpaca's *paper* account fills
+   auction orders like ordinary market orders, so its "slippage" is only a rough check.
+5. **Checks the guardrails before sending anything**: a kill switch (Settings, or `trades paper halt`; checked
+   again before each order), a maximum daily loss (no orders if the paper equity fell more than 3% since the prior
+   close; configurable), long-only unless the experiment allows shorting, gross exposure at most 100%, only the
+   experiment's watchlist, a maximum number of orders per run (20), and no earlier orders still open. If any check
+   fails, nothing is sent.
+
+```bash
+trades paper              # dry run (the default): prints the orders
+trades paper --submit     # sends them to the paper account
+trades paper halt --reason "taking a break"     # kill switch on; also writes journal/PAPER_HALTED
+trades paper resume       # kill switch off
+```
+
+Every order's `client_order_id` is built from the session date, symbol and experiment id, so a rerun finds the
+order it already sent and never orders twice. Sent orders are logged to `journal/paper_orders.csv` with the
+engine's assumed price and, once known, Alpaca's fill; `trades journal score` adds the real slippage in basis
+points (against the assumed 5) to `journal/REPORT.md`.
+
+The journal workflow has a second job, `paper`, that runs at 00:30 UTC on weekday evenings. It sends orders only
+when the repository *variable* `PAPER_SUBMIT` is `true` (Settings -> Secrets and variables -> Actions ->
+Variables); otherwise it is a dry run. The Alpaca keys go in the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`
+*secrets*. To stop it, run `trades paper halt` and commit `journal/PAPER_HALTED` (or create that file on GitHub).
 
 ## Architecture
 
@@ -226,6 +385,8 @@ trades/
   strategies/  strategy framework + library, position sizing
   backtest/    event-driven engine, metrics, optimisation (grid + Deflated Sharpe, walk-forward)
   advisor/     ensemble recommendation engine with evidence and risk-based sizing
+  journal/     forward journal: record recommendations after the close, score them later
+  paper/       paper trading on Alpaca's paper API only (guardrails, idempotent orders, reconciliation)
   arena/       strategy simulations: steerable simulated market, replay/real-time feeds, strategy agents
   sim/         paper broker, practice sessions, behavioural scorecard
   live/        live service: quotes -> forming bars -> recommendations -> WebSocket

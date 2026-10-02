@@ -78,7 +78,8 @@ class AlpacaProvider(DataProvider):
         description=(
             "Real-time US stock data (free plan: IEX exchange feed; paid plan: full SIP feed) "
             "with years of intraday and daily history. Needs a free Alpaca account API key. "
-            "Data only -- this app never uses Alpaca's trading endpoints."
+            "Data only -- this provider never uses Alpaca's trading endpoints (the optional paper trader "
+            "uses the paper endpoint alone)."
         ),
         requires_key=True,
         realtime="real-time (streaming)",

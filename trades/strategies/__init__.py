@@ -6,6 +6,7 @@ from typing import Any
 
 from trades.strategies.base import Evidence, Kind, Strategy, StrategyOutput
 from trades.strategies.benchmark import BuyAndHold
+from trades.strategies.consensus import Consensus
 from trades.strategies.cross_sectional import (
     CrossSectionalMomentum,
     DualMomentum,
@@ -46,6 +47,7 @@ REGISTRY: dict[str, type[Strategy]] = {
         KalmanPairs,
         RegimeSwitching,
         MLRanker,
+        Consensus,
         BuyAndHold,
     )
 }
