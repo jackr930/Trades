@@ -16,7 +16,6 @@ Everything uses the app's default settings (not your saved ones), so anyone can 
 from __future__ import annotations
 
 import argparse
-from datetime import timedelta
 
 import pandas as pd
 
@@ -25,7 +24,7 @@ from trades.backtest.metrics import performance_metrics
 from trades.backtest.optimize import walk_forward
 from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold
 from trades.config import DEFAULT_WATCHLISTS, Settings, SettingsStore
-from trades.data.base import align_bars
+from trades.data.base import align_bars, history_start
 from trades.data.service import DataService
 from trades.strategies.consensus import params_from_settings
 
@@ -55,8 +54,8 @@ def window_metrics(result, a: pd.Timestamp, b: pd.Timestamp, ppy: int) -> dict:
 def check(name: str, symbols: list[str], data: DataService, provider: str, start, cfg: BacktestConfig) -> list[str]:
     base = params_from_settings(Settings())
     warm = StrategySpec("consensus", base).build()[0].warmup()
-    fetch_start = start - timedelta(days=int(warm * 1.5) + 10)
-    frames, errors = data.bars_many([*symbols, "SPY"], "1d", fetch_start, None, provider)
+    # The same first bar as the Live Desk's history, so periodic rules check on the same days.
+    frames, errors = data.bars_many([*symbols, "SPY"], "1d", history_start(start, warm), None, provider)
     if errors:
         raise SystemExit(f"data errors: {errors}")
     aligned = align_bars({s: frames[s] for s in symbols})

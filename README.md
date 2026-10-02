@@ -111,9 +111,12 @@ shorting), so a backtest tests what the Live Desk would have told you. A test ru
 at several bars and checks that it gives the same action and weight as the strategy at those bars; the
 no-look-ahead test covers the strategy like every other.
 
-One caveat: rules re-checked on a fixed schedule (time-series momentum every 21 bars, cross-sectional momentum's
-monthly rebalance) count their schedule from the first bar of history. The Live Desk loads the latest 1,600
-bars, so its schedule can differ from a backtest that starts in another year: same rule, different check days.
+Rules re-checked on a fixed schedule (time-series momentum every 21 bars, cross-sectional momentum's monthly
+rebalance) count that schedule from the first bar of history, so the same rule fed a different start date checks
+on different days. Daily history therefore always starts on 2 January 2008: on the Live Desk, in
+`trades recommend` and in every backtest that starts after early 2009, so all of them check on the same days. A
+backtest that starts earlier (or with blank dates in the Lab) loads more history and may check on other days. If
+a provider's history begins later than 2008, its first bar is used, in every view alike.
 
 ### Modern quant methods
 

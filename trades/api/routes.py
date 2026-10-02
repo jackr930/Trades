@@ -26,7 +26,7 @@ from trades.backtest.runner import (
     sanitize,
 )
 from trades.core.timeframes import Timeframe
-from trades.data.base import DataError, align_bars, last_bar_forming
+from trades.data.base import HISTORY_START, DataError, align_bars, history_start, last_bar_forming
 from trades.data.synthetic import SCENARIOS, universe_info
 from trades.sim.session import DEFAULT_ADVISORS, HISTORICAL_PRESETS, SimConfig, create_session
 from trades.strategies import Kind, catalog, create_strategy, get_strategy_class
@@ -74,9 +74,10 @@ def _load_bars(c, body: DataBody, warmup: int) -> tuple[dict[str, pd.DataFrame],
         raise ValueError("end date must be after the start date")
     provider = body.provider or c.settings.get().provider
     fetch_start = None
-    if start:
-        days = int(warmup * 1.5) + 10 if tf is Timeframe.D1 else int(warmup / tf.bars_per_day * 1.6) + 4
-        fetch_start = start - timedelta(days=days)
+    if start and tf is Timeframe.D1:
+        fetch_start = history_start(start, warmup)  # the Live Desk's first bar, unless warm-up needs earlier
+    elif start:
+        fetch_start = start - timedelta(days=int(warmup / tf.bars_per_day * 1.6) + 4)
     frames, errors = c.data.bars_many(body.symbols, tf, fetch_start, end, provider)
     if errors:
         raise DataError("; ".join(f"{s}: {e}" for s, e in errors.items()))
@@ -219,11 +220,12 @@ async def chart(
 
     def work():
         live_bars = c.live.bars(sym) if (pid == s.provider and tf.value == s.timeframe) else None
-        df = (
-            live_bars
-            if live_bars is not None
-            else c.data.bars(sym, tf, None, None, pid, count=max(count, 1600))
-        )
+        if live_bars is not None:
+            df = live_bars
+        elif tf is Timeframe.D1:  # the same history as the Live Desk's, so the same signals
+            df = c.data.bars(sym, tf, HISTORY_START, None, pid)
+        else:
+            df = c.data.bars(sym, tf, None, None, pid, count=max(count, 1600))
         payload: dict[str, Any] = {"symbol": sym, "strategy": strat.id, "timeframe": tf.value}
         view = df.iloc[-count:]
         payload["bars"] = bars_payload(view)
@@ -375,7 +377,10 @@ async def recommendations(request: Request, body: RecommendBody):
     adv.pairs = [(a.upper(), b.upper()) for a, b in body.pairs] or s.active_pairs(symbols)
 
     def work():
-        frames, errors = c.data.bars_many(symbols, tf, None, None, provider, count=1600)
+        daily = tf is Timeframe.D1
+        frames, errors = c.data.bars_many(
+            symbols, tf, HISTORY_START if daily else None, None, provider, count=None if daily else 1600
+        )
         # The synthetic history is complete; real providers include today's forming bar.
         forming = {s: provider != "synthetic" and last_bar_forming(df, tf) for s, df in frames.items()}
         res = c.recommender.recommend(frames, adv, provisional=forming, namespace=f"{provider}:{tf.value}")

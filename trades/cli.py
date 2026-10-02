@@ -109,7 +109,7 @@ def cmd_backtest(args) -> int:
     from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold
     from trades.config import SettingsStore
     from trades.core.timeframes import Timeframe
-    from trades.data.base import align_bars
+    from trades.data.base import align_bars, history_start
     from trades.data.service import DataService
     from trades.strategies.consensus import params_from_settings
 
@@ -125,7 +125,11 @@ def cmd_backtest(args) -> int:
     strat, sizing = spec.build()
     tf = Timeframe.parse(args.timeframe)
     start = pd.Timestamp(args.start).date() if args.start else None
-    fetch_start = start - timedelta(days=int(strat.warmup() * 1.5) + 10) if start else None
+    fetch_start = None
+    if start and tf is Timeframe.D1:
+        fetch_start = history_start(start, strat.warmup())  # the Live Desk's first bar, unless warm-up needs earlier
+    elif start:
+        fetch_start = start - timedelta(days=int(strat.warmup() / tf.bars_per_day * 1.6) + 4)
     symbols = [s.upper() for s in args.symbols]
     bench_symbol = args.benchmark.upper() if args.benchmark else None
     wanted = symbols + ([bench_symbol] if bench_symbol and bench_symbol not in symbols else [])
@@ -204,7 +208,7 @@ def cmd_recommend(args) -> int:
     from trades.advisor import AdvisorSettings, Recommender
     from trades.config import SettingsStore
     from trades.core.timeframes import Timeframe
-    from trades.data.base import last_bar_forming
+    from trades.data.base import HISTORY_START, last_bar_forming
     from trades.data.service import DataService
 
     store = SettingsStore()
@@ -212,7 +216,7 @@ def cmd_recommend(args) -> int:
     data = DataService(store)
     provider = args.provider or s.provider
     symbols = [x.upper() for x in (args.symbols or s.watchlist(provider))]
-    frames, errors = data.bars_many(symbols, "1d", None, None, provider, count=1600)
+    frames, errors = data.bars_many(symbols, "1d", HISTORY_START, None, provider)
     for sym, err in errors.items():
         print(f"{sym}: {err}", file=sys.stderr)
     adv = AdvisorSettings.from_settings(s)

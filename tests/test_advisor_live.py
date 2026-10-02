@@ -252,3 +252,32 @@ def test_live_service_parks_when_nobody_is_watching(tmp_path, monkeypatch):
 def test_settings_default_advisors_are_valid():
     for spec in Settings().advisors:
         StrategySpec.from_dict(spec).build()
+
+
+def test_daily_history_starts_on_a_fixed_date():
+    """Periodic rules count from the first bar, so daily history must not be a rolling window."""
+    from datetime import date
+
+    from trades.data.base import HISTORY_START, history_start
+
+    assert history_start() == HISTORY_START
+    assert history_start(date(2015, 6, 1), 300) == HISTORY_START  # enough warm-up after the anchor
+    assert history_start(date(2008, 6, 2), 274) < date(2007, 6, 1)  # an early test still gets its warm-up
+
+
+def test_live_desk_loads_daily_history_from_the_anchor(tmp_path, monkeypatch, daily):
+    from trades.data.base import HISTORY_START
+
+    store = SettingsStore(tmp_path / "s.json")
+    store.update({"provider": "csv", "watchlists": {"csv": ["SIMIDX"]}})
+    data = DataService(store)
+    calls = []
+
+    def fake_bars_many(symbols, timeframe, start, end, provider_id, *, count=None):
+        calls.append((start, count))
+        return {"SIMIDX": daily["SIMIDX"]}, {}
+
+    monkeypatch.setattr(data, "bars_many", fake_bars_many)
+    svc = LiveService(data, store)
+    asyncio.run(svc._reload(store.get()))
+    assert calls == [(HISTORY_START, None)]
