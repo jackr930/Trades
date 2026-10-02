@@ -229,6 +229,21 @@ export default function SettingsView() {
             </span>
             <input className="input num" type="number" step={1} disabled={draft.account_type !== "taxable"} {...num("long_term_tax_rate", 100)} />
           </label>
+          <label className="field">
+            <span>
+              State tax rate (%) <Help text="A flat state rate on all capital gains, added to the federal rates. 0 if your state has no income tax." />
+            </span>
+            <input className="input num" type="number" step={0.5} disabled={draft.account_type !== "taxable"} {...num("state_tax_rate", 100)} />
+          </label>
+          <label className="field">
+            <span>
+              Idle cash earns <Help text="T-bills: cash a strategy is not using earns what a 1-3 month T-bill ETF (BIL) returned, as it could in a real account. Sharpe ratios are then in excess of T-bills." />
+            </span>
+            <select className="input" value={draft.cash_yield} onChange={(e) => setDraft({ ...draft, cash_yield: e.target.value as Settings["cash_yield"] })}>
+              <option value="tbill">T-bill returns (BIL)</option>
+              <option value="none">Nothing</option>
+            </select>
+          </label>
         </div>
         <label className="check" style={{ marginTop: 10 }}>
           <input type="checkbox" checked={draft.fractional_shares} onChange={(e) => setDraft({ ...draft, fractional_shares: e.target.checked })} />
@@ -236,7 +251,7 @@ export default function SettingsView() {
         </label>
         <p className="small muted" style={{ marginTop: 8 }}>
           The tax rates are estimates for illustration; replace them with your own federal bracket. After-tax results use
-          average cost (not tax lots), ignore wash sales and state tax, and never offset losses against other income.
+          average cost (not tax lots), use one flat state rate, ignore wash sales, and never offset losses against other income.
         </p>
         <div className="row" style={{ marginTop: 12 }}>
           <button
@@ -248,6 +263,8 @@ export default function SettingsView() {
                 account_type: draft.account_type,
                 short_term_tax_rate: draft.short_term_tax_rate,
                 long_term_tax_rate: draft.long_term_tax_rate,
+                state_tax_rate: draft.state_tax_rate,
+                cash_yield: draft.cash_yield,
               })
             }
           >
