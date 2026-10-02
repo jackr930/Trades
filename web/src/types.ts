@@ -107,6 +107,10 @@ export interface Meta {
   presets: Preset[];
   default_advisors: { id: string }[];
   universe: { symbol: string; name: string }[];
+  /** Symbol sets chosen without hindsight (sectors, countries, multi-asset, a frozen 2010 list). */
+  universes: Record<string, { label: string; symbols: string[]; note: string }>;
+  /** Benchmarks a backtest can be compared with ("ew" = equal-weight of its own symbols). */
+  benchmarks: Record<string, { label: string; weights: Record<string, number> | null }>;
   disclaimer: string;
   /** The server is password-protected (hosted mode): offer to log out. */
   auth_enabled?: boolean;
@@ -199,8 +203,25 @@ export interface BacktestResult {
   cost_sensitivity?: CostSensitivity;
   /** How this result looks given every configuration you have tested on these symbols. */
   research_log?: ResearchLog;
+  robustness?: Robustness;
   provider: string;
   timeframe: string;
+}
+
+export interface Robustness {
+  note?: string;
+  rolling?: {
+    years: number;
+    windows: number;
+    share_beating?: number;
+    median_excess?: number;
+    worst_excess?: number;
+    best_excess?: number;
+    rows?: { start: number; end: number; strategy: number; benchmark: number }[];
+  };
+  starts?: { starts: number; share_ahead?: number };
+  regimes?: { regime: string; share_of_time: number; strategy: number; benchmark: number }[];
+  bootstrap?: Record<"strategy" | "benchmark", { cagr: number[]; max_drawdown: number[] }>;
 }
 
 export interface ResearchLog {

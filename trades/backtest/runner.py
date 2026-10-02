@@ -42,6 +42,30 @@ class StrategySpec:
         )
 
 
+# Benchmarks a strategy can be compared with, besides equal-weight buy-and-hold of its own symbols.
+# Fixed mixes are rebalanced monthly; "label" is what the UI shows.
+BENCHMARKS: dict[str, dict[str, Any]] = {
+    "ew": {"label": "Equal-weight buy & hold of these symbols", "short": "EW buy & hold", "weights": None},
+    "spy": {"label": "SPY (US stocks)", "short": "SPY buy & hold", "weights": {"SPY": 1.0}},
+    "60_40": {"label": "60/40: SPY and AGG bonds", "short": "60/40", "weights": {"SPY": 0.6, "AGG": 0.4}},
+    "all_weather": {
+        "label": "All-weather style: 30% stocks, 55% Treasuries, 15% gold and commodities",
+        "short": "All-weather",
+        "weights": {"VTI": 0.30, "TLT": 0.40, "IEF": 0.15, "GLD": 0.075, "DBC": 0.075},
+    },
+}
+
+
+@dataclass
+class Benchmark:
+    """A fixed-weight benchmark portfolio and the bars of its symbols (any dates)."""
+
+    label: str
+    weights: dict[str, float]
+    data: dict[str, pd.DataFrame]
+    rebalance_every: int = 21  # bars; monthly
+
+
 @dataclass
 class StrategyBacktest:
     strategy: Strategy
@@ -56,6 +80,7 @@ class StrategyBacktest:
     start: int
     warnings: list[str]
     after_tax: pd.Series | None = None  # after-tax equity (taxable accounts), from bar ``start``
+    benchmark_label: str | None = None  # None: equal-weight buy-and-hold of the strategy's symbols
 
     @property
     def equity(self) -> pd.Series:
@@ -94,8 +119,10 @@ def backtest_strategy(
     eval_start: int | None = None,
     with_benchmark: bool = True,
     tax: TaxProfile | None = None,
+    benchmark: Benchmark | None = None,
 ) -> StrategyBacktest:
-    """Backtest ``strategy``; with a ``tax`` profile, also report after-tax results (post-processing)."""
+    """Backtest ``strategy``; with a ``tax`` profile, also report after-tax results (post-processing).
+    The benchmark is equal-weight buy-and-hold of the same symbols unless ``benchmark`` is given."""
     cfg = config or BacktestConfig()
     sizing = sizing or SizingConfig.from_dict(None, strategy.default_sizing)
     aligned = align_bars({s.upper() if isinstance(s, str) else s: df for s, df in data.items()})
@@ -129,9 +156,16 @@ def backtest_strategy(
     result = run_backtest(aligned, weights, cfg, start)
     bench = None
     bench_metrics = None
-    if with_benchmark:
+    bench_data = None
+    if with_benchmark and benchmark is not None:
+        # The benchmark's bars on the strategy's dates, carried forward over a missing day. Never
+        # backwards: before a fund existed it has no price, and its share is bought once it does.
+        bench_data = {s: benchmark.data[s].reindex(index).ffill() for s in benchmark.weights}
+        bench, bench_metrics = fixed_mix(bench_data, benchmark.weights, cfg, start, benchmark.rebalance_every)
+    elif with_benchmark:
         bsyms = benchmark_symbols(strategy, symbols)
-        bench, bench_metrics = buy_and_hold({s: aligned[s] for s in bsyms}, cfg, start)
+        bench_data = {s: aligned[s] for s in bsyms}
+        bench, bench_metrics = buy_and_hold(bench_data, cfg, start)
     metrics = performance_metrics(
         result.equity.iloc[start:],
         cfg.periods_per_year,
@@ -147,9 +181,10 @@ def backtest_strategy(
         extra, after_tax_equity = tax_metrics(result, aligned, start, tax, cfg.periods_per_year)
         metrics.update(extra)
         if bench is not None and bench_metrics is not None:
-            bench_metrics.update(tax_metrics(bench, aligned, start, tax, cfg.periods_per_year)[0])
+            bench_metrics.update(tax_metrics(bench, bench_data, start, tax, cfg.periods_per_year)[0])
     return StrategyBacktest(
-        strategy, sizing, aligned, output, weights, result, bench, metrics, bench_metrics, start, warnings, after_tax_equity
+        strategy, sizing, aligned, output, weights, result, bench, metrics, bench_metrics, start, warnings,
+        after_tax_equity, benchmark.label if benchmark is not None else None,
     )
 
 
@@ -161,6 +196,39 @@ def buy_and_hold(
     index = next(iter(data.values())).index
     # A buy-and-hold investor uses no margin.
     res = run_backtest(data, buy_and_hold_weights(index, symbols, start), replace(config, max_gross_leverage=1.0), start)
+    metrics = performance_metrics(
+        res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure,
+        risk_free=config.cash_returns,
+    )
+    return res, metrics
+
+
+def fixed_mix(
+    data: dict[str, pd.DataFrame],
+    weights: dict[str, float],
+    config: BacktestConfig,
+    start: int = 0,
+    rebalance_every: int = 21,
+) -> tuple[BacktestResult, dict[str, float | None]]:
+    """A fixed-weight portfolio of ``data`` (aligned bars), rebalanced every ``rebalance_every`` bars.
+
+    The engine holds shares while a target is unchanged, so on rebalance days the target
+    alternates by one part in a million: that is enough for it to re-size, and the usual
+    no-trade band (``min_trade_weight``) still skips trades that are too small.
+    """
+    symbols = list(weights)
+    index = next(iter(data.values())).index
+    w = np.array([weights[s] for s in symbols], dtype=float)
+    period = (np.arange(len(index)) - start) // max(rebalance_every, 1)
+    nudge = np.where(period % 2 == 0, 1.0, 1.0 - 1e-6)
+    targets = np.outer(nudge, w)
+    targets[:start] = 0.0
+    res = run_backtest(
+        data,
+        pd.DataFrame(targets, index=index, columns=symbols),
+        replace(config, max_gross_leverage=max(1.0, float(w.sum()))),
+        start,
+    )
     metrics = performance_metrics(
         res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure,
         risk_free=config.cash_returns,
@@ -353,7 +421,8 @@ def backtest_payload(bt: StrategyBacktest, chart_symbols: list[str] | None = Non
     if bt.benchmark is not None:
         beq = bt.benchmark.equity.iloc[start:]
         payload["benchmark"] = {
-            "label": "Buy & hold "
+            "label": bt.benchmark_label
+            or "Buy & hold "
             + (
                 "equal-weight"
                 if len(benchmark_symbols(bt.strategy, symbols)) > 1

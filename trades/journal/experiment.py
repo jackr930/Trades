@@ -34,6 +34,7 @@ ACCOUNT_DEFAULTS = {
     "max_gross_exposure": 1.0,
     "allow_short": False,
     "fractional": False,  # paper orders in fractional shares
+    "min_trade_weight": 0.005,  # skip re-sizing trades under this share of equity (the engine's default)
     "slippage_bps": 5.0,
     "commission_bps": 0.0,
 }
