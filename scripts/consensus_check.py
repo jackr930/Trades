@@ -83,7 +83,7 @@ def check(name: str, symbols: list[str], data: DataService, provider: str, start
     lines.append(row(f"{name}: equal-weight buy & hold", period, held(aligned, bt.start)))
 
     # Walk-forward: the first training window starts at --start (after the members' warm-up).
-    wf_data = {s: df.iloc[eval_start - warm + 1 :] for s, df in aligned.items()}
+    wf_data = {s: df.iloc[max(eval_start - warm + 1, 0) :] for s, df in aligned.items()}
     grid = {"weighting": ["equal", "by_category"]}
     wf = walk_forward("consensus", base, grid, wf_data, None, cfg, "sharpe", 756, 252)
     oos = pd.to_datetime(wf["oos_equity"]["t"], unit="s", utc=True)

@@ -92,10 +92,15 @@ def after_tax(equity: pd.Series, fills: list[Fill], profile: TaxProfile) -> Afte
         return AfterTax(equity.copy())
     gains: dict[int, list[float]] = {}  # year -> [short-term, long-term]
     for f in fills:
-        if f.realized_pnl:
+        # Commissions reduce taxable gains. Each is deducted in the year it is paid, with the
+        # character of the fill it belongs to (an opening fill's counts as short-term).
+        amount = f.realized_pnl - f.commission
+        if amount:
             year = pd.Timestamp(f.time).year
-            kind = 1 if is_long_term(f.holding_days) else 0
-            gains.setdefault(year, [0.0, 0.0])[kind] += f.realized_pnl
+            # Only a sale closing a long can be long-term: gains on short sales are short-term
+            # however long the short was open (IRC section 1233).
+            kind = 1 if f.qty < 0 and is_long_term(f.holding_days) else 0
+            gains.setdefault(year, [0.0, 0.0])[kind] += amount
     years = equity.index.year
     last_bar_of_year = pd.Series(years, index=equity.index) != pd.Series(years, index=equity.index).shift(-1)
     carry_s = carry_l = 0.0
@@ -131,7 +136,7 @@ def liquidation(
             continue
         gain = pos.qty * (prices[sym] - pos.avg_price)
         days = (end_ns - pos.opened_ns) / 86_400e9 if pos.opened_ns is not None else None
-        if is_long_term(days):
+        if pos.qty > 0 and is_long_term(days):  # short positions are always short-term
             long += gain
         else:
             short += gain

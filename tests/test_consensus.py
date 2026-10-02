@@ -9,6 +9,7 @@ from trades.advisor import AdvisorSettings, Recommender
 from trades.advisor.recommender import suggest_position
 from trades.backtest.runner import StrategySpec, backtest_strategy
 from trades.config import DEFAULT_ADVISORS
+from trades.data.base import align_bars
 from trades.strategies import REGISTRY, create_strategy
 from trades.strategies.consensus import ConsensusRules, consensus_score, decide
 
@@ -103,6 +104,34 @@ def test_strategy_reproduces_the_live_desk(daily, weighting, allow_short):
         capped += res["portfolio"]["scale"] < 1
         assert res["portfolio"]["gross"] <= 1.0 + 1e-9
     assert capped, "the portfolio cap should bind at some cut point"
+
+
+def test_live_desk_matches_the_strategy_when_histories_differ(daily):
+    """A symbol listed later and a missing bar: the Live Desk uses the dates all symbols share,
+    exactly as the strategy (and so the backtests and the paper trader) does."""
+    symbols = UNIVERSE[:5]
+    data = {s: daily[s].iloc[-600:] for s in symbols}
+    data[symbols[1]] = data[symbols[1]].iloc[40:]  # listed 40 bars later
+    data[symbols[2]] = data[symbols[2]].drop(data[symbols[2]].index[300])  # a provider gap
+    adv = AdvisorSettings(strategies=[StrategySpec.from_dict(d) for d in DEFAULT_ADVISORS], evidence_bars=60)
+    strat = create_strategy("consensus", {})
+    aligned = align_bars(data)
+    out = strat.run(aligned)
+    for cut in range(200, len(aligned[symbols[0]]) + 1, 37):
+        end = aligned[symbols[0]].index[cut - 1]
+        res = Recommender().recommend({s: df.loc[:end] for s, df in data.items()}, adv, namespace=f"h{cut}")
+        for rec in res["recommendations"]:
+            mine = strat.decision_at(out, rec["symbol"], cut - 1)
+            assert rec["consensus"]["score"] == pytest.approx(mine["score"], abs=1e-12), (cut, rec["symbol"])
+            assert rec["sizing"]["weight"] == pytest.approx(mine["weight"], abs=1e-12), (cut, rec["symbol"])
+    assert any("starts on" in n for n in res["notes"])
+
+
+def test_a_pair_leg_without_history_does_not_break_the_live_desk(daily):
+    data = {s: daily[s].iloc[-300:] for s in ["SIMIDX", "SIMPRA"]} | {"SIMPRB": daily["SIMPRB"].iloc[-2:]}
+    adv = AdvisorSettings(strategies=[StrategySpec.from_dict({"id": "pairs_trading"})], pairs=[("SIMPRA", "SIMPRB")])
+    res = Recommender().recommend(data, adv)
+    assert {r["symbol"] for r in res["recommendations"]} == {"SIMIDX", "SIMPRA"}
 
 
 def test_consensus_backtests_with_its_own_sizing(daily):

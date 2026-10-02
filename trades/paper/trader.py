@@ -346,41 +346,45 @@ def run(
         )
         return 1
     run_time = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sent = 0
-    for o in orders:
-        if halt_check is not None and halt_check():  # the kill switch, checked before every order
-            log("Kill switch turned on during the run: stopping.")
-            break
-        cid = client_order_id(session, o.symbol, exp.id)
-        existing = client.order_by_client_id(cid)
-        if existing is None:
-            try:
-                existing = client.submit_order(o.symbol, o.qty, o.side, o.time_in_force, cid)
-                sent += 1
-            except PaperAPIError as exc:
-                log(f"  {o.symbol}: Alpaca refused the order ({exc}).")
-                continue
-        if any(r["client_order_id"] == cid for r in rows):
-            continue  # already logged by an earlier run
-        rows.append(
-            {
-                **dict.fromkeys(ORDER_COLUMNS, ""),
-                "run_time_utc": run_time,
-                "session_date": session.isoformat(),
-                "trade_date": trade_date.isoformat(),
-                "symbol": o.symbol,
-                "side": o.side,
-                "qty": f"{o.qty:g}",
-                "time_in_force": o.time_in_force,
-                "client_order_id": cid,
-                "alpaca_order_id": existing.get("id", ""),
-                "status": existing.get("status", ""),
-                "decision_close": round(o.price, 4),
-                "experiment_id": exp.id,
-                "code_version": version,
-            }
-        )
-    write_log(orders_path, rows)
-    log(f"Sent {sent} order(s) to the Alpaca paper account.")
-    return 0
+    sent, refused, stopped = 0, 0, False
+    try:
+        for o in orders:
+            if halt_check is not None and halt_check():  # the kill switch, checked before every order
+                log("Kill switch turned on during the run: stopping.")
+                stopped = True
+                break
+            cid = client_order_id(session, o.symbol, exp.id)
+            existing = client.order_by_client_id(cid)
+            if existing is None:
+                try:
+                    existing = client.submit_order(o.symbol, o.qty, o.side, o.time_in_force, cid)
+                    sent += 1
+                except PaperAPIError as exc:
+                    log(f"  {o.symbol}: Alpaca refused the order ({exc}).")
+                    refused += 1
+                    continue
+            if any(r["client_order_id"] == cid for r in rows):
+                continue  # already logged by an earlier run
+            rows.append(
+                {
+                    **dict.fromkeys(ORDER_COLUMNS, ""),
+                    "run_time_utc": run_time,
+                    "session_date": session.isoformat(),
+                    "trade_date": trade_date.isoformat(),
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "qty": f"{o.qty:g}",
+                    "time_in_force": o.time_in_force,
+                    "client_order_id": cid,
+                    "alpaca_order_id": existing.get("id", ""),
+                    "status": existing.get("status", ""),
+                    "decision_close": round(o.price, 4),
+                    "experiment_id": exp.id,
+                    "code_version": version,
+                }
+            )
+    finally:
+        write_log(orders_path, rows)  # orders already sent stay logged even if the run fails partway
+    log(f"Sent {sent} order(s) to the Alpaca paper account" + (f"; {refused} refused." if refused else "."))
+    return 1 if refused or stopped else 0  # a failure the journal workflow should report
 
