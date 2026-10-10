@@ -116,11 +116,16 @@ def experiment_id(definition: dict[str, Any]) -> str:
 
 
 def code_version(repo: Path | str = ".") -> str:
-    """Tree hash of the ``trades`` package at HEAD; "unknown" outside a git checkout."""
+    """Tree hash of the ``trades`` package at HEAD, plus "+dirty" when it has uncommitted
+    changes (the rows then come from code no commit records); "unknown" outside a git checkout."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD:trades"], cwd=repo, capture_output=True, text=True, timeout=10, check=True
         )
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--", "trades"], cwd=repo, capture_output=True, text=True, timeout=10, check=True
+        )
     except (OSError, subprocess.SubprocessError):
         return "unknown"
-    return out.stdout.strip()[:12] or "unknown"
+    version = out.stdout.strip()[:12] or "unknown"
+    return version + "+dirty" if dirty.stdout.strip() and version != "unknown" else version

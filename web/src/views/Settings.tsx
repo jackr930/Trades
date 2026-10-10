@@ -19,7 +19,20 @@ export default function SettingsView() {
   const [theme, setTheme] = useState<ThemeChoice>(loadTheme());
   const [candles, setCandles] = useState<CandleChoice>(loadCandles());
 
-  useEffect(() => setDraft(settings), [settings]);
+  // When saved settings change, refresh only the fields that were saved: unsaved edits in the
+  // other cards survive saving one card.
+  const [saved, setSaved] = useState<Settings>(settings);
+  useEffect(() => {
+    setDraft((d) => {
+      const next = { ...d } as Record<string, unknown>;
+      for (const k of Object.keys(settings) as (keyof Settings)[]) {
+        if (JSON.stringify(settings[k]) !== JSON.stringify(saved[k])) next[k] = settings[k];
+      }
+      return next as unknown as Settings;
+    });
+    setSaved(settings);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
 
   const save = async (patch: Record<string, unknown>, message = "Settings saved") => {
     setError(null);
@@ -43,7 +56,7 @@ export default function SettingsView() {
   };
 
   const num = (key: keyof Settings, scale = 1) => ({
-    value: String(Number(draft[key]) * scale),
+    value: String(Math.round(Number(draft[key]) * scale * 1e6) / 1e6), // 1.15 x 100 is 114.99999999999999
     onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
       setDraft({ ...draft, [key]: e.target.value === "" ? 0 : Number(e.target.value) / scale }),
   });
