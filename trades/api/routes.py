@@ -76,8 +76,10 @@ def _load_bars(c, body: DataBody, warmup: int) -> tuple[dict[str, pd.DataFrame],
         raise ValueError("end date must be after the start date")
     provider = body.provider or c.settings.get().provider
     fetch_start = None
-    if start and tf is Timeframe.D1:
-        fetch_start = history_start(start, warmup)  # the Live Desk's first bar, unless warm-up needs earlier
+    if tf is Timeframe.D1:
+        # The Live Desk's first bar (unless warm-up needs earlier), with or without a start date:
+        # a provider's default window would move the first bar and so change the calls.
+        fetch_start = history_start(start, warmup)
     elif start:
         fetch_start = start - timedelta(days=int(warmup / tf.bars_per_day * 1.6) + 4)
     frames, errors = c.data.bars_many(body.symbols, tf, fetch_start, end, provider)
@@ -349,11 +351,13 @@ async def optimize(request: Request, body: OptimizeBody):
                 eval_start,
             )
         else:
+            # Walk forward from the requested start: earlier bars only warm the indicators up.
+            first = max((eval_start or 0) - max_warm + 1, 0)
             res = walk_forward(
                 body.strategy.id,
                 body.strategy.params,
                 grid,
-                data,
+                {s: df.iloc[first:] for s, df in data.items()},
                 body.strategy.sizing,
                 cfg,
                 body.objective,

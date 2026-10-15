@@ -143,6 +143,33 @@ _VALIDATORS = {
 }
 
 
+def _typed(key: str, value: Any) -> Any:
+    """``value`` as the setting's own type: "100" becomes 100.0 for a number, but a string is
+    never a yes/no setting (bool("false") is True), and a list is never a number."""
+    kind = type(getattr(Settings(), key))
+    if kind is bool:
+        if not isinstance(value, bool):
+            raise ValueError(f"invalid value for {key}: {value!r} (expected true or false)")
+        return value
+    if kind in (int, float):
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"invalid value for {key}: {value!r}")
+        try:
+            number = float(value)
+        except ValueError as exc:
+            raise ValueError(f"invalid value for {key}: {value!r}") from exc
+        if kind is int:
+            if number != int(number):
+                raise ValueError(f"invalid value for {key}: {value!r} (expected a whole number)")
+            return int(number)
+        return number
+    if kind is str and not isinstance(value, str):
+        raise ValueError(f"invalid value for {key}: {value!r}")
+    if kind in (list, dict) and not isinstance(value, kind):
+        raise ValueError(f"invalid value for {key}: {value!r}")
+    return value
+
+
 class SettingsStore:
     def __init__(self, path: Path | None = None):
         self.path = path or trades_home() / "settings.json"
@@ -180,6 +207,7 @@ class SettingsStore:
                     continue
                 if key in SECRET_FIELDS and (value is None or str(value).startswith(MASK_PREFIX)):
                     continue  # unchanged masked value echoed back by the UI
+                value = _typed(key, value)
                 if key in _VALIDATORS and not _VALIDATORS[key](value):
                     raise ValueError(f"invalid value for {key}: {value!r}")
                 if key == "pairs":

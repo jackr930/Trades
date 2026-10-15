@@ -49,6 +49,8 @@ jobs:
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
         run: trades journal score
       - name: Commit
+        # Also after a failed score step: a session's rows cannot be recorded again later.
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -79,6 +81,10 @@ jobs:
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           PAPER_SUBMIT: ${{ vars.PAPER_SUBMIT }}
         run: |
+          if [ -z "$APCA_API_KEY_ID" ] || [ -z "$APCA_API_SECRET_KEY" ]; then
+            echo "No Alpaca paper keys in the repository secrets: skipping paper trading."
+            exit 0
+          fi
           if [ "$PAPER_SUBMIT" = "true" ]; then
             trades paper --submit
           else

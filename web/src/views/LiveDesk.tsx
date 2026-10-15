@@ -413,7 +413,11 @@ function SymbolDetail({ rec, snap, onPractice }: {
                 <span className={`badge ${s.side === "long" ? "up" : "down"}`}>{s.side === "long" ? "▲ Long" : "▼ Short"}</span>
                 <span style={{ fontSize: 22, fontWeight: 600 }}>{s.shares.toLocaleString()} shares</span>
                 <span className="muted">
-                  {fmtMoney(s.notional)} ({fmtPct(Math.abs(s.weight), 1, false)} of equity)
+                  {fmtMoney(s.notional)} ({fmtPct(Math.abs(s.held_weight ?? s.weight), 1, false)} of equity
+                  {s.held_weight !== undefined && Math.abs(s.held_weight - s.weight) > 0.0005
+                    ? `; target ${fmtPct(Math.abs(s.weight), 1, false)}, rounded to whole shares`
+                    : ""}
+                  )
                 </span>
               </div>
               <dl className="kv" style={{ marginTop: 12 }}>

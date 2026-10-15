@@ -25,7 +25,7 @@ optimises them honestly, and a practice mode lets you trade yourself and get a s
 | --- | --- |
 | **Strategy simulator** | Pick strategies and a market, press play. Each strategy decides at every bar's close using only the past and fills at the next open, in its own paper account, so you watch them react in real time. Markets: a **simulated market** (regime-switching, fat tails, volatility clustering, a cointegrated pair) where you can inject a crash, rally, volatility spike, forced regime, earnings gap or pair break mid-run; a **historical replay** at any speed; or a **real-time forward test** on Yahoo or Alpaca data, trading as each bar completes. A live leaderboard, equity race and a feed of every trade *with its reason*; at the end, risk-adjusted results and each strategy's return in every hidden regime. |
 | **Live Desk** | Streams quotes for your watchlist (Yahoo Finance with no key, Alpaca real-time with a free key, or an offline demo market), runs every enabled strategy on each bar, and shows a consensus signal. Each strategy's vote comes with the rule it applied, how long the signal has held, its backtested record on *this* symbol, and a risk-based position size with a protective stop. A neutral consensus suggests no position, and a portfolio cap keeps all suggestions together within 100% of your account (the total is shown). The consensus itself is a strategy you can backtest: see [The Live Desk consensus](#the-live-desk-consensus). |
-| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x slippage. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
+| **Strategy Lab** | Backtests any strategy on any symbols and dates with realistic next-bar fills, slippage, commissions and short-borrow fees. Includes a buy-and-hold benchmark, drawdowns, monthly returns, trade lists, **after-tax results** for your account, and a **cost-sensitivity** check that reruns the test at 2x and 4x costs. Parameter optimisation reports the **Deflated Sharpe Ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters only on data the optimiser never saw. |
 | **Practice trading** | Trade yourself, one bar at a time, with market, limit, stop and bracket (stop-loss/take-profit) orders. Choose synthetic scenarios (crash, bubble, chop, and more) or famous real periods such as 2008, COVID and the dot-com bust in **blind mode**, where ticker, dates, price level and volume are hidden until the end. You race the strategies, then get a scorecard covering outcome and process: stop usage, position sizing, cutting losses, the disposition effect, over-trading, and journaling. |
 | **Library** | Rules, rationale, failure modes, evidence rating and references for every strategy, grouped into classic published rules and modern quant methods (each modern method links to the classic rule it refines, with one click to race the two), plus concise explainers on look-ahead bias, overfitting, survivorship bias, costs, the Sharpe ratio's uncertainty, position sizing, behavioural biases, and why an AI model's stock picks can't be backtested (it was trained on text from after the backtest's dates, so only predictions logged in advance can test it). |
 
@@ -229,12 +229,13 @@ practice mode and the Live Desk:
 After-tax results are computed from a backtest's fills afterwards; the engine is unchanged. Every fill records the
 gain it realized and how long the shares it closed had been held. Each calendar year, gains are split into
 short-term (held one year or less) and long-term, netted, with any net loss carried forward, and tax is charged on
-the year's last bar. Buy-and-hold is taxed only on what it realizes (normally nothing), so the Lab also shows an
+the year's last bar. Gains on short sales are always short-term, however long the short was open, and commissions
+reduce taxable gains in the year they are paid. Buy-and-hold is taxed only on what it realizes (normally nothing), so the Lab also shows an
 **"after tax, if sold at end"** line for both: that is the fair comparison. Simplifications: average cost instead
 of tax lots, no wash-sale rule, no $3,000 offset against ordinary income, federal tax only, and dividends are not
 taxed separately. A tax-advantaged account shows after-tax equal to pre-tax.
 
-After every Lab backtest, the **cost sensitivity** card reruns it at 2x and 4x the slippage and says whether the
+After every Lab backtest, the **cost sensitivity** card reruns it at 2x and 4x the slippage and commissions and says whether the
 strategy still beats buy-and-hold at double costs (after tax, if sold at the end, in a taxable account).
 `trades backtest` prints the after-tax lines too.
 
@@ -249,7 +250,10 @@ Backtests go wrong in predictable ways, and the engine is built to avoid the com
   warns you when costs eat a large share of gross profits and reports the annual cost drag (costs per year as a
   share of average equity).
 - **What is researched is what is recommended.** The Live Desk's consensus and the `consensus` strategy share one
-  decision function, and a test checks they agree bar by bar.
+  decision function and see the same bars: every strategy runs on the dates all watchlist symbols share, as in a
+  backtest (so a recently listed symbol moves everyone's first bar, and the Live Desk says so). Tests check they
+  agree at several cut points, including when one symbol starts later and another is missing a day. Daily data
+  always starts on 2 January 2008, with or without a start date, so periodic rules re-check on the same days.
 - **Statistics that tell you how much to trust a number.** Each backtest reports the Probabilistic Sharpe Ratio
   (Bailey & López de Prado 2012) alongside the Sharpe ratio. Parameter searches report the Deflated Sharpe Ratio
   (2014), and walk-forward analysis compares in-sample with out-of-sample results.
@@ -353,8 +357,8 @@ Each run, in the evening after the close:
    (the GitHub job runs at 00:30 UTC, which is 8:30pm EDT / 7:30pm EST). Alpaca allows no fractional short sales,
    so shorts are whole shares, and a position is closed before it flips. Note that Alpaca's *paper* account fills
    auction orders like ordinary market orders, so its "slippage" is only a rough check.
-5. **Checks the guardrails before sending anything**: a kill switch (Settings, or `trades paper halt`; checked
-   again before each order), a maximum daily loss (no orders if the paper equity fell more than 3% since the prior
+5. **Checks the guardrails before sending anything**: a kill switch (Settings, or `trades paper halt`; re-read from
+   disk before each order, so switching it on in the app stops a run already going), a maximum daily loss (no orders if the paper equity fell more than 3% since the prior
    close; configurable), long-only unless the experiment allows shorting, gross exposure at most 100%, only the
    experiment's watchlist, a maximum number of orders per run (20), and no earlier orders still open. If any check
    fails, nothing is sent.
@@ -374,7 +378,11 @@ points (against the assumed 5) to `journal/REPORT.md`.
 The journal workflow has a second job, `paper`, that runs at 00:30 UTC on weekday evenings. It sends orders only
 when the repository *variable* `PAPER_SUBMIT` is `true` (Settings -> Secrets and variables -> Actions ->
 Variables); otherwise it is a dry run. The Alpaca keys go in the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`
-*secrets*. To stop it, run `trades paper halt` and commit `journal/PAPER_HALTED` (or create that file on GitHub).
+*secrets*; without them the job skips itself. To stop it, run `trades paper halt` and commit
+`journal/PAPER_HALTED` (or create that file on GitHub). The Settings page's kill switch and limits live on the
+machine running the app, so they do not reach this job: on GitHub only `journal/PAPER_HALTED`, `PAPER_SUBMIT` and the
+experiment's own account settings apply, with the default limits (3% daily loss, 20 orders). A run that had any
+order refused, or was stopped by the kill switch, exits with an error so the failure is visible.
 
 ## Architecture
 
