@@ -19,15 +19,17 @@ import argparse
 
 import pandas as pd
 
-from trades.backtest.engine import BacktestConfig
-from trades.backtest.metrics import performance_metrics
-from trades.backtest.optimize import walk_forward
-from trades.backtest.runner import StrategySpec, backtest_strategy, buy_and_hold, tax_metrics
-from trades.backtest.tax import TaxProfile
-from trades.config import DEFAULT_WATCHLISTS, Settings, SettingsStore
 from trades.data.base import align_bars, history_start
 from trades.data.service import DataService
+from trades.defaults import DEFAULT_WATCHLISTS
+from trades.engine.backtest import backtest_strategy, buy_and_hold, tax_metrics
+from trades.execution.sim_broker import BacktestConfig
+from trades.reporting.metrics import performance_metrics
+from trades.reporting.tax import TaxProfile
+from trades.settings import Settings, SettingsStore
+from trades.strategies import StrategyConfig
 from trades.strategies.consensus import params_from_settings
+from trades.validation.optimize import walk_forward
 
 SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]  # the nine original sector SPDRs
 
@@ -55,7 +57,7 @@ def window_metrics(result, a: pd.Timestamp, b: pd.Timestamp, ppy: int) -> dict:
 
 def check(name: str, symbols: list[str], data: DataService, provider: str, start, cfg: BacktestConfig) -> list[str]:
     base = params_from_settings(Settings())
-    warm = StrategySpec("consensus", base).build()[0].warmup()
+    warm = StrategyConfig("consensus", base).build()[0].warmup()
     # The same first bar as the Live Desk's history, so periodic rules check on the same days.
     frames, errors = data.bars_many([*symbols, "SPY"], "1d", history_start(start, warm), None, provider)
     if errors:
@@ -74,7 +76,7 @@ def check(name: str, symbols: list[str], data: DataService, provider: str, start
         return m | tax_metrics(res, sub, start_at, tax, ppy)[0]
 
     for weighting in ("equal", "by_category"):
-        strat, sizing = StrategySpec("consensus", {**base, "weighting": weighting}).build()
+        strat, sizing = StrategyConfig("consensus", {**base, "weighting": weighting}).build()
         tests[weighting] = bt = backtest_strategy(strat, aligned, sizing, cfg, eval_start, tax=tax)
         period = f"{bt.equity.index[0].date()} – {bt.equity.index[-1].date()}"
         lines.append(row(f"{name}: consensus, {weighting.replace('_', ' ')}", period, bt.metrics))

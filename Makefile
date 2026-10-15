@@ -1,4 +1,4 @@
-.PHONY: install web serve dev test lint check docker
+.PHONY: install web serve dev test test-unit test-lookahead lint check docker
 
 PY ?= python3
 
@@ -15,14 +15,20 @@ serve: web          ## Build the UI and start the app on http://127.0.0.1:8000
 dev:                ## API on :8000 plus the Vite dev server with hot reload on :5173
 	trades serve & cd web && npm run dev
 
-test:               ## Python test suite
+test:               ## Python test suite (unit, look-ahead and integration tiers)
 	$(PY) -m pytest
 
+test-unit:          ## Fast unit tests only (seconds)
+	$(PY) -m pytest tests/unit
+
+test-lookahead:     ## Every strategy must give the same past signals when future bars are added
+	$(PY) -m pytest tests/lookahead
+
 lint:
-	ruff check trades tests
+	ruff check src tests scripts
 	cd web && npm run typecheck
 
 check: lint test web
 
 docker:             ## Build and run in Docker (http://127.0.0.1:8000)
-	docker compose up --build
+	docker compose -f deploy/docker-compose.yml up --build

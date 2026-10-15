@@ -4,6 +4,8 @@ services:
   - type: web
     name: trades
     runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
     plan: free
     healthCheckPath: /healthz
     envVars:

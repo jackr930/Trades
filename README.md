@@ -162,7 +162,7 @@ works without an internet connection or API key. Switch to real data under **Set
 Or with Docker:
 
 ```bash
-docker compose up --build                             # http://127.0.0.1:8000
+docker compose -f deploy/docker-compose.yml up --build   # http://127.0.0.1:8000
 ```
 
 For development with hot reload: run `trades serve` and, in another terminal, `cd web && npm run dev`
@@ -298,7 +298,7 @@ Desk's recommendations *before* their outcome exists, every trading day, and sco
 - **The experiment is a committed file.** `journal/experiment.json` fixes the watchlist, the strategies and pairs,
   how votes are combined, the account's risk settings, the benchmark, the data providers and the first bar of
   history (2 January 2008, as on the Live Desk). Every row carries the **experiment id** (a short hash of that
-  definition) and the **code version** (`git rev-parse HEAD:trades`, the hash of the `trades` package, which only
+  definition) and the **code version** (`git rev-parse HEAD:src/trades`, the hash of the `trades` package, which only
   changes when the code does). Changing a rule starts a new experiment; the scorer never mixes two.
 - **`trades journal record`** runs after the close. On weekends and holidays, or before the session has closed,
   it exits without writing. It uses completed bars only, and if the provider's latest bar is not today's session it
@@ -379,20 +379,21 @@ Variables); otherwise it is a dry run. The Alpaca keys go in the `APCA_API_KEY_I
 ## Architecture
 
 ```
-trades/
-  core/        NYSE calendar, timeframes, indicators, statistics (PSR/DSR, ADF, cointegration), ledger
-  data/        providers (synthetic, Yahoo, Alpaca, CSV), bar normalisation, cached data service
-  strategies/  strategy framework + library, position sizing
-  backtest/    event-driven engine, metrics, optimisation (grid + Deflated Sharpe, walk-forward)
-  advisor/     ensemble recommendation engine with evidence and risk-based sizing
+src/trades/
+  data/        bars: providers (synthetic, Yahoo, Alpaca, CSV), NYSE calendar, timeframes, cached data service
+  features/    pure functions of past prices: indicators, time-series statistics (ADF, cointegration)
+  strategies/  signals and position sizing; the strategy library and registry
+  execution/   how targets become fills: the simulated broker, the ledger, the Alpaca paper API client
+  engine/      the loop: backtests, and the daily paper trader
+  validation/  is the edge real? Sharpe statistics (PSR/DSR), grid search, walk-forward
+  reporting/   performance metrics, after-tax results, JSON for the web UI
+  recommend/   the Live Desk: recommendations with evidence and sizing, and the live quote service
   journal/     forward journal: record recommendations after the close, score them later
-  paper/       paper trading on Alpaca's paper API only (guardrails, idempotent orders, reconciliation)
-  arena/       strategy simulations: steerable simulated market, replay/real-time feeds, strategy agents
-  sim/         paper broker, practice sessions, behavioural scorecard
-  live/        live service: quotes -> forming bars -> recommendations -> WebSocket
+  simulator/   strategy races on a steerable simulated market, practice trading and its scorecard
   api/         FastAPI REST + WebSocket, serves the built UI
 web/           React + TypeScript + Vite UI (charts: TradingView lightweight-charts)
-tests/         pytest suite
+tests/         unit/ (fast), lookahead/ (no strategy may peek ahead), integration/ (incl. golden outputs)
+deploy/        Dockerfile and docker-compose.yml
 ```
 
 Data flows one way. A provider supplies bars; a strategy turns them into signals; the sizing layer turns signals
@@ -405,14 +406,14 @@ The REST and WebSocket API is documented at `http://127.0.0.1:8000/docs` while t
 ## Adding your own strategy
 
 A single-symbol strategy is a small class: declare its parameters and metadata, then compute a `signal` column
-(+1 long, -1 short, 0 flat) using only data up to each bar. Register it in `trades/strategies/__init__.py`, and it
+(+1 long, -1 short, 0 flat) using only data up to each bar. Register it in `src/trades/strategies/__init__.py`, and it
 appears in the Lab, the Live Desk and the Simulator.
 
 ```python
 import numpy as np
 import pandas as pd
 
-from trades.core import indicators as ind
+from trades.features import indicators as ind
 from trades.strategies.base import Evidence, Param, Reference, SingleAssetStrategy
 
 
@@ -438,7 +439,7 @@ class RSITrend(SingleAssetStrategy):
         return pd.DataFrame({"signal": raw.ffill(), "rsi": r}, index=df.index)
 ```
 
-The parametrised no-look-ahead test in `tests/test_strategies.py` runs against every registered strategy
+The parametrised no-look-ahead test in `tests/lookahead/test_no_lookahead.py` runs against every registered strategy
 automatically, so a rule that peeks at future bars fails the test suite.
 
 ## Development
@@ -446,7 +447,7 @@ automatically, so a rule that peeks at future bars fails the test suite.
 ```bash
 pip install -e ".[dev]"
 pytest                      # Python tests
-ruff check trades tests     # lint
+ruff check src tests scripts  # lint
 cd web && npm run build     # type-check and build the UI
 ```
 
