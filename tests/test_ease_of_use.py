@@ -54,7 +54,7 @@ def test_schwab_positions():
     rows = _by_symbol(p)
     assert p["broker"] == "Schwab" and set(rows) == {"AAPL", "VTI", "CASH"}
     assert rows["AAPL"] == {
-        "account": "Roth IRA ...123", "symbol": "AAPL", "quantity": 10.0, "value": 1856.40, "cost_basis": 1500.0, "cash": False,
+        "account": "Roth IRA ...123", "symbol": "AAPL", "description": "APPLE INC", "quantity": 10.0, "value": 1856.40, "cost_basis": 1500.0, "cash": False,
     }
     assert rows["VTI"]["quantity"] == 5.5 and rows["CASH"]["value"] == 1234.56 and rows["CASH"]["cash"]
     assert holdings.account_type("Roth IRA ...123") == "tax_advantaged"

@@ -9,6 +9,8 @@ import Library from "./views/Library";
 import TrackRecordView from "./views/TrackRecord";
 import Today from "./views/Today";
 import Portfolio from "./views/Portfolio";
+import Plan from "./views/Plan";
+import { Privacy, Terms } from "./views/Legal";
 import Onboarding from "./components/Onboarding";
 import SettingsView from "./views/Settings";
 
@@ -19,6 +21,7 @@ const NAV: [string, string, boolean][] = [
   ["/lab", "Strategy Lab", false],
   ["/track", "Track Record", true],
   ["/portfolio", "Portfolio", true],
+  ["/plan", "Plan", true],
   ["/sim", "Simulator", false],
   ["/library", "Library", true],
   ["/settings", "Settings", true],
@@ -73,6 +76,15 @@ function Shell({ route }: { route: Route }) {
     case "/portfolio":
       view = <Portfolio />;
       break;
+    case "/privacy":
+      view = <Privacy />;
+      break;
+    case "/terms":
+      view = <Terms />;
+      break;
+    case "/plan":
+      view = <Plan route={route} />;
+      break;
     case "/live":
       view = <LiveDesk />;
       break;
@@ -125,6 +137,9 @@ function Shell({ route }: { route: Route }) {
       </main>
       {settings && meta && !settings.onboarded ? <Onboarding settings={settings} /> : null}
       <Disclaimer text={meta?.disclaimer ?? FALLBACK_DISCLAIMER} />
+      <nav className="footer small" aria-label="Legal" style={{ paddingTop: 0 }}>
+        <a href="#/privacy">Privacy</a> · <a href="#/terms">Terms</a>
+      </nav>
     </div>
   );
 }

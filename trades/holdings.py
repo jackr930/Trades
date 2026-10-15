@@ -10,7 +10,7 @@ Supported exports, detected from their column names:
   option trades in the file are not handled.
 * Anything else with a symbol column and a quantity (or shares) column.
 
-Each holding is ``{account, symbol, quantity, value, cost_basis, cash}``: ``value`` is the
+Each holding is ``{account, symbol, description, quantity, value, cost_basis, cash}``: ``value`` is the
 market value on the day of the export and ``cost_basis`` the total cost, either may be None
 (Vanguard's export has no cost basis). Money market funds and cash rows become ``cash``.
 """
@@ -139,7 +139,7 @@ def _from_positions(body: list[list[str]], cols: dict[str, int], default_account
         if is_cash:
             if value is None:
                 value = quantity  # a money market fund's shares are worth $1 each
-            out.append(_holding(account, "CASH", value, value, value, cash=True))
+            out.append(_holding(account, "CASH", value, value, value, cash=True, description=description))
             continue
         if quantity is None:
             notes.append(f"Skipped {symbol}: no quantity.")
@@ -147,7 +147,8 @@ def _from_positions(body: list[list[str]], cols: dict[str, int], default_account
         if value is None:
             price = number(_cell(r, cols, "price"))
             value = price * quantity if price is not None else None
-        out.append(_holding(account, symbol, quantity, value, number(_cell(r, cols, "cost_basis"))))
+        cost = number(_cell(r, cols, "cost_basis"))
+        out.append(_holding(account, symbol, quantity, value, cost, description=description))
     if any(h["cost_basis"] is None and not h["cash"] for h in out):
         notes.append("Some positions have no cost basis, so their gains and losses are unknown.")
     return out, notes
@@ -193,10 +194,11 @@ def _from_activity(body: list[list[str]], cols: dict[str, int]) -> tuple[list[di
 
 
 def _holding(account: str, symbol: str, quantity: float | None, value: float | None, cost: float | None,
-             cash: bool = False) -> dict[str, Any]:
+             cash: bool = False, description: str = "") -> dict[str, Any]:
     return {
         "account": account,
         "symbol": symbol.upper(),
+        "description": description,
         "quantity": quantity,
         "value": value,
         "cost_basis": cost,
