@@ -112,6 +112,7 @@ export default function StrategyLab({ route }: { route: Route }) {
   const [config, setConfig] = useState({
     initial_cash: settings.account_equity, // your account profile
     fractional: settings.fractional_shares,
+    cash_yield: settings.cash_yield === "tbill",
     commission_bps: settings.commission_bps,
     slippage_bps: settings.slippage_bps,
     allow_short: settings.allow_short || initial.uses_short,
@@ -370,6 +371,10 @@ export default function StrategyLab({ route }: { route: Route }) {
               <input type="checkbox" checked={config.fractional} onChange={(e) => setConfig({ ...config, fractional: e.target.checked })} />
               Fractional shares
             </label>
+            <label className="check" title="Idle cash earns what a T-bill ETF (BIL) returned; Sharpe ratios are then measured in excess of T-bills. Daily bars on real data only.">
+              <input type="checkbox" checked={config.cash_yield} onChange={(e) => setConfig({ ...config, cash_yield: e.target.checked })} />
+              Idle cash earns T-bill returns
+            </label>
             <label className="check" title={strategy.sizes_itself ? "Set by the strategy's own short-selling parameter" : undefined}>
               <input
                 type="checkbox"
@@ -474,7 +479,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
     <>
       <Warnings items={res.warnings} />
       <MetricTiles
-        keys={["total_return", "cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", "psr", "n_trades", "exposure"]}
+        keys={["total_return", "cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", "psr", "p_beats_growth", "n_trades"]}
         metrics={res.metrics}
         benchmark={res.benchmark?.metrics}
         info={meta.metrics}
@@ -512,6 +517,12 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         </div>
         <LineChart lines={ddLines} format={(v) => fmtPct(v, 1)} height={160} label="Drawdown" />
       </div>
+      {res.research_log ? (
+        <div className={`callout ${res.research_log.configurations > 1 && (res.research_log.deflated_sharpe ?? 0) < 0.95 ? "warn" : "info"}`}>
+          <b>Research log.</b> {res.research_log.interpretation}{" "}
+          <Help text="Every backtest and grid search you run is logged (in your Trades home folder). Each configuration tried and discarded is a hidden trial; the Deflated Sharpe Ratio asks how likely the result is real given all of them." />
+        </div>
+      ) : null}
       {res.cost_sensitivity ? <CostSensitivityCard cs={res.cost_sensitivity} tax={res.tax} /> : null}
       {res.charts.map((ch) => (
         <TradeChart key={ch.symbol} chart={ch} timeframe={res.timeframe} />

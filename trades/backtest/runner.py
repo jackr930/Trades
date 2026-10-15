@@ -139,6 +139,7 @@ def backtest_strategy(
         result.fills,
         result.gross_exposure.iloc[start:],
         bench.equity.iloc[start:] if bench is not None else None,
+        risk_free=cfg.cash_returns,
     )
     warnings += interpretation_warnings(metrics, T - start, cfg.periods_per_year, cfg.initial_cash)
     after_tax_equity = None
@@ -161,7 +162,8 @@ def buy_and_hold(
     # A buy-and-hold investor uses no margin.
     res = run_backtest(data, buy_and_hold_weights(index, symbols, start), replace(config, max_gross_leverage=1.0), start)
     metrics = performance_metrics(
-        res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure
+        res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure,
+        risk_free=config.cash_returns,
     )
     return res, metrics
 

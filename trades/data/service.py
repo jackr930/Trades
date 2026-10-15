@@ -50,6 +50,9 @@ def _provider_signature(provider_id: str, s: Settings) -> tuple:
     return ()
 
 
+CASH_SYMBOL = "BIL"  # SPDR Bloomberg 1-3 Month T-Bill ETF: what idle cash could actually earn
+
+
 class TTLCache:
     def __init__(self, maxsize: int = 512):
         self.maxsize = maxsize
@@ -170,6 +173,27 @@ class DataService:
             except Exception as exc:  # pragma: no cover - unexpected provider failure
                 errors[sym] = f"{type(exc).__name__}: {exc}"
         return frames, errors
+
+    def cash_returns(
+        self, index: pd.DatetimeIndex, provider_id: str | None = None
+    ) -> tuple[pd.Series | None, str | None]:
+        """Daily returns of a T-bill ETF on ``index`` (what idle cash earns), and a note when
+        they are unavailable or start late. Returns of 0 where the ETF has no bar."""
+        pid = provider_id or self.settings.get().provider
+        if pid == "synthetic":
+            return None, "The synthetic market has no T-bill series, so idle cash earns nothing here."
+        if len(index) == 0:
+            return None, None
+        start = (index[0] - pd.Timedelta(days=10)).date()
+        try:
+            bil = self.bars(CASH_SYMBOL, Timeframe.D1, start, None, pid)
+        except DataError as exc:
+            return None, f"No T-bill data ({CASH_SYMBOL}: {exc}), so idle cash earns nothing in this test."
+        rets = bil["close"].pct_change(fill_method=None).reindex(index).fillna(0.0)
+        note = None
+        if len(bil) and bil.index[0] > index[0] + pd.Timedelta(days=10):
+            note = f"T-bill data ({CASH_SYMBOL}) begins on {bil.index[0].date()}; before that idle cash earns nothing."
+        return rets.rename("cash"), note
 
     def quotes(self, symbols: list[str], provider_id: str | None = None) -> dict[str, Quote]:
         return self.provider(provider_id).quotes([s.upper() for s in symbols])

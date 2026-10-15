@@ -21,8 +21,10 @@ Simplifications:
 * no wash-sale rule;
 * net capital losses are only carried forward, never offset against up to $3,000 of
   ordinary income a year;
-* federal tax only (no state tax), at flat rates you choose rather than brackets;
-* dividends are not taxed separately (adjusted prices fold them into returns);
+* flat federal rates you choose rather than brackets, plus an optional flat state rate
+  (no local taxes, no state-specific rules);
+* dividends are not taxed separately: adjusted prices fold them into returns. That
+  slightly flatters whichever side holds more stock for longer (usually buy-and-hold);
 * selling shares to pay the tax realizes no further gains.
 """
 
@@ -41,19 +43,31 @@ LONG_TERM_DAYS = 365  # held one year or less -> short-term
 @dataclass(frozen=True)
 class TaxProfile:
     account_type: str = "taxable"  # taxable | tax_advantaged
-    short_term_rate: float = 0.22
-    long_term_rate: float = 0.15
+    short_term_rate: float = 0.22  # federal
+    long_term_rate: float = 0.15  # federal
+    state_rate: float = 0.0  # a flat state rate on all gains, added to both
 
     def __post_init__(self):
         if self.account_type not in ("taxable", "tax_advantaged"):
             raise ValueError("account_type must be 'taxable' or 'tax_advantaged'")
-        for rate in (self.short_term_rate, self.long_term_rate):
+        for rate in (self.short_term_rate, self.long_term_rate, self.state_rate):
             if not 0 <= rate < 1:
                 raise ValueError("tax rates are fractions between 0 and 1 (0.22 = 22%)")
+        if self.short_term_rate + self.state_rate >= 1:
+            raise ValueError("combined tax rates must be below 100%")
 
     @property
     def taxable(self) -> bool:
         return self.account_type == "taxable"
+
+    @property
+    def short_term(self) -> float:
+        """Combined federal and state rate on short-term gains."""
+        return self.short_term_rate + self.state_rate
+
+    @property
+    def long_term(self) -> float:
+        return self.long_term_rate + self.state_rate
 
 
 @dataclass
@@ -72,7 +86,7 @@ def is_long_term(holding_days: float | None) -> bool:
 
 def year_tax(short: float, long: float, carry: tuple[float, float], profile: TaxProfile) -> float:
     s, lg, _, _ = net_year(short, long, *carry)
-    return s * profile.short_term_rate + lg * profile.long_term_rate
+    return s * profile.short_term + lg * profile.long_term
 
 
 def net_year(short: float, long: float, carry_short: float, carry_long: float) -> tuple[float, float, float, float]:
@@ -110,7 +124,7 @@ def after_tax(equity: pd.Series, fills: list[Fill], profile: TaxProfile) -> Afte
     for ts in equity.index[last_bar_of_year.to_numpy()]:
         realized, carry_in = tuple(gains.get(ts.year, (0.0, 0.0))), (carry_s, carry_l)
         short, long, carry_s, carry_l = net_year(*realized, carry_s, carry_l)
-        tax = short * profile.short_term_rate + long * profile.long_term_rate
+        tax = short * profile.short_term + long * profile.long_term
         taxes[ts.year] = tax
         if tax > 0 and equity.loc[ts] > 0:
             rate[ts] = min(tax / float(equity.loc[ts]), 1.0)

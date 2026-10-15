@@ -13,6 +13,8 @@ References
   Department Working Paper No. 1227.
 * Engle, R. F. & Granger, C. W. J. (1987). Co-integration and Error Correction.
   Econometrica 55(2).
+* Politis, D. N. & Romano, J. P. (1992). A Circular Block-Resampling Procedure for
+  Stationary Data. In Exploring the Limits of Bootstrap, Wiley.
 """
 
 from __future__ import annotations
@@ -292,6 +294,55 @@ def engle_granger(y: pd.Series | np.ndarray, x: pd.Series | np.ndarray) -> Coint
     raw = adf_test(resid, constant=False)
     adf = ADFResult(raw.stat, raw.lags, raw.n_obs, mackinnon_critical_values(len(ya) - 1, n_vars=2))
     return CointegrationResult(float(beta[1]), float(beta[0]), adf, ou_half_life(resid))
+
+
+def outperformance_probability(
+    returns: pd.Series | np.ndarray,
+    benchmark: pd.Series | np.ndarray,
+    n_boot: int = 1000,
+    block: int = 21,
+    seed: int = 7,
+    risk_free: pd.Series | np.ndarray | None = None,
+) -> dict[str, float]:
+    """How often a strategy beats a benchmark across resampled histories.
+
+    A paired circular block bootstrap (Politis & Romano 1992): blocks of ``block``
+    consecutive days are drawn with replacement, the same days for both series, so the
+    resampled paths keep short-term autocorrelation and the two series' co-movement.
+
+    * ``p_growth``: share of resamples in which the strategy's average log return, and so
+      its compound growth rate, is higher than the benchmark's;
+    * ``p_sharpe``: share in which its Sharpe ratio (in excess of ``risk_free``, per-bar cash
+      returns, if given) is higher.
+
+    Not a guarantee of the future: it only asks whether the historical gap is larger than
+    the luck of which days happened to occur. The seed is fixed so results are reproducible.
+    """
+    a = np.asarray(returns, dtype=float)
+    b = np.asarray(benchmark, dtype=float)
+    f = np.zeros(len(a)) if risk_free is None else np.nan_to_num(np.asarray(risk_free, dtype=float))
+    ok = np.isfinite(a) & np.isfinite(b) & (a > -1) & (b > -1) & (f > -1)
+    a, b, f = np.log1p(a[ok]), np.log1p(b[ok]), np.log1p(f[ok])
+    T = len(a)
+    if T < 2 * block or n_boot < 1:
+        return {"p_growth": float("nan"), "p_sharpe": float("nan")}
+    rng = np.random.default_rng(seed)
+    n_blocks = -(-T // block)
+    wins_growth = wins_sharpe = 0
+    done = 0
+    while done < n_boot:  # in chunks, to keep memory small for long histories
+        n = min(200, n_boot - done)
+        starts = rng.integers(0, T, size=(n, n_blocks))
+        idx = ((starts[:, :, None] + np.arange(block)) % T).reshape(n, -1)[:, :T]
+        ra, rb = a[idx], b[idx]
+        wins_growth += int(np.sum(ra.mean(axis=1) > rb.mean(axis=1)))
+        ra, rb = ra - f[idx], rb - f[idx]  # Sharpe ratios in excess of cash
+        with np.errstate(divide="ignore", invalid="ignore"):
+            sa = ra.mean(axis=1) / ra.std(axis=1, ddof=1)
+            sb = rb.mean(axis=1) / rb.std(axis=1, ddof=1)
+        wins_sharpe += int(np.sum(np.nan_to_num(sa, nan=-np.inf) > np.nan_to_num(sb, nan=-np.inf)))
+        done += n
+    return {"p_growth": wins_growth / n_boot, "p_sharpe": wins_sharpe / n_boot}
 
 
 def kelly_leverage(returns: pd.Series | np.ndarray) -> float:

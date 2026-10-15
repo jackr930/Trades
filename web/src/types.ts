@@ -195,10 +195,20 @@ export interface BacktestResult {
   benchmark?: { label: string; equity: Series; drawdown: Series; metrics: Metrics };
   /** After-tax equity in a taxable account (null in a tax-advantaged one). */
   after_tax_equity: Series | null;
-  tax?: { account_type: "taxable" | "tax_advantaged"; short_term_rate: number; long_term_rate: number };
+  tax?: { account_type: "taxable" | "tax_advantaged"; short_term_rate: number; long_term_rate: number; state_rate: number };
   cost_sensitivity?: CostSensitivity;
+  /** How this result looks given every configuration you have tested on these symbols. */
+  research_log?: ResearchLog;
   provider: string;
   timeframe: string;
+}
+
+export interface ResearchLog {
+  runs: number;
+  configurations: number;
+  deflated_sharpe: Num;
+  expected_max_sharpe?: Num;
+  interpretation: string;
 }
 
 export interface CostSensitivityRow {
@@ -443,6 +453,8 @@ export interface Settings {
   account_type: "taxable" | "tax_advantaged";
   short_term_tax_rate: number;
   long_term_tax_rate: number;
+  state_tax_rate: number;
+  cash_yield: "tbill" | "none";
   risk_per_trade: number;
   stop_atr: number;
   max_position_pct: number;

@@ -187,8 +187,12 @@ def render_report(
     last_session: date,
     paper_orders: pd.DataFrame | None = None,
     assumed_bps: float = 5.0,
+    rule: dict | None = None,
+    rule_dates: dict | None = None,
 ) -> str:
-    """The Markdown report for every experiment in ``journal`` (and the paper fills, if any)."""
+    """The Markdown report for every experiment in ``journal`` (and the paper fills, if any),
+    judged against the pre-registered decision ``rule`` when one is given."""
+    from trades.journal import rule as decision
     lines = [
         "# Forward journal report",
         "",
@@ -201,6 +205,25 @@ def render_report(
         f"and {benchmark}'s own rows are left out (against itself its excess is always zero).",
     ]
     paper = paper_slippage(paper_orders, assumed_bps) if paper_orders is not None else []
+    if rule is not None:
+        dates = rule_dates or {}
+        first_row = str(journal["session_date"].min()) if not journal.empty else None
+        lines += [
+            "",
+            "## Pre-registered decision rule",
+            "",
+            f"From `journal/decision_rule.json`, registered {(dates.get('registered') or 'not yet committed')[:10]}, "
+            f"last changed {(dates.get('last_changed') or 'never')[:10]}.",
+        ]
+        if decision.changed_after(dates, first_row):
+            lines += [
+                "",
+                f"> **Warning:** the rule was changed after the first journal row ({first_row}). A rule edited "
+                "after results were visible no longer protects you from moving the goalposts.",
+            ]
+        if "paper" in rule:
+            v = decision.paper_verdict(paper_orders, rule["paper"])
+            lines += ["", f"- **Paper fills: {v['status']}**: {v['detail']} ({rule['paper']['description']})"]
     if journal.empty:
         return "\n".join([*lines, "", "The journal is empty so far.", *paper]) + "\n"
     for exp_id, rows in journal.groupby("experiment_id", sort=False):
@@ -214,6 +237,9 @@ def render_report(
             f"{rows['session_day'].nunique()} sessions recorded ({rows['session_day'].min()} to "
             f"{rows['session_day'].max()}), {len(rows)} rows; code version(s) {versions}.",
         ]
+        if rule is not None and "forward" in rule:
+            v = decision.forward_verdict(scored, rule["forward"])
+            lines += ["", f"**Decision rule (forward): {v['status']}**: {v['detail']}"]
         for h in HORIZONS:
             col = f"excess_{h}"
             n_scored = int(scored[col].notna().sum())

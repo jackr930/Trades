@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -15,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from trades import __version__
 from trades.advisor import AdvisorSettings
+from trades.backtest import trials
 from trades.backtest.engine import BacktestConfig
 from trades.backtest.metrics import METRIC_INFO
 from trades.backtest.optimize import grid_search, range_values, walk_forward
@@ -93,6 +94,17 @@ def _load_bars(c, body: DataBody, warmup: int) -> tuple[dict[str, pd.DataFrame],
         idx = next(iter(aligned.values())).index
         eval_start = int(np.searchsorted(idx, pd.Timestamp(start).tz_localize("UTC")))
     return aligned, eval_start, provider
+
+
+def _with_cash(c, cfg: BacktestConfig, body, data, provider: str, notes: list[str]) -> BacktestConfig:
+    """``cfg`` with idle cash earning T-bill returns (daily bars), unless switched off."""
+    want = (body.config or {}).get("cash_yield", c.settings.get().cash_yield)
+    if want not in (True, "tbill") or Timeframe.parse(body.timeframe) is not Timeframe.D1:
+        return cfg
+    rets, note = c.data.cash_returns(next(iter(data.values())).index, provider)
+    if note:
+        notes.append(note)
+    return replace(cfg, cash_returns=rets) if rets is not None else cfg
 
 
 def _config(c, body: DataBody, overrides: dict[str, Any]) -> BacktestConfig:
@@ -282,9 +294,15 @@ async def backtest(request: Request, body: BacktestBody):
 
     def work():
         data, eval_start, provider = _load_bars(c, body, strat.warmup())
+        notes: list[str] = []
+        run_cfg = _with_cash(c, cfg, body, data, provider, notes)
         tax = c.settings.get().tax_profile()
-        bt = backtest_strategy(strat, data, sizing, cfg, eval_start, tax=tax)
+        bt = backtest_strategy(strat, data, sizing, run_cfg, eval_start, tax=tax)
         payload = backtest_payload(bt)
+        payload["warnings"] += notes
+        payload["research_log"] = trials.record_and_summarise(
+            "backtest", spec, list(data), bt.metrics, len(bt.equity) - 1, run_cfg.periods_per_year
+        )
         payload["tax"] = asdict(tax)
         payload["cost_sensitivity"] = cost_sensitivity(bt, tax)
         payload["provider"] = provider
@@ -339,6 +357,8 @@ async def optimize(request: Request, body: OptimizeBody):
 
     def work():
         data, eval_start, provider = _load_bars(c, body, max_warm)
+        notes: list[str] = []
+        run_cfg = _with_cash(c, cfg, body, data, provider, notes)
         if body.mode == "grid":
             res = grid_search(
                 body.strategy.id,
@@ -346,7 +366,7 @@ async def optimize(request: Request, body: OptimizeBody):
                 grid,
                 data,
                 body.strategy.sizing,
-                cfg,
+                run_cfg,
                 body.objective,
                 eval_start,
             )
@@ -359,7 +379,7 @@ async def optimize(request: Request, body: OptimizeBody):
                 grid,
                 {s: df.iloc[first:] for s, df in data.items()},
                 body.strategy.sizing,
-                cfg,
+                run_cfg,
                 body.objective,
                 body.train_bars,
                 body.test_bars,
@@ -367,6 +387,9 @@ async def optimize(request: Request, body: OptimizeBody):
             )
         res["mode"] = body.mode
         res["provider"] = provider
+        res["notes"] = notes
+        if body.mode == "grid":
+            trials.record_grid(body.strategy.id, list(data), res, body.strategy.params)
         res["grid"] = grid
         return sanitize(res)
 
