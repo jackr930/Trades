@@ -56,11 +56,11 @@ def test_by_category_counts_each_category_once():
     assert consensus_score(votes, "by_category") == pytest.approx(0.0)  # (1 - 1 + 0) / 3
 
 
-def test_states_match_explanations(daily):
+def test_states_match_explanations(daily, intraday):
     """The consensus reads every bar's vote from ``states``; the Live Desk reads it from ``explain``."""
     for sid, cls in REGISTRY.items():
         strat = cls(**strategy_params(cls))
-        data = {s: df.iloc[-600:] for s, df in strategy_inputs(cls, daily).items()}
+        data = {s: df.iloc[-600:] for s, df in strategy_inputs(cls, daily, intraday).items()}
         out = strat.run(data)
         sym = next(iter(data))
         states = strat.states(out, sym)

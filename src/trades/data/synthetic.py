@@ -326,9 +326,22 @@ class SyntheticMarket:
         frac = np.linspace(0.0, 1.0, k + 1)
         return lo + walk - frac * walk[-1] + frac * (lc - lo)
 
-    def intraday_bars(self, symbol: str, day_bar: pd.Series, day: date, timeframe: Timeframe) -> pd.DataFrame:
+    def random_walk_path(self, symbol: str, start_price: float, day_bar: pd.Series, day: date, substeps: int = 6) -> np.ndarray:
+        """A martingale: a forward random walk from ``start_price`` with the day's volatility but no
+        knowledge of where the day ends. Used for null tests, where no strategy should have an edge."""
+        open_dt, close_dt = session_bounds(day)
+        k = int((close_dt - open_dt).total_seconds() // 60) * substeps
+        rng = np.random.default_rng(stable_seed("random_walk", symbol, day.toordinal(), self.seed))
+        sigma = max(math.log(day_bar["high"] / day_bar["low"]) / (2 * math.sqrt(math.log(2))), 1e-4)
+        incr = rng.standard_normal(k) * sigma / math.sqrt(k) - 0.5 * sigma**2 / k  # drift-corrected: E[price] stays flat
+        return math.log(start_price) + np.concatenate([[0.0], np.cumsum(incr)])
+
+    def intraday_bars(
+        self, symbol: str, day_bar: pd.Series, day: date, timeframe: Timeframe, path: np.ndarray | None = None
+    ) -> pd.DataFrame:
         substeps = 6
-        path = self.intraday_path(symbol, day_bar, day, substeps)
+        if path is None:
+            path = self.intraday_path(symbol, day_bar, day, substeps)
         open_dt, close_dt = session_bounds(day)
         minutes = (len(path) - 1) // substeps
         step = timeframe.minutes
@@ -363,13 +376,21 @@ class SyntheticProvider(DataProvider):
         ),
         requires_key=False,
         realtime="simulated",
-        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M15, Timeframe.M5, Timeframe.M1),
+        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1),
     )
 
-    def __init__(self, seed: int = 7, end: date | None = None, extra_days: int = 0):
+    def __init__(self, seed: int = 7, end: date | None = None, extra_days: int = 0, intraday_paths: str = "bridge"):
+        """``intraday_paths``: "bridge" (default) draws each day's intraday path between that day's
+        open and close, so intraday bars agree with the daily bars; but a path that is pinned to a
+        known close leaks the day's direction into its first minutes, so intraday momentum rules look
+        better here than they should. "random_walk" draws a forward random walk with the same
+        volatility and no edge for anyone: the null market for checking a strategy and the harness."""
+        if intraday_paths not in ("bridge", "random_walk"):
+            raise ValueError("intraday_paths must be 'bridge' or 'random_walk'")
         self.market = SyntheticMarket(seed)
         self._fixed_end = end
         self.extra_days = extra_days
+        self.intraday_paths = intraday_paths
         self._cache: dict[tuple[str, date], pd.DataFrame] = {}
 
     def end_date(self) -> date:
@@ -397,10 +418,22 @@ class SyntheticProvider(DataProvider):
         window = slice_bars(daily, start, end) if (start or end) else daily
         if start is None:
             window = window.iloc[-30:]
-        frames = [
-            self.market.intraday_bars(symbol.upper(), row, ts.date(), timeframe)
-            for ts, row in window.iterrows()
-        ]
+        if self.intraday_paths == "random_walk":
+            frames, price = [], None
+            for ts, row in window.iterrows():
+                if price is None:
+                    price = float(row["open"])
+                path = self.market.random_walk_path(symbol.upper(), price, row, ts.date())
+                bars = self.market.intraday_bars(symbol.upper(), row, ts.date(), timeframe, path)
+                frames.append(bars)
+                gap = np.random.default_rng(stable_seed("gap", symbol, ts.toordinal(), self.market.seed)).standard_normal()
+                sigma = math.log(row["high"] / row["low"]) / (2 * math.sqrt(math.log(2)))
+                price = float(bars["close"].iloc[-1]) * math.exp(0.5 * sigma * gap)  # an unpredictable overnight gap
+        else:
+            frames = [
+                self.market.intraday_bars(symbol.upper(), row, ts.date(), timeframe)
+                for ts, row in window.iterrows()
+            ]
         if not frames:
             return window.iloc[0:0]
         out = pd.concat(frames)

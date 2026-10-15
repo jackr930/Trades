@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tests.helpers import END, UNIVERSE
+from tests.helpers import END, INTRADAY_START, INTRADAY_SYMBOLS, UNIVERSE
 from trades.data.synthetic import SyntheticProvider
 
 
@@ -34,3 +34,8 @@ def daily(provider) -> dict[str, pd.DataFrame]:
     """~6 years of synthetic daily bars for the demo universe and the cointegrated pair."""
     return {s: provider.history(s).iloc[-1500:] for s in [*UNIVERSE, "SIMPRA", "SIMPRB"]}
 
+
+@pytest.fixture(scope="session")
+def intraday(provider) -> dict[str, pd.DataFrame]:
+    """About seven months of synthetic 5-minute bars (145 sessions) for five demo symbols."""
+    return {s: provider.history(s, "5m", start=INTRADAY_START) for s in INTRADAY_SYMBOLS}

@@ -9,3 +9,6 @@ web/node_modules
 web/dist
 .trades
 .env
+data
+runs/*/artifacts
+state

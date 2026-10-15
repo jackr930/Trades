@@ -15,6 +15,8 @@ from trades.strategies import Kind
 
 END = date(2026, 9, 25)
 UNIVERSE = ["SIMIDX", "SIMTEC", "SIMBNK", "SIMNRG", "SIMUTL", "SIMHLC", "SIMBND", "SIMGLD"]
+INTRADAY_START = date(2026, 3, 2)  # about seven months of 5-minute bars (incl. no early close)
+INTRADAY_SYMBOLS = ["SIMTEC", "SIMIDX", "SIMBNK", "SIMNRG", "SIMHLC"]
 
 
 def make_bars(closes, *, start="2024-01-02", spread=0.01, volume=1_000_000.0) -> pd.DataFrame:
@@ -29,8 +31,12 @@ def make_bars(closes, *, start="2024-01-02", spread=0.01, volume=1_000_000.0) ->
     )
 
 
-def strategy_inputs(cls, daily):
-    """The demo symbols a strategy of ``cls``'s kind is tested on."""
+def strategy_inputs(cls, daily, intraday=None):
+    """The demo symbols a strategy of ``cls``'s kind is tested on (5-minute bars for intraday ones)."""
+    if cls.intraday:
+        if intraday is None:
+            raise ValueError(f"{cls.id} is an intraday strategy: pass the intraday fixture")
+        return dict(intraday) if cls.kind is Kind.CROSS_SECTIONAL else {"SIMTEC": intraday["SIMTEC"]}
     if cls.id == "consensus":  # the whole demo watchlist, so its pair member votes too
         return {s: daily[s] for s in (*UNIVERSE, "SIMPRA", "SIMPRB")}
     if cls.kind is Kind.PAIR:

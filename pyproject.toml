@@ -17,6 +17,7 @@ dependencies = [
     "websockets>=12",
     "pydantic>=2.5",
     "yfinance>=0.2.40",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

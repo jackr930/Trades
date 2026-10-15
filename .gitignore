@@ -19,6 +19,14 @@ web/playwright-report/
 # Local runtime data (settings with API keys, cached data, sim history)
 .trades/
 .env
+.env.*
+!.env.example
+*.env
+
+# Research and trading artifacts: run summaries are committed, bulky artifacts and caches are not
+/data/
+/runs/*/artifacts/
+/state/
 
 # Editors / OS
 .vscode/

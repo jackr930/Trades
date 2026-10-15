@@ -4,11 +4,14 @@ Timeline for each bar ``t``:
 
 1. orders decided at the close of bar ``t-1`` are filled at bar ``t``'s open
    (``execution="next_open"``, default) or close (``"next_close"``), with adverse
-   slippage and commissions. Orders that reduce exposure go first, and orders that add
-   exposure are trimmed so gross exposure stays within ``max_gross_leverage``;
-2. financing accrues (short borrow fees, interest on borrowed cash, optional interest
+   costs. Orders that reduce exposure go first, and orders that add exposure are trimmed so
+   gross exposure stays within ``max_gross_leverage``;
+2. working orders placed at the close of ``t-1`` are checked against bar ``t``'s range
+   (stop entries, protective stops, take-profits; see the table below), and intraday
+   strategies are flattened in the closing auction on the session's last bar;
+3. financing accrues (short borrow fees, interest on borrowed cash, optional interest
    on idle cash) and positions are marked to the close;
-3. the target weights *known at the close of bar t* are converted into share orders
+4. the target weights *known at the close of bar t* are converted into share orders
    for the next bar.
 
 Because decisions only use information up to the close of ``t`` and execute at
@@ -16,6 +19,32 @@ Because decisions only use information up to the close of ``t`` and execute at
 bar at a time; ``trades.engine.backtest.run_backtest`` loops it over history, and the
 simulator's strategy agents feed it bars as they arrive, so a forward test trades exactly
 like a backtest.
+
+Orders and fills (``next_open`` execution). Prices are fixed when the order is placed, at a
+bar's close, exactly as a broker's bracket order fixes them at submission:
+
+=====================  ==============================  =====================================
+order                  fills during the next bar when   at
+=====================  ==============================  =====================================
+market (new target)    always, at the open              open, plus spread and slippage
+stop entry             the price reaches the level      level (or the open, if it gapped
+                                                        through), plus costs and stop slippage
+protective stop        the price reaches the level      level (or the open), minus costs and
+                                                        stop slippage
+take-profit (limit)    the price trades *through* it    level (or the open, if better); no
+                                                        spread or slippage
+closing auction        the session's last bar           close, plus spread and slippage
+=====================  ==============================  =====================================
+
+When one bar could have triggered two orders and the bar cannot say which came first, the
+engine assumes the worse outcome: a stop beats a take-profit, and a stop entry that fills
+*inside* a bar can be stopped out in that same bar (but never reaches its take-profit there,
+since the part of the bar before the entry is unknown). A stop entry that fills at the open,
+because the price gapped through the level, sees the whole bar and is treated like any other
+position. Each worse-outcome assumption is counted in ``ambiguous_fills``; finer bars make it
+rarer. After a protective exit the engine does not re-enter in the same direction until the
+target goes flat or reverses, so a strategy whose signal still says "long" cannot buy straight
+back into a stopped-out trade.
 """
 
 from __future__ import annotations
@@ -27,6 +56,18 @@ from typing import Any
 import numpy as np
 
 from trades.execution.ledger import EPS, Fill, Ledger
+
+COST_FIELDS = (
+    "half_spread_bps",
+    "slippage_bps",
+    "stop_slippage_bps",
+    "commission_bps",
+    "commission_per_share",
+    "min_commission",
+    "sec_fee_per_million",
+    "taf_per_share",
+    "taf_max_per_trade",
+)
 
 
 @dataclass
@@ -48,6 +89,14 @@ class BacktestConfig:
     cash_rate_annual: float = 0.0
     max_gross_leverage: float | None = None  # fill-time cap on gross exposure / equity
     periods_per_year: int = 252
+    # The detailed cost model (all zero by default, so a plain backtest charges ``slippage_bps``
+    # and commissions only). ``trades.execution.costs`` fills these from config/base.yaml.
+    half_spread_bps: float = 0.0  # half the quoted spread, paid on every market or stop fill
+    stop_slippage_bps: float = 0.0  # extra slippage on stop fills (entries and protective stops)
+    sec_fee_per_million: float = 0.0  # SEC Section 31 fee on sales, $ per $1M sold
+    taf_per_share: float = 0.0  # FINRA trading activity fee per share sold ...
+    taf_max_per_trade: float = 0.0  # ... capped per trade (0 = no cap)
+    flat_by_close: bool = False  # intraday strategies: close every position in the closing auction
 
     def __post_init__(self):
         self.initial_cash = float(self.initial_cash)
@@ -63,6 +112,11 @@ class BacktestConfig:
             "borrow_bps_annual",
             "margin_rate_annual",
             "cash_rate_annual",
+            "half_spread_bps",
+            "stop_slippage_bps",
+            "sec_fee_per_million",
+            "taf_per_share",
+            "taf_max_per_trade",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} cannot be negative")
@@ -80,8 +134,16 @@ class BacktestConfig:
         return asdict(self)
 
     def commission(self, qty: float, price: float) -> float:
+        """Commission plus, on sales (``qty`` < 0), the SEC and FINRA regulatory fees."""
+        if abs(qty) <= EPS:
+            return 0.0
         fee = abs(qty) * self.commission_per_share + abs(qty) * price * self.commission_bps / 1e4
-        return max(fee, self.min_commission) if abs(qty) > EPS else 0.0
+        fee = max(fee, self.min_commission)
+        if qty < 0:
+            fee += abs(qty) * price * self.sec_fee_per_million / 1e6
+            taf = abs(qty) * self.taf_per_share
+            fee += min(taf, self.taf_max_per_trade) if self.taf_max_per_trade > 0 else taf
+        return fee
 
     def capped(self, max_gross_leverage: float) -> BacktestConfig:
         """This config with a fill-time leverage cap, unless one was set explicitly."""
@@ -97,12 +159,20 @@ def round_qty(qty: float, fractional: bool) -> float:
     return float(math.trunc(qty))  # toward zero: never oversize
 
 
+def _level(levels, j: int) -> float | None:
+    if levels is None:
+        return None
+    v = float(levels[j])
+    return v if math.isfinite(v) and v > 0 else None
+
+
 class ExecutionEngine:
     """Trades a portfolio towards target weights one bar at a time.
 
-    Call ``execute`` when bar ``t`` completes (fills yesterday's orders, accrues
-    financing, marks to the close), then ``decide`` with the target weights known at
-    that close (queues share orders for bar ``t+1``).
+    Call ``execute`` when bar ``t`` completes (fills the previous close's orders, checks
+    working orders against the bar, accrues financing, marks to the close), then ``decide``
+    with the target weights, and any stop, take-profit or stop-entry levels, known at that
+    close (queues orders for bar ``t+1``).
     """
 
     def __init__(self, symbols: list[str], config: BacktestConfig | None = None):
@@ -114,7 +184,13 @@ class ExecutionEngine:
         self.close = np.full(len(self.symbols), np.nan)  # closes of the latest bar
         self.equity = cfg.initial_cash
         self.stopped = False  # the account was wiped out
-        self._slip = cfg.slippage_bps / 1e4
+        # Working orders for the next bar, placed at the last close.
+        self.entries: dict[int, tuple[float, float]] = {}  # symbol -> (stop-entry level, signed qty)
+        self.protect: dict[int, tuple[float | None, float | None]] = {}  # symbol -> (stop, take-profit)
+        self.latched: dict[int, float] = {}  # symbol -> direction of a trade a protective order closed
+        self.ambiguous_fills = 0  # fills that relied on the "assume the worse outcome" rule
+        self._slip = (cfg.slippage_bps + cfg.half_spread_bps) / 1e4
+        self._stop_slip = cfg.stop_slippage_bps / 1e4
         ppy = cfg.periods_per_year
         self._borrow = cfg.borrow_bps_annual / 1e4 / ppy
         self._margin = cfg.margin_rate_annual / ppy
@@ -135,9 +211,25 @@ class ExecutionEngine:
         """Share quantities that will be traded at the next bar (target - current)."""
         return {self.symbols[j]: q - self.ledger.qty(self.symbols[j]) for j, q in self.pending.items()}
 
+    def working_orders(self) -> list[dict[str, Any]]:
+        """Stop entries, protective stops and take-profits waiting for the next bar."""
+        out = []
+        for j, (level, qty) in self.entries.items():
+            out.append({"symbol": self.symbols[j], "type": "stop_entry", "price": level, "qty": qty})
+        for j, (stop, take) in self.protect.items():
+            if stop is not None:
+                out.append({"symbol": self.symbols[j], "type": "stop", "price": stop})
+            if take is not None:
+                out.append({"symbol": self.symbols[j], "type": "take_profit", "price": take})
+        return out
+
     # -- bar processing ----------------------------------------------------------------
-    def execute(self, t: int, time: Any, open_, high, low, close) -> list[Fill]:
-        """Bar ``t`` has completed: fill pending orders, accrue financing, mark to close."""
+    def execute(self, t: int, time: Any, open_, high, low, close, closing: bool = False) -> list[Fill]:
+        """Bar ``t`` has completed: fill pending orders, check working orders, mark to close.
+
+        ``closing``: bar ``t`` is the last bar of its trading session (intraday strategies
+        are flattened in the closing auction).
+        """
         n_fills = len(self.ledger.fills)
         if self.stopped:
             self.close = np.asarray(close, dtype=float)
@@ -151,6 +243,13 @@ class ExecutionEngine:
                 self._excursions(high, low)
         else:
             self._excursions(high, low)
+        entered = self._stop_entries(t, time, open_, high, low, close) if self.entries else {}
+        if self.protect:
+            self._protective(t, time, open_, high, low, close, entered)
+        self.entries.clear()
+        self.protect.clear()
+        if closing and self.cfg.flat_by_close:
+            self._closing_auction(t, time, close)
         self.close = np.asarray(close, dtype=float)
         prices = self.prices()
         self._finance(prices)
@@ -160,11 +259,32 @@ class ExecutionEngine:
             self.pending.clear()
         return self.ledger.fills[n_fills:]
 
-    def decide(self, t: int, targets) -> dict[str, float]:
-        """Turn the target weights known at the close of bar ``t`` into orders for ``t+1``."""
+    def decide(
+        self,
+        t: int,
+        targets,
+        stop_losses=None,
+        take_profits=None,
+        entry_stops=None,
+        closing: bool = False,
+    ) -> dict[str, float]:
+        """Turn the target weights known at the close of bar ``t`` into orders for ``t+1``.
+
+        ``stop_losses``, ``take_profits`` and ``entry_stops`` are optional per-symbol price levels
+        (NaN for none). A target with an entry stop, while the symbol is flat, becomes a stop
+        order at that level instead of a market order.
+        """
         if self.stopped:
             return {}
         cfg = self.cfg
+        if (stop_losses is not None or take_profits is not None or entry_stops is not None) and cfg.execution != "next_open":
+            raise ValueError("stop, take-profit and stop-entry orders need execution='next_open'")
+        if closing and cfg.flat_by_close:
+            # An intraday strategy is flat after the closing auction; nothing carries overnight.
+            self.pending.clear()
+            self.latched.clear()
+            self.last_target[:] = 0.0
+            return {}
         W = np.nan_to_num(np.asarray(targets, dtype=float))
         if not cfg.allow_short:
             W = np.clip(W, 0.0, None)
@@ -175,20 +295,36 @@ class ExecutionEngine:
             cur = self.ledger.qty(s)
             if not np.isfinite(px) or px <= 0:
                 continue
+            direction = float(np.sign(tw))
+            if j in self.latched:
+                if direction == self.latched[j]:
+                    continue  # stopped out of this trade: wait for the target to change
+                del self.latched[j]
             if abs(tw) <= 1e-12:
                 if abs(cur) > EPS:
                     self.pending[j] = 0.0
                 self.last_target[j] = 0.0
                 continue
-            changed = abs(tw - self.last_target[j]) > 1e-9
-            flipped = cur * tw < 0
-            if changed or flipped or abs(cur) <= EPS:
-                desired = round_qty(tw * eq / px, cfg.fractional)
-                trade_value = abs(desired - cur) * px
-                if abs(cur) <= EPS or flipped or trade_value >= cfg.min_trade_weight * eq:
-                    if abs(desired - cur) > EPS:
-                        self.pending[j] = desired
-            self.last_target[j] = tw
+            entry = _level(entry_stops, j)
+            if entry is not None and abs(cur) <= EPS:
+                qty = round_qty(tw * eq / entry, cfg.fractional)
+                if abs(qty) > EPS:
+                    self.entries[j] = (entry, qty)
+                self.pending.pop(j, None)
+                self.last_target[j] = tw
+            else:
+                changed = abs(tw - self.last_target[j]) > 1e-9
+                flipped = cur * tw < 0
+                if changed or flipped or abs(cur) <= EPS:
+                    desired = round_qty(tw * eq / px, cfg.fractional)
+                    trade_value = abs(desired - cur) * px
+                    if abs(cur) <= EPS or flipped or trade_value >= cfg.min_trade_weight * eq:
+                        if abs(desired - cur) > EPS:
+                            self.pending[j] = desired
+                self.last_target[j] = tw
+            stop, take = _level(stop_losses, j), _level(take_profits, j)
+            if stop is not None or take is not None:
+                self.protect[j] = (stop, take)
         return self.orders()
 
     # -- internals -------------------------------------------------------------------
@@ -228,9 +364,91 @@ class ExecutionEngine:
                 price=price,
                 commission=cfg.commission(delta, price),
                 slippage=abs(delta) * ref * self._slip,
+                tag="market",
             )
 
-    def _within_leverage(self, j: int, target_qty: float, ref_prices, close) -> float:
+    def _trade(self, t: int, time: Any, j: int, qty: float, ref: float, cost: float, tag: str) -> None:
+        """Fill ``qty`` shares of symbol ``j`` at ``ref`` moved against us by ``cost`` (a fraction)."""
+        price = ref * (1 + cost) if qty > 0 else ref * (1 - cost)
+        self.ledger.apply_fill(
+            time=time,
+            index=t,
+            symbol=self.symbols[j],
+            qty=qty,
+            price=price,
+            commission=self.cfg.commission(qty, price),
+            slippage=abs(qty) * ref * cost,
+            tag=tag,
+        )
+
+    def _stop_entries(self, t, time, open_, high, low, close) -> dict[int, bool]:
+        """Fill stop entries the bar reached. Returns symbol -> whether it filled *inside* the bar
+        (at the level) rather than at the open (a gap through the level)."""
+        entered: dict[int, bool] = {}
+        for j, (level, qty) in self.entries.items():
+            s = self.symbols[j]
+            if abs(self.ledger.qty(s)) > EPS or j in self.pending:
+                continue  # already in a position (or about to change it): no second entry
+            o, h, lo = float(open_[j]), float(high[j]), float(low[j])
+            if not (math.isfinite(o) and math.isfinite(h) and math.isfinite(lo)):
+                continue
+            if qty > 0:
+                ref = o if o >= level else level if h >= level else None
+            else:
+                ref = o if o <= level else level if lo <= level else None
+            if ref is None:
+                continue
+            if self.cfg.max_gross_leverage is not None:  # other positions are marked at this bar's open
+                qty = self._within_leverage(j, qty, open_, open_, ref_price=ref)
+            if abs(qty) <= EPS:
+                continue
+            self._trade(t, time, j, qty, ref, self._slip + self._stop_slip, "stop_entry")
+            self.ledger.mark_excursions(s, h, lo)
+            entered[j] = ref != o
+        return entered
+
+    def _protective(self, t, time, open_, high, low, close, entered: dict[int, bool]) -> None:
+        for j, (stop, take) in self.protect.items():
+            s = self.symbols[j]
+            q = self.ledger.qty(s)
+            if abs(q) <= EPS:
+                continue
+            o, h, lo = float(open_[j]), float(high[j]), float(low[j])
+            if not (math.isfinite(o) and math.isfinite(h) and math.isfinite(lo)):
+                continue
+            long = q > 0
+            # Entered inside this bar: the part of the bar before the entry is unknown.
+            just_entered = entered.get(j, False)
+            gap_stop = stop is not None and not just_entered and (o <= stop if long else o >= stop)
+            gap_take = take is not None and not just_entered and (o >= take if long else o <= take)
+            hit_stop = stop is not None and (lo <= stop if long else h >= stop)
+            hit_take = take is not None and not just_entered and (h > take if long else lo < take)
+            if gap_stop:
+                exit_ref, tag, cost = o, "stop", self._slip + self._stop_slip
+            elif gap_take:
+                exit_ref, tag, cost = o, "take_profit", 0.0
+            elif hit_stop:
+                if hit_take or just_entered:
+                    self.ambiguous_fills += 1  # assumed the stop came first (or came after the entry)
+                exit_ref, tag, cost = stop, "stop", self._slip + self._stop_slip
+            elif hit_take:
+                exit_ref, tag, cost = take, "take_profit", 0.0
+            else:
+                continue
+            self._trade(t, time, j, -q, float(exit_ref), cost, tag)
+            self.pending.pop(j, None)
+            self.latched[j] = 1.0 if long else -1.0
+
+    def _closing_auction(self, t: int, time: Any, close) -> None:
+        for j, s in enumerate(self.symbols):
+            q = self.ledger.qty(s)
+            c = float(close[j])
+            if abs(q) > EPS and math.isfinite(c) and c > 0:
+                self._trade(t, time, j, -q, c, self._slip, "close")
+        self.pending.clear()
+        self.latched.clear()
+
+    def _within_leverage(self, j: int, target_qty: float, ref_prices, close, ref_price: float | None = None) -> float:
         """Shrink an exposure-increasing target so gross exposure stays within the cap."""
         marks: dict[str, float] = {}
         for k, s in enumerate(self.symbols):
@@ -242,7 +460,8 @@ class ExecutionEngine:
         s = self.symbols[j]
         other = sum(abs(self.ledger.qty(x) * p) for x, p in marks.items() if x != s)
         room = max(self.cfg.max_gross_leverage * equity - other, 0.0)
-        max_qty = round_qty(room / (float(ref_prices[j]) * (1 + self._slip)), self.cfg.fractional)
+        fill_ref = float(ref_prices[j]) if ref_price is None else ref_price
+        max_qty = round_qty(room / (fill_ref * (1 + self._slip)), self.cfg.fractional)
         return float(np.sign(target_qty)) * min(abs(target_qty), max_qty)
 
     def _finance(self, prices: dict[str, float]) -> None:
@@ -255,5 +474,3 @@ class ExecutionEngine:
             led.charge(-led.cash * self._margin)
         elif led.cash > 0 and self._cash_rate > 0:
             led.charge(-led.cash * self._cash_rate)
-
-

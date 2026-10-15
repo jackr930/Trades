@@ -18,6 +18,7 @@ import pandas as pd
 from trades.data.base import align_bars
 from trades.execution.ledger import Fill, Ledger, Trade
 from trades.execution.sim_broker import BacktestConfig, ExecutionEngine
+from trades.features.intraday import infer_bar_minutes, session_info
 from trades.reporting.metrics import performance_metrics
 from trades.reporting.tax import TaxProfile, after_tax, cagr, liquidation
 from trades.strategies import Kind, Strategy, StrategyOutput
@@ -37,6 +38,7 @@ class BacktestResult:
     config: BacktestConfig
     start: int
     pending: dict[str, float]  # share orders that would execute at the next bar
+    ambiguous_fills: int = 0  # fills that relied on the "assume the worse outcome" rule
 
     @property
     def returns(self) -> pd.Series:
@@ -56,11 +58,16 @@ def run_backtest(
     target_weights: pd.DataFrame,
     config: BacktestConfig | None = None,
     start: int = 0,
+    *,
+    stop_losses: pd.DataFrame | None = None,
+    take_profits: pd.DataFrame | None = None,
+    entry_stops: pd.DataFrame | None = None,
 ) -> BacktestResult:
     """Simulate trading ``target_weights`` (index aligned with every frame in ``data``).
 
     ``start`` is the first bar of the evaluation period (earlier bars only warm up
-    indicators); equity is flat at ``initial_cash`` until then.
+    indicators); equity is flat at ``initial_cash`` until then. ``stop_losses``, ``take_profits`` and
+    ``entry_stops`` are optional order levels (same shape as the weights, NaN for none).
     """
     cfg = config or BacktestConfig()
     symbols = list(target_weights.columns)
@@ -80,6 +87,13 @@ def run_backtest(
     if not cfg.allow_short:
         W = np.clip(W, 0.0, None)
 
+    def levels(frame: pd.DataFrame | None) -> np.ndarray | None:
+        return None if frame is None else frame.reindex(index=index, columns=symbols).to_numpy(float)
+
+    S, TP, E = levels(stop_losses), levels(take_profits), levels(entry_stops)
+    # The whole history is known here, so a session missing its final bars still closes on its last one.
+    closing = session_info(index)["last_available"].to_numpy() if cfg.flat_by_close else np.zeros(T, dtype=bool)
+
     engine = ExecutionEngine(symbols, cfg)
     ledger = engine.ledger
     equity = np.full(T, float(cfg.initial_cash))  # float: an int fill value would truncate P&L
@@ -89,7 +103,7 @@ def run_backtest(
     start = max(0, min(start, T - 1))
 
     for t in range(start, T):
-        engine.execute(t, index[t], O[t], H[t], L[t], C[t])
+        engine.execute(t, index[t], O[t], H[t], L[t], C[t], bool(closing[t]))
         eq = engine.equity
         equity[t], cash[t] = eq, ledger.cash
         for j, s in enumerate(symbols):
@@ -101,7 +115,14 @@ def run_backtest(
             cash[t + 1 :] = ledger.cash
             break
         # On the last bar these become the "pending" orders a live user would place for tomorrow.
-        engine.decide(t, W[t])
+        engine.decide(
+            t,
+            W[t],
+            S[t] if S is not None else None,
+            TP[t] if TP is not None else None,
+            E[t] if E is not None else None,
+            closing=bool(closing[t]),
+        )
 
     return BacktestResult(
         equity=pd.Series(equity, index=index, name="equity"),
@@ -115,6 +136,7 @@ def run_backtest(
         config=cfg,
         start=start,
         pending={symbols[j]: q for j, q in engine.pending.items()},
+        ambiguous_fills=engine.ambiguous_fills,
     )
 
 
@@ -123,8 +145,6 @@ def buy_and_hold_weights(index: pd.DatetimeIndex, symbols: list[str], start: int
     w = np.zeros((len(index), len(symbols)))
     w[start:, :] = 1.0 / len(symbols)
     return pd.DataFrame(w, index=index, columns=symbols)
-
-
 
 
 @dataclass
@@ -189,8 +209,20 @@ def backtest_strategy(
     T = len(index)
     if T < 3:
         raise ValueError("not enough bars to backtest")
+    if strategy.intraday:
+        if infer_bar_minutes(index) is None:
+            raise ValueError(f"{strategy.name} trades within the day: test it on intraday bars (e.g. 5 minutes).")
+        cfg = replace(cfg, flat_by_close=True)
     output = strategy.run(aligned)
-    weights = apply_sizing(output.signals, aligned, sizing, strategy.kind, cfg.periods_per_year)
+    weights = apply_sizing(
+        output.signals,
+        aligned,
+        sizing,
+        strategy.kind,
+        cfg.periods_per_year,
+        stop_losses=output.stop_losses,
+        entry_stops=output.entry_stops,
+    )
     warm = max(strategy.warmup() - 1, 0)
     start = warm if eval_start is None else max(eval_start, 0)
     warnings: list[str] = []
@@ -211,7 +243,15 @@ def backtest_strategy(
 
     # Fills may not push gross exposure past the sizing's leverage cap (e.g. after an opening gap).
     cfg = cfg.capped(sizing.max_leverage)
-    result = run_backtest(aligned, weights, cfg, start)
+    result = run_backtest(
+        aligned,
+        weights,
+        cfg,
+        start,
+        stop_losses=output.stop_losses,
+        take_profits=output.take_profits,
+        entry_stops=output.entry_stops,
+    )
     bench = None
     bench_metrics = None
     if with_benchmark:
@@ -226,6 +266,11 @@ def backtest_strategy(
         bench.equity.iloc[start:] if bench is not None else None,
     )
     warnings += interpretation_warnings(metrics, T - start, cfg.periods_per_year, cfg.initial_cash)
+    if result.ambiguous_fills:
+        warnings.append(
+            f"{result.ambiguous_fills} exits assumed the worse of two outcomes because one bar could have hit "
+            "both orders; test on finer bars (e.g. 1 minute) to see how much this matters."
+        )
     after_tax_equity = None
     if tax is not None:
         extra, after_tax_equity = tax_metrics(result, aligned, start, tax, cfg.periods_per_year)
@@ -243,8 +288,9 @@ def buy_and_hold(
     """Equal-weight buy-and-hold of ``data`` (aligned bars) from bar ``start``, with its metrics."""
     symbols = list(data)
     index = next(iter(data.values())).index
-    # A buy-and-hold investor uses no margin.
-    res = run_backtest(data, buy_and_hold_weights(index, symbols, start), replace(config, max_gross_leverage=1.0), start)
+    # A buy-and-hold investor uses no margin, and holds overnight.
+    plain = replace(config, max_gross_leverage=1.0, flat_by_close=False)
+    res = run_backtest(data, buy_and_hold_weights(index, symbols, start), plain, start)
     metrics = performance_metrics(
         res.equity.iloc[start:], config.periods_per_year, res.trades, res.fills, res.gross_exposure
     )
@@ -314,7 +360,3 @@ def interpretation_warnings(
     if turnover is not None and turnover > 20:
         out.append(f"Turnover is {turnover:.0f}x per year: results are very sensitive to trading costs.")
     return out
-
-
-
-

@@ -1,0 +1,39 @@
+# STRAT-001 starter universe: liquid US stocks that traded throughout 2016-2026, picked in October 2026.
+# NOT survivorship-free: it leaves out every stock that crashed, was acquired or delisted since 2016.
+# Use it to check mechanics and costs only. One ticker per line; lines starting with # are ignored.
+AAPL
+MSFT
+NVDA
+AMZN
+GOOGL
+TSLA
+AMD
+NFLX
+AVGO
+JPM
+BAC
+WFC
+C
+GS
+XOM
+CVX
+WMT
+COST
+HD
+UNH
+LLY
+PFE
+MRK
+ABBV
+INTC
+CSCO
+ORCL
+CRM
+ADBE
+QCOM
+MU
+BA
+DIS
+NKE
+F
+KO

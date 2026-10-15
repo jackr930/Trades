@@ -5,6 +5,12 @@ before position sizing (e.g. +1 long, -1 short, 0 flat; cross-sectional strategi
 basket weights). Signals are piecewise constant -- they only change when a rule fires --
 and strictly causal: the signal at bar ``t`` uses data up to and including bar ``t``'s
 close and is traded at the next bar's open by the backtester and simulator.
+
+A strategy may also attach price levels to each bar's signal, the way a bracket order does:
+a protective ``stop_loss``, a ``take_profit`` and an ``entry_stop`` (enter only when the price
+reaches this level), as columns of those names next to ``signal``. They are placed at the bar's close and work during the next bar; see
+``trades.execution.sim_broker`` for exactly how they fill. Intraday strategies
+(``intraday = True``) are flat at every session's close.
 """
 
 from __future__ import annotations
@@ -177,6 +183,10 @@ class Explanation:
 class StrategyOutput:
     signals: pd.DataFrame  # index = time, columns = symbols
     diagnostics: dict[str, pd.DataFrame] = field(default_factory=dict)
+    # Optional order levels, same shape as ``signals`` (NaN = none): see the module docstring.
+    stop_losses: pd.DataFrame | None = None
+    take_profits: pd.DataFrame | None = None
+    entry_stops: pd.DataFrame | None = None
 
     @property
     def index(self) -> pd.DatetimeIndex:
@@ -213,6 +223,7 @@ class Strategy(ABC):
     sizes_itself: ClassVar[bool] = False  # signals are already target weights (sizing settings don't apply)
     needs: ClassVar[str] = ""  # what the strategy needs to work well, in plain words
     counterpart: ClassVar[str] = ""  # id of the classic rule a modern method refines (to compare)
+    intraday: ClassVar[bool] = False  # trades within the day and is flat at every session's close
 
     def __init__(self, **params: Any):
         self.params = self.resolve_params(params)
@@ -318,6 +329,7 @@ class Strategy(ABC):
             "needs": cls.needs,
             "counterpart": cls.counterpart,
             "sizes_itself": cls.sizes_itself,
+            "intraday": cls.intraday,
         }
 
 
@@ -336,6 +348,7 @@ class SingleAssetStrategy(Strategy):
         n = len(data)
         diags: dict[str, pd.DataFrame] = {}
         sigs: dict[str, pd.Series] = {}
+        levels: dict[str, dict[str, pd.Series]] = {"stop_loss": {}, "take_profit": {}, "entry_stop": {}}
         for sym, df in data.items():
             d = self.compute(df)
             d["signal"] = d["signal"].fillna(0.0).astype(float)
@@ -343,7 +356,17 @@ class SingleAssetStrategy(Strategy):
                 d["valid"] = np.arange(len(d)) >= self.warmup() - 1
             diags[sym] = d
             sigs[sym] = d["signal"] / n
-        return StrategyOutput(pd.DataFrame(sigs), diags)
+            for col, store in levels.items():
+                if col in d:
+                    store[sym] = d[col].astype(float)
+        signals = pd.DataFrame(sigs)
+
+        def frame(col: str) -> pd.DataFrame | None:
+            if not levels[col]:
+                return None
+            return pd.DataFrame(levels[col]).reindex(index=signals.index, columns=signals.columns)
+
+        return StrategyOutput(signals, diags, frame("stop_loss"), frame("take_profit"), frame("entry_stop"))
 
     def describe(self, output: StrategyOutput, symbol: str, t: int) -> tuple[str, list[Rule]]:
         return self.describe_row(output.diagnostics[symbol], t)

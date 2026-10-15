@@ -23,10 +23,10 @@ def test_every_strategy_is_documented():
 
 
 @pytest.mark.parametrize("sid", list(REGISTRY))
-def test_explanations_available(sid, daily):
+def test_explanations_available(sid, daily, intraday):
     cls = REGISTRY[sid]
     strat = cls(**strategy_params(cls))
-    data = strategy_inputs(cls, daily)
+    data = strategy_inputs(cls, daily, intraday)
     out = strat.run(data)
     for sym in data:
         ex = strat.explain(out, sym)

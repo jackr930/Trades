@@ -1,0 +1,18 @@
+# HARD RISK LIMITS for paper (and, one day, live) trading.
+#
+# HUMAN-ONLY. Claude Code is blocked from editing this file; every change is reviewed in git.
+# The risk engine (src/trades/risk/engine.py) applies these to every order, in research
+# backtests and in the paper trader alike, so a strategy is tested under the limits it will
+# trade under. Unknown keys and out-of-range values stop the program instead of being ignored.
+
+max_risk_per_trade: 0.005 # 0.5% of equity lost if a trade's stop is hit (the playbook: 0.25-0.5% to start)
+daily_loss_limit: 0.015 # -1.5% from the session's opening equity: flatten everything, no new trades today
+weekly_loss_limit: 0.04 # -4% from the week's opening equity: flatten, no new trades until next week
+max_gross_exposure: 1.0 # long + short together as a multiple of equity (1.0 = no leverage)
+max_position_pct: 0.25 # largest single position, as a fraction of equity
+max_open_positions: 5
+allow_short: false
+max_orders_per_day: 40
+allowed_symbols: [] # empty: any symbol in the spec's universe
+blocked_symbols: []
+halt_file: HALT # kill switch: while a file named HALT exists at the repository root, nothing trades

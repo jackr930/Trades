@@ -16,6 +16,7 @@ from trades.strategies.cross_sectional import (
     LowVolatility,
     ShortTermReversal,
 )
+from trades.strategies.intraday import IntradayMomentum, OpeningRangeBreakout, ORBStocksInPlay
 from trades.strategies.mean_reversion import BollingerReversion, RSI2Reversion
 from trades.strategies.ml import MLRanker
 from trades.strategies.pairs import PairsTrading
@@ -50,6 +51,9 @@ REGISTRY: dict[str, type[Strategy]] = {
         KalmanPairs,
         RegimeSwitching,
         MLRanker,
+        OpeningRangeBreakout,
+        ORBStocksInPlay,
+        IntradayMomentum,
         Consensus,
         BuyAndHold,
     )

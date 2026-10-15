@@ -6926,6 +6926,7 @@
    "failure_modes": "Choppy, trendless markets cause whipsaws; sharp trend reversals (e.g. V-shaped recoveries such as spring 2009 or 2020) hurt because the signal lags by construction.",
    "family": "classic",
    "id": "tsmom",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7032,6 +7033,7 @@
    "failure_modes": "Sideways markets that repeatedly cross the average produce small losses and trading costs; fast crashes can happen before the monthly check fires.",
    "family": "classic",
    "id": "faber_trend",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7118,6 +7120,7 @@
    "failure_modes": "Lags turning points and whipsaws in range-bound markets.",
    "family": "classic",
    "id": "ma_crossover",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7239,6 +7242,7 @@
    "failure_modes": "False breakouts in range-bound markets; win rate is typically only 30-40%, which is psychologically hard.",
    "family": "classic",
    "id": "donchian_breakout",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7375,6 +7379,7 @@
    "failure_modes": "Strong trends 'walk the band': price can stay below the lower band for weeks, so losses on the few failed trades can erase many small wins (negatively skewed returns).",
    "family": "classic",
    "id": "bollinger_reversion",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7516,6 +7521,7 @@
    "failure_modes": "No stop by design: rare deep pullbacks (e.g. crash onsets) produce large losses; high win rates mask negatively skewed returns. Costs matter because holding periods are only a few days.",
    "family": "classic",
    "id": "rsi2_reversion",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -7660,6 +7666,7 @@
    "failure_modes": "Relationships break (mergers, divergent fundamentals), turning a 'temporary' spread into a permanent loss; crowded unwinds (e.g. the August 2007 quant crisis) cause sharp losses. Requires short selling.",
    "family": "classic",
    "id": "pairs_trading",
+   "intraday": false,
    "kind": "pair",
    "max_symbols": 2,
    "min_symbols": 2,
@@ -7799,6 +7806,7 @@
    "failure_modes": "'Momentum crashes': sharp market rebounds after bear markets (1932, 2009) cause severe losses, especially on the short side (Daniel & Moskowitz 2016). Needs a reasonably large universe.",
    "family": "classic",
    "id": "xs_momentum",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 3,
@@ -7914,6 +7922,7 @@
    "failure_modes": "Whipsaws around the absolute-momentum threshold; concentrated in one asset; lags sharp reversals.",
    "family": "classic",
    "id": "dual_momentum",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 2,
@@ -8022,6 +8031,7 @@
    "failure_modes": "Like other momentum signals, vulnerable to sharp reversals and crowded unwinds.",
    "family": "classic",
    "id": "high_52w",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 3,
@@ -8118,6 +8128,7 @@
    "failure_modes": "Lags in speculative bull markets; tends to concentrate in rate-sensitive sectors (utilities, staples).",
    "family": "classic",
    "id": "low_volatility",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 3,
@@ -8224,6 +8235,7 @@
    "failure_modes": "Very high turnover: realistic transaction costs can eliminate the edge (try raising slippage in the Lab). Losers can keep losing on genuine bad news.",
    "family": "classic",
    "id": "st_reversal",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 3,
@@ -8329,6 +8341,7 @@
    "failure_modes": "Trendless, choppy markets bleed small losses; sharp V-shaped reversals hurt because every horizon lags. Like all trend following, returns come in bursts separated by long flat or losing stretches.",
    "family": "modern",
    "id": "cta_trend",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -8471,6 +8484,7 @@
    "failure_modes": "A residual can move for a real reason (earnings, a takeover) and never come back. Crowded unwinds hit every stat-arb book at once, as in August 2007 (Khandani & Lo 2011). Turnover is high, so costs matter a lot, and returns have decayed as more capital chases the effect.",
    "family": "modern",
    "id": "stat_arb",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 4,
@@ -8596,6 +8610,7 @@
    "failure_modes": "Still a momentum strategy: sharp reversals in stock-specific trends hurt. With few symbols the ranking is noisy; academic results use thousands of stocks.",
    "family": "modern",
    "id": "residual_momentum",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 4,
@@ -8711,6 +8726,7 @@
    "failure_modes": "If the filter adapts too fast it absorbs the very deviations you want to trade; too slow and it trades a relationship that has already changed. A genuine break (a merger, diverging businesses) can still produce large losses before the filter catches up.",
    "family": "modern",
    "id": "kalman_pairs",
+   "intraday": false,
    "kind": "pair",
    "max_symbols": 2,
    "min_symbols": 2,
@@ -8828,6 +8844,7 @@
    "failure_modes": "The model only recognises a new regime after some turbulent bars have already happened, and it can exit right before a sharp rebound (turbulent regimes contain the best days as well as the worst). Re-estimated parameters shift over time, so the same probability can mean different things. With no turbulence in the training window there is nothing to contrast with; the strategy then treats the market as one calm regime and stays invested.",
    "family": "modern",
    "id": "hmm_regime",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -8976,6 +8993,7 @@
    "failure_modes": "With a handful of stocks and ten features there is very little to learn from, and the easiest thing for any model to learn is noise. Relationships that held in the training window can reverse. Treat a high backtest return with suspicion unless the live information coefficient stays positive.",
    "family": "modern",
    "id": "ml_ranker",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 4,
@@ -9108,6 +9126,457 @@
    "uses_short": false
   },
   {
+   "category": "Intraday breakout",
+   "counterpart": "",
+   "default_sizing": {
+    "max_leverage": 4.0,
+    "method": "stop_risk",
+    "risk_per_trade": 0.01
+   },
+   "evidence": "experimental",
+   "evidence_text": "Working paper by a day-trading educator, with no out-of-sample period; a practitioner replication on five index markets (2015-2026) reproduced the gross edge but found it net zero after costs.",
+   "failure_modes": "The edge per trade is a fraction of a percent, so spreads and slippage decide it: an independent replication found the gross result but net results indistinguishable from zero. Low hit rate (~24%) means long losing streaks.",
+   "family": "intraday",
+   "id": "orb",
+   "intraday": true,
+   "kind": "single",
+   "max_symbols": null,
+   "min_symbols": 1,
+   "name": "Opening range breakout",
+   "needs": "Intraday bars (1 or 5 minutes) and realistic costs; a liquid ETF such as QQQ.",
+   "overlays": [
+    {
+     "column": "or_high",
+     "label": "Opening range high",
+     "levels": [],
+     "pane": "price",
+     "style": "dotted"
+    },
+    {
+     "column": "or_low",
+     "label": "Opening range low",
+     "levels": [],
+     "pane": "price",
+     "style": "dotted"
+    },
+    {
+     "column": "stop_loss",
+     "label": "Stop",
+     "levels": [],
+     "pane": "price",
+     "style": "dashed"
+    },
+    {
+     "column": "take_profit",
+     "label": "Take profit",
+     "levels": [],
+     "pane": "price",
+     "style": "dashed"
+    }
+   ],
+   "params": [
+    {
+     "choices": [],
+     "default": 5,
+     "help": "Length of the opening range.",
+     "kind": "int",
+     "label": "Opening range (minutes)",
+     "max": 60,
+     "min": 1,
+     "name": "or_minutes",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 10.0,
+     "help": "0 = no target, exit at the close.",
+     "kind": "float",
+     "label": "Take profit (x risk)",
+     "max": 50.0,
+     "min": 0.0,
+     "name": "target_r",
+     "step": 0.5
+    },
+    {
+     "choices": [
+      "next_open",
+      "breakout"
+     ],
+     "default": "next_open",
+     "help": "next_open: enter at the next bar in the first bar's direction (2023 paper). breakout: enter with a stop order when the price returns to the range's extreme (2024 paper).",
+     "kind": "choice",
+     "label": "Entry",
+     "max": null,
+     "min": null,
+     "name": "entry",
+     "step": null
+    },
+    {
+     "choices": [
+      "range",
+      "atr"
+     ],
+     "default": "range",
+     "help": "range: the other side of the opening range; atr: a fraction of the daily ATR from the entry.",
+     "kind": "choice",
+     "label": "Stop",
+     "max": null,
+     "min": null,
+     "name": "stop_mode",
+     "step": null
+    },
+    {
+     "choices": [],
+     "default": 0.1,
+     "help": "",
+     "kind": "float",
+     "label": "Stop distance (x ATR)",
+     "max": 2.0,
+     "min": 0.01,
+     "name": "stop_atr_frac",
+     "step": 0.01
+    },
+    {
+     "choices": [],
+     "default": 14,
+     "help": "",
+     "kind": "int",
+     "label": "ATR length (days)",
+     "max": 100,
+     "min": 2,
+     "name": "atr_days",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 0.0,
+     "help": "Opening-range volume vs its 14-day average; 0 = no filter.",
+     "kind": "float",
+     "label": "Minimum relative volume",
+     "max": 20.0,
+     "min": 0.0,
+     "name": "min_rel_volume",
+     "step": 0.1
+    },
+    {
+     "choices": [],
+     "default": 14,
+     "help": "",
+     "kind": "int",
+     "label": "Relative volume lookback (days)",
+     "max": 100,
+     "min": 2,
+     "name": "rel_volume_days",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": true,
+     "help": "",
+     "kind": "bool",
+     "label": "Trade the short side",
+     "max": null,
+     "min": null,
+     "name": "allow_short",
+     "step": null
+    },
+    {
+     "choices": [],
+     "default": 0.0,
+     "help": "Trade only on days when the last 20 days' realised volatility ranks at least this high (0 to 1) among the past year's. 0 turns the filter off.",
+     "kind": "float",
+     "label": "Volatility regime filter",
+     "max": 1.0,
+     "min": 0.0,
+     "name": "min_vol_rank",
+     "step": 0.05
+    }
+   ],
+   "rationale": "Order imbalances at the open (overnight news, institutional flows) can persist through the day, so the first minutes' direction carries information about the rest of the session.",
+   "references": [
+    {
+     "authors": "Zarattini, C. & Aziz, A.",
+     "title": "Can Day Trading Really Be Profitable? Evidence of Sustainable Long-term Profits from Opening Range Breakout (ORB) Day Trading Strategy vs. Benchmark in the US Stock Market",
+     "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4416622",
+     "venue": "SSRN Working Paper 4416622",
+     "year": 2023
+    },
+    {
+     "authors": "Krueger, T.",
+     "title": "The opening-range breakout paper, replicated on five indices: gross reproduced, net zero",
+     "url": "https://www.mql5.com/en/blogs/post/776235",
+     "venue": "MQL5 Traders' Blogs (practitioner replication, not peer reviewed)",
+     "year": 2026
+    }
+   ],
+   "rules": [
+    "First 5-minute bar up -> buy at the open of the next bar; down -> sell short; unchanged -> no trade",
+    "Protective stop at the opening range's low (long) or high (short)",
+    "Take profit at 10x the entry-to-stop distance; otherwise exit at the close",
+    "Size so a stop-out loses 1% of equity, with at most 4x leverage"
+   ],
+   "sizes_itself": false,
+   "summary": "Trade in the direction of the first five minutes: enter at the next bar, stop at the other side of the opening range, take profit at 10 times the risk, and be flat by the close.",
+   "uses_short": false
+  },
+  {
+   "category": "Intraday breakout",
+   "counterpart": "",
+   "default_sizing": {
+    "max_leverage": 4.0,
+    "method": "stop_risk",
+    "risk_per_trade": 0.01
+   },
+   "evidence": "experimental",
+   "evidence_text": "Working paper (2016-2023) reporting very large returns before spreads and slippage; a QuantConnect recreation found similar gross behaviour. No independent net-of-cost replication on the full market.",
+   "failure_modes": "The tight stop and volatile names make costs at the open (spreads of 10-30 bps) decisive. The relative-volume filter does most of the work, and survivorship-free intraday data for thousands of stocks is expensive; a hand-picked list of today's active stocks is not survivorship-free.",
+   "family": "intraday",
+   "id": "orb_sip",
+   "intraday": true,
+   "kind": "cross_sectional",
+   "max_symbols": null,
+   "min_symbols": 2,
+   "name": "Opening range breakout on Stocks in Play",
+   "needs": "1- or 5-minute bars for a liquid stock universe, survivorship-free for a real test.",
+   "overlays": [],
+   "params": [
+    {
+     "choices": [],
+     "default": 5,
+     "help": "",
+     "kind": "int",
+     "label": "Opening range (minutes)",
+     "max": 60,
+     "min": 1,
+     "name": "or_minutes",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 20,
+     "help": "",
+     "kind": "int",
+     "label": "Stocks traded per day",
+     "max": 200,
+     "min": 1,
+     "name": "top_n",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 1.0,
+     "help": "",
+     "kind": "float",
+     "label": "Minimum relative volume",
+     "max": 20.0,
+     "min": 0.0,
+     "name": "min_rel_volume",
+     "step": 0.1
+    },
+    {
+     "choices": [],
+     "default": 14,
+     "help": "",
+     "kind": "int",
+     "label": "Relative volume lookback (days)",
+     "max": 100,
+     "min": 2,
+     "name": "rel_volume_days",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 5.0,
+     "help": "",
+     "kind": "float",
+     "label": "Minimum price ($)",
+     "max": 10000.0,
+     "min": 0.0,
+     "name": "min_price",
+     "step": 1.0
+    },
+    {
+     "choices": [],
+     "default": 1000000.0,
+     "help": "",
+     "kind": "float",
+     "label": "Minimum average daily volume (shares)",
+     "max": 10000000000.0,
+     "min": 0.0,
+     "name": "min_avg_volume",
+     "step": 100000.0
+    },
+    {
+     "choices": [],
+     "default": 0.5,
+     "help": "",
+     "kind": "float",
+     "label": "Minimum ATR ($)",
+     "max": 1000.0,
+     "min": 0.0,
+     "name": "min_atr",
+     "step": 0.05
+    },
+    {
+     "choices": [],
+     "default": 14,
+     "help": "",
+     "kind": "int",
+     "label": "ATR length (days)",
+     "max": 100,
+     "min": 2,
+     "name": "atr_days",
+     "step": 1
+    },
+    {
+     "choices": [],
+     "default": 0.1,
+     "help": "",
+     "kind": "float",
+     "label": "Stop distance (x ATR)",
+     "max": 2.0,
+     "min": 0.01,
+     "name": "stop_atr_frac",
+     "step": 0.01
+    },
+    {
+     "choices": [],
+     "default": true,
+     "help": "",
+     "kind": "bool",
+     "label": "Trade the short side",
+     "max": null,
+     "min": null,
+     "name": "allow_short",
+     "step": null
+    },
+    {
+     "choices": [],
+     "default": 0.0,
+     "help": "Trade only on days when the last 20 days' realised volatility ranks at least this high (0 to 1) among the past year's. 0 turns the filter off.",
+     "kind": "float",
+     "label": "Volatility regime filter",
+     "max": 1.0,
+     "min": 0.0,
+     "name": "min_vol_rank",
+     "step": 0.05
+    }
+   ],
+   "rationale": "Stocks with unusual opening volume are the ones news and institutions are moving; their order flow is more likely to persist through the day than in a quiet stock.",
+   "references": [
+    {
+     "authors": "Zarattini, C., Barbon, A. & Aziz, A.",
+     "title": "A Profitable Day Trading Strategy for the U.S. Equity Market",
+     "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4729284",
+     "venue": "SSRN Working Paper 4729284",
+     "year": 2024
+    },
+    {
+     "authors": "Krueger, T.",
+     "title": "The opening-range breakout paper, replicated on five indices: gross reproduced, net zero",
+     "url": "https://www.mql5.com/en/blogs/post/776235",
+     "venue": "MQL5 Traders' Blogs (practitioner replication, not peer reviewed)",
+     "year": 2026
+    }
+   ],
+   "rules": [
+    "Universe: price above $5, 14-day average volume of 1M+ shares, 14-day ATR above $0.50",
+    "Stocks in Play: opening 5-minute volume at least its 14-day average, top 20 by that ratio",
+    "First 5 minutes up -> buy stop at the range high; down -> sell stop at the range low",
+    "Stop 10% of the 14-day ATR from the entry; exit at the close",
+    "Size so a stop-out loses 1% of equity; gross exposure at most 4x"
+   ],
+   "sizes_itself": false,
+   "summary": "Each morning, rank liquid stocks by how unusually busy their first five minutes were, keep the top 20, and trade breakouts of their opening ranges with a tight ATR stop, flat by the close.",
+   "uses_short": true
+  },
+  {
+   "category": "Intraday momentum",
+   "counterpart": "",
+   "default_sizing": {
+    "allocation": 1.0,
+    "max_leverage": 1.0,
+    "method": "fixed"
+   },
+   "evidence": "moderate",
+   "evidence_text": "Peer-reviewed (JFE 2018), out-of-sample R-squared about 1.4%, found in most developed markets; absent in some Asian markets, and related effects have decayed since publication.",
+   "failure_modes": "Predictive R-squared is about 1-2%: right a little more often than wrong, so most days are noise. Related cross-sectional effects have weakened sharply since publication.",
+   "family": "intraday",
+   "id": "intraday_momentum",
+   "intraday": true,
+   "kind": "single",
+   "max_symbols": null,
+   "min_symbols": 1,
+   "name": "Market intraday momentum",
+   "needs": "Intraday bars that divide 30 minutes (1, 5, 15 or 30 minutes) for SPY or another index ETF.",
+   "overlays": [],
+   "params": [
+    {
+     "choices": [],
+     "default": false,
+     "help": "",
+     "kind": "bool",
+     "label": "Require the 12th half-hour to agree",
+     "max": null,
+     "min": null,
+     "name": "use_r12",
+     "step": null
+    },
+    {
+     "choices": [],
+     "default": 0.0,
+     "help": "As a fraction, e.g. 0.001 = 0.1%.",
+     "kind": "float",
+     "label": "Minimum first half-hour move",
+     "max": 0.05,
+     "min": 0.0,
+     "name": "min_abs_r1",
+     "step": 0.0005
+    },
+    {
+     "choices": [],
+     "default": true,
+     "help": "",
+     "kind": "bool",
+     "label": "Trade the short side",
+     "max": null,
+     "min": null,
+     "name": "allow_short",
+     "step": null
+    },
+    {
+     "choices": [],
+     "default": 0.0,
+     "help": "Trade only on days when the last 20 days' realised volatility ranks at least this high (0 to 1) among the past year's. 0 turns the filter off.",
+     "kind": "float",
+     "label": "Volatility regime filter",
+     "max": 1.0,
+     "min": 0.0,
+     "name": "min_vol_rank",
+     "step": 0.05
+    }
+   ],
+   "rationale": "Traders who rebalance infrequently and late-informed traders push the market in the direction of the morning's news near the close (Bogousslavsky 2016).",
+   "references": [
+    {
+     "authors": "Gao, L., Han, Y., Li, S. Z. & Zhou, G.",
+     "title": "Market Intraday Momentum",
+     "url": null,
+     "venue": "Journal of Financial Economics 129(2), 394-414",
+     "year": 2018
+    }
+   ],
+   "rules": [
+    "First half-hour return = price at 10:00 / previous close - 1",
+    "At 15:30 (the last half hour; 12:30 on early-close days): long if positive, short if negative",
+    "Optionally require the 12th half-hour (15:00-15:30) to agree",
+    "Exit in the closing auction; one trade a day"
+   ],
+   "sizes_itself": false,
+   "summary": "The return from yesterday's close to 10:00 predicts the last half hour: hold the market in its direction from 15:30 to the close.",
+   "uses_short": false
+  },
+  {
    "category": "Ensemble",
    "counterpart": "",
    "default_sizing": {
@@ -9120,6 +9589,7 @@
    "failure_modes": "Correlated members are not independent opinions: with equal weighting, four trend rules that agree count four times ('by category' counts them once). Averaging dilutes each member's edge along with its noise, and positions are re-sized at every close, which costs turnover.",
    "family": "classic",
    "id": "consensus",
+   "intraday": false,
    "kind": "cross_sectional",
    "max_symbols": null,
    "min_symbols": 1,
@@ -9308,6 +9778,7 @@
    "failure_modes": "Full exposure to bear markets and deep drawdowns (e.g. -55% for US stocks in 2007-2009).",
    "family": "classic",
    "id": "buy_hold",
+   "intraday": false,
    "kind": "single",
    "max_symbols": null,
    "min_symbols": 1,
@@ -9492,6 +9963,605 @@
   ],
   "start": 1626912000
  },
+ "intraday": {
+  "intraday_momentum/allow_short=False,use_r12=True": {
+   "ambiguous_fills": 0,
+   "benchmark_metrics": {
+    "avg_bars_held": null,
+    "avg_gross_exposure": 0.8801763465,
+    "cagr": 0.5400564263,
+    "calmar": 4.3078249839,
+    "cost_drag": 0.0007128281,
+    "expectancy": null,
+    "exposure": 0.9999109687,
+    "kelly": 8.7570260121,
+    "kurtosis": 26.1691320173,
+    "max_dd_duration": 4877.0,
+    "max_drawdown": -0.1253663806,
+    "n_trades": 0.0,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr": 0.9353527146,
+    "sharpe": 2.0025877446,
+    "skew": 0.3858952569,
+    "sortino": 2.8955476449,
+    "total_costs": 10.9061926906,
+    "total_return": 0.2798357861,
+    "turnover": 1.4263689598,
+    "volatility": 0.2286835441,
+    "win_rate": null
+   },
+   "equity_points": [
+    25000.0,
+    25280.1784331854,
+    25249.3754262982,
+    25065.1751616139,
+    24929.5213487917,
+    25087.7194556959,
+    24792.4326591276,
+    24933.928656697,
+    24993.4918396739
+   ],
+   "equity_sum": 283557047.67318726,
+   "fills": [
+    [
+     540,
+     "SIMTEC",
+     6.0,
+     4072.8172959527
+    ],
+    [
+     545,
+     "SIMTEC",
+     -6.0,
+     4078.7751032068
+    ],
+    [
+     774,
+     "SIMTEC",
+     5.0,
+     4189.8199934257
+    ],
+    [
+     6395,
+     "SIMTEC",
+     -5.0,
+     4457.7370200567
+    ],
+    [
+     10914,
+     "SIMTEC",
+     4.0,
+     5804.2304380479
+    ],
+    [
+     10919,
+     "SIMTEC",
+     -4.0,
+     5747.6404493779
+    ]
+   ],
+   "final_equity": 24993.4918396739,
+   "metrics": {
+    "alpha": -0.0086906162,
+    "avg_bars_held": 5.0,
+    "avg_gross_exposure": 0.0154733195,
+    "beta": 0.0191037747,
+    "cagr": -0.0004555673,
+    "calmar": -0.0177479569,
+    "correlation": 0.1362679561,
+    "cost_drag": 0.0619892614,
+    "excess_cagr": -0.5405119936,
+    "expectancy": -0.1668759058,
+    "exposure": 0.0173611111,
+    "kelly": 0.0565530034,
+    "kurtosis": 178.643997163,
+    "max_dd_duration": 10146.0,
+    "max_drawdown": -0.0256687179,
+    "n_trades": 39.0,
+    "payoff_ratio": 1.2880193812,
+    "profit_factor": 0.9952877036,
+    "psr": 0.5005467275,
+    "sharpe": 0.0018130761,
+    "skew": 0.9327598041,
+    "sortino": 0.0026176453,
+    "total_costs": 888.0270001853,
+    "total_return": -0.0002603264,
+    "turnover": 121.4711071375,
+    "volatility": 0.0320597669,
+    "win_rate": 0.4358974359
+   },
+   "n_fills": 78,
+   "n_trades": 39,
+   "pending": {},
+   "start": 78,
+   "warnings": [
+    "Only 0.6 years of data: results may reflect a single market regime.",
+    "Probabilistic Sharpe ratio is 50%: you cannot rule out that the true Sharpe ratio is zero (95% is the usual bar).",
+    "Trading costs consumed 101% of gross profits.",
+    "Turnover is 121x per year: results are very sensitive to trading costs."
+   ],
+   "weights_abs_sum": 234.0
+  },
+  "intraday_momentum/default": {
+   "ambiguous_fills": 0,
+   "benchmark_metrics": {
+    "avg_bars_held": null,
+    "avg_gross_exposure": 0.8801763465,
+    "cagr": 0.5400564263,
+    "calmar": 4.3078249839,
+    "cost_drag": 0.0007128281,
+    "expectancy": null,
+    "exposure": 0.9999109687,
+    "kelly": 8.7570260121,
+    "kurtosis": 26.1691320173,
+    "max_dd_duration": 4877.0,
+    "max_drawdown": -0.1253663806,
+    "n_trades": 0.0,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr": 0.9353527146,
+    "sharpe": 2.0025877446,
+    "skew": 0.3858952569,
+    "sortino": 2.8955476449,
+    "total_costs": 10.9061926906,
+    "total_return": 0.2798357861,
+    "turnover": 1.4263689598,
+    "volatility": 0.2286835441,
+    "win_rate": null
+   },
+   "equity_points": [
+    25000.0,
+    25161.0892939799,
+    24898.1548313472,
+    24556.5481249227,
+    24087.0508912134,
+    23777.4588535478,
+    23361.8907401217,
+    23465.2905424861,
+    22975.4972045826
+   ],
+   "equity_sum": 274306087.1116915,
+   "fills": [
+    [
+     150,
+     "SIMTEC",
+     -5.0,
+     4406.9524108876
+    ],
+    [
+     155,
+     "SIMTEC",
+     5.0,
+     4405.8969193462
+    ],
+    [
+     228,
+     "SIMTEC",
+     -5.0,
+     4304.7933905528
+    ],
+    [
+     5766,
+     "SIMTEC",
+     -5.0,
+     4102.6015976557
+    ],
+    [
+     11304,
+     "SIMTEC",
+     -3.0,
+     5780.8790509879
+    ],
+    [
+     11309,
+     "SIMTEC",
+     3.0,
+     5766.7191639158
+    ]
+   ],
+   "final_equity": 22975.4972045826,
+   "metrics": {
+    "alpha": -0.1496444881,
+    "avg_bars_held": 5.0,
+    "avg_gross_exposure": 0.0566315891,
+    "beta": 0.0072605293,
+    "cagr": -0.1373931995,
+    "calmar": -1.31482544,
+    "correlation": 0.0305570749,
+    "cost_drag": 0.2273011418,
+    "excess_cagr": -0.6774496258,
+    "expectancy": -14.0518486087,
+    "exposure": 0.0641025641,
+    "kelly": -49.558627293,
+    "kurtosis": 68.5314082657,
+    "max_dd_duration": 10453.0,
+    "max_drawdown": -0.1044953918,
+    "n_trades": 144.0,
+    "payoff_ratio": 0.8621873236,
+    "profit_factor": 0.6158480883,
+    "psr": 0.020764648,
+    "sharpe": -2.6928408417,
+    "skew": -0.4667757342,
+    "sortino": -3.6679210804,
+    "total_costs": 3149.2337161882,
+    "total_return": -0.0809801118,
+    "turnover": 445.4109994069,
+    "volatility": 0.0543364695,
+    "win_rate": 0.4166666667
+   },
+   "n_fills": 288,
+   "n_trades": 144,
+   "pending": {},
+   "start": 78,
+   "warnings": [
+    "Only 0.6 years of data: results may reflect a single market regime.",
+    "Probabilistic Sharpe ratio is 2%: you cannot rule out that the true Sharpe ratio is zero (95% is the usual bar).",
+    "Trading costs consumed 280% of gross profits.",
+    "Turnover is 445x per year: results are very sensitive to trading costs."
+   ],
+   "weights_abs_sum": 864.0
+  },
+  "orb/default": {
+   "ambiguous_fills": 0,
+   "benchmark_metrics": {
+    "avg_bars_held": null,
+    "avg_gross_exposure": 0.910863283,
+    "cagr": 0.4615832185,
+    "calmar": 3.5597791263,
+    "cost_drag": 0.0007626787,
+    "expectancy": null,
+    "exposure": 0.9999115827,
+    "kelly": 7.2450124173,
+    "kurtosis": 26.0407912186,
+    "max_dd_duration": 4877.0,
+    "max_drawdown": -0.1296662523,
+    "n_trades": 0.0,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr": 0.9041551033,
+    "sharpe": 1.7185412941,
+    "skew": 0.3406814614,
+    "sortino": 2.4744493182,
+    "total_costs": 11.3535518198,
+    "total_return": 0.2440291614,
+    "turnover": 1.5261201131,
+    "volatility": 0.2372033608,
+    "win_rate": null
+   },
+   "equity_points": [
+    25000.0,
+    24301.2780656961,
+    22679.1301205844,
+    19394.9045720068,
+    20381.8764257559,
+    17932.8866824224,
+    17439.7754338617,
+    16246.7978241556,
+    13617.7176971903
+   ],
+   "equity_sum": 221196006.71779853,
+   "fills": [
+    [
+     1,
+     "SIMTEC",
+     -22.0,
+     4539.1500175483
+    ],
+    [
+     17,
+     "SIMTEC",
+     22.0,
+     4477.031530975
+    ],
+    [
+     79,
+     "SIMTEC",
+     -24.0,
+     4360.2958377049
+    ],
+    [
+     5664,
+     "SIMTEC",
+     19.0,
+     4172.676893513
+    ],
+    [
+     11233,
+     "SIMTEC",
+     9.0,
+     5777.5015257808
+    ],
+    [
+     11233,
+     "SIMTEC",
+     -9.0,
+     5761.9114234611
+    ]
+   ],
+   "final_equity": 13617.7176971903,
+   "metrics": {
+    "alpha": -1.0191981271,
+    "avg_bars_held": 13.2,
+    "avg_gross_exposure": 0.60896924,
+    "beta": 0.042942265,
+    "cagr": -0.6521185793,
+    "calmar": -1.3159664016,
+    "correlation": 0.0309686887,
+    "cost_drag": 1.7306816074,
+    "excess_cagr": -1.1137017978,
+    "expectancy": -78.0843063339,
+    "exposure": 0.1692307692,
+    "kelly": -9.259098238,
+    "kurtosis": 23.3097825217,
+    "max_dd_duration": 11206.0,
+    "max_drawdown": -0.4955434869,
+    "n_trades": 145.0,
+    "payoff_ratio": 3.5721571022,
+    "profit_factor": 0.6389224085,
+    "psr": 0.0098915917,
+    "sharpe": -3.0454513145,
+    "skew": -0.9280817541,
+    "sortino": -4.0244221966,
+    "total_costs": 19474.2578629287,
+    "total_return": -0.4552912921,
+    "turnover": 1907.33419386,
+    "volatility": 0.3289144619,
+    "win_rate": 0.1517241379
+   },
+   "n_fills": 290,
+   "n_trades": 145,
+   "pending": {},
+   "start": 0,
+   "warnings": [
+    "Only 0.6 years of data: results may reflect a single market regime.",
+    "Probabilistic Sharpe ratio is 1%: you cannot rule out that the true Sharpe ratio is zero (95% is the usual bar).",
+    "Trading costs consumed 241% of gross profits.",
+    "Turnover is 1907x per year: results are very sensitive to trading costs."
+   ],
+   "weights_abs_sum": 7745.334778654
+  },
+  "orb/entry=breakout,stop_mode=atr,target_r=0.0": {
+   "ambiguous_fills": 13,
+   "benchmark_metrics": {
+    "avg_bars_held": null,
+    "avg_gross_exposure": 0.8749262621,
+    "cagr": 0.6262018442,
+    "calmar": 5.0306918131,
+    "cost_drag": 0.0007643218,
+    "expectancy": null,
+    "exposure": 0.9999021335,
+    "kelly": 9.9265893091,
+    "kurtosis": 28.1790874982,
+    "max_dd_duration": 4877.0,
+    "max_drawdown": -0.1244762883,
+    "n_trades": 0.0,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr": 0.9483970655,
+    "sharpe": 2.2544865265,
+    "skew": 0.4279165024,
+    "sortino": 3.273004651,
+    "total_costs": 10.8097262674,
+    "total_return": 0.2875569586,
+    "turnover": 1.5294078673,
+    "volatility": 0.2271159264,
+    "win_rate": null
+   },
+   "equity_points": [
+    25000.0,
+    26117.3345612121,
+    22025.3479854045,
+    18199.961042153,
+    16419.0698255658,
+    12331.4704334427,
+    9842.7807521873,
+    8887.2447234976,
+    7263.5933110138
+   ],
+   "equity_sum": 179991266.0320714,
+   "fills": [
+    [
+     1093,
+     "SIMTEC",
+     22.0,
+     4331.9208825081
+    ],
+    [
+     1169,
+     "SIMTEC",
+     -22.0,
+     4383.7002009674
+    ],
+    [
+     1171,
+     "SIMTEC",
+     23.0,
+     4447.6422128462
+    ],
+    [
+     6163,
+     "SIMTEC",
+     12.0,
+     4307.4541682299
+    ],
+    [
+     11268,
+     "SIMTEC",
+     5.0,
+     5792.7494226768
+    ],
+    [
+     11304,
+     "SIMTEC",
+     -5.0,
+     5762.9122699409
+    ]
+   ],
+   "final_equity": 7263.5933110138,
+   "metrics": {
+    "alpha": -2.3384608048,
+    "avg_bars_held": 25.390625,
+    "avg_gross_exposure": 1.1835541602,
+    "beta": 0.1001471538,
+    "cagr": -0.9072533619,
+    "calmar": -1.2262230642,
+    "correlation": 0.0534987714,
+    "cost_drag": 2.6661280714,
+    "excess_cagr": -1.5334552061,
+    "expectancy": -137.8594111368,
+    "exposure": 0.3180661578,
+    "kelly": -12.6536562127,
+    "kurtosis": 17.1928477866,
+    "max_dd_duration": 10090.0,
+    "max_drawdown": -0.7398762822,
+    "n_trades": 128.0,
+    "payoff_ratio": 1.952311057,
+    "profit_factor": 0.4276490887,
+    "psr": 4.10053e-05,
+    "sharpe": -5.3797045247,
+    "skew": -0.9441022065,
+    "sortino": -6.9981680327,
+    "total_costs": 20708.9249955898,
+    "total_return": -0.7094562676,
+    "turnover": 1900.8165443443,
+    "volatility": 0.4251502044,
+    "win_rate": 0.1796875
+   },
+   "n_fills": 256,
+   "n_trades": 128,
+   "pending": {},
+   "start": 1092,
+   "warnings": [
+    "Only 0.5 years of data: results may reflect a single market regime.",
+    "Probabilistic Sharpe ratio is 0%: you cannot rule out that the true Sharpe ratio is zero (95% is the usual bar).",
+    "Trading costs consumed 697% of gross profits.",
+    "Turnover is 1901x per year: results are very sensitive to trading costs.",
+    "13 exits assumed the worse of two outcomes because one bar could have hit both orders; test on finer bars (e.g. 1 minute) to see how much this matters."
+   ],
+   "weights_abs_sum": 15599.5767026127
+  },
+  "orb_sip/default": {
+   "ambiguous_fills": 17,
+   "benchmark_metrics": {
+    "avg_bars_held": null,
+    "avg_gross_exposure": 0.9420749062,
+    "cagr": 0.207830509,
+    "calmar": 2.6588812303,
+    "cost_drag": 0.000887877,
+    "expectancy": null,
+    "exposure": 0.9999021335,
+    "kelly": 31.6930792805,
+    "kurtosis": 40.4751593714,
+    "max_dd_duration": 5578.0,
+    "max_drawdown": -0.0781646456,
+    "n_trades": 0.0,
+    "payoff_ratio": null,
+    "profit_factor": null,
+    "psr": 0.9620663844,
+    "sharpe": 2.4658498793,
+    "skew": 0.0121293627,
+    "sortino": 3.4956044496,
+    "total_costs": 11.7592489782,
+    "total_return": 0.1031280522,
+    "turnover": 1.7766417938,
+    "volatility": 0.0778040486,
+    "win_rate": null
+   },
+   "equity_points": [
+    25000.0,
+    26650.4789060458,
+    22144.3138983536,
+    17875.2888909578,
+    13948.5276123368,
+    11601.0401688506,
+    10671.1227011897,
+    8873.4487789534,
+    7669.1621686399
+   ],
+   "equity_sum": 180225986.34020343,
+   "fills": [
+    [
+     1093,
+     "SIMIDX",
+     158.0,
+     632.5907072719
+    ],
+    [
+     1100,
+     "SIMIDX",
+     -158.0,
+     630.3389474862
+    ],
+    [
+     1101,
+     "SIMBNK",
+     956.0,
+     103.0642247442
+    ],
+    [
+     6632,
+     "SIMBNK",
+     -4.0,
+     99.0085109983
+    ],
+    [
+     11233,
+     "SIMBNK",
+     -287.0,
+     108.3368317365
+    ],
+    [
+     11239,
+     "SIMBNK",
+     287.0,
+     108.7959059816
+    ]
+   ],
+   "final_equity": 7669.1621686399,
+   "metrics": {
+    "alpha": -2.2722455319,
+    "avg_bars_held": 25.244813278,
+    "avg_gross_exposure": 1.4219607884,
+    "beta": 0.4432125621,
+    "cagr": -0.8970339223,
+    "calmar": -1.2253406438,
+    "correlation": 0.0832184624,
+    "cost_drag": 3.2258490077,
+    "excess_cagr": -1.1048644312,
+    "expectancy": -71.4531576134,
+    "exposure": 0.4682912507,
+    "kelly": -12.7380251666,
+    "kurtosis": 18.0221807703,
+    "max_dd_duration": 10090.0,
+    "max_drawdown": -0.7320690184,
+    "n_trades": 241.0,
+    "payoff_ratio": 1.7955741624,
+    "profit_factor": 0.4819699067,
+    "psr": 5.71714e-05,
+    "sharpe": -5.2783316269,
+    "skew": -0.8801473028,
+    "sortino": -6.8909817364,
+    "total_costs": 25095.0275821914,
+    "total_return": -0.6932335133,
+    "turnover": 2429.689077812,
+    "volatility": 0.4143759773,
+    "win_rate": 0.2116182573
+   },
+   "n_fills": 482,
+   "n_trades": 241,
+   "pending": {},
+   "start": 1092,
+   "warnings": [
+    "Only 0.5 years of data: results may reflect a single market regime.",
+    "Probabilistic Sharpe ratio is 0%: you cannot rule out that the true Sharpe ratio is zero (95% is the usual bar).",
+    "Trading costs consumed 323% of gross profits.",
+    "Turnover is 2430x per year: results are very sensitive to trading costs.",
+    "17 exits assumed the worse of two outcomes because one bar could have hit both orders; test on finer bars (e.g. 1 minute) to see how much this matters."
+   ],
+   "weights_abs_sum": 31916.7018649754
+  }
+ },
  "payload_shape": {
   "after_tax_equity": [
    "t",
@@ -9511,14 +10581,20 @@
    "commission_bps",
    "commission_per_share",
    "execution",
+   "flat_by_close",
    "fractional",
+   "half_spread_bps",
    "initial_cash",
    "margin_rate_annual",
    "max_gross_leverage",
    "min_commission",
    "min_trade_weight",
    "periods_per_year",
-   "slippage_bps"
+   "sec_fee_per_million",
+   "slippage_bps",
+   "stop_slippage_bps",
+   "taf_max_per_trade",
+   "taf_per_share"
   ],
   "drawdown": [
    "t",
@@ -9588,6 +10664,7 @@
    "failure_modes",
    "family",
    "id",
+   "intraday",
    "kind",
    "max_symbols",
    "min_symbols",

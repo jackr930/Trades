@@ -13,12 +13,13 @@ class Timeframe(str, Enum):
     M1 = "1m"
     M5 = "5m"
     M15 = "15m"
+    M30 = "30m"
     H1 = "1h"
     D1 = "1d"
 
     @property
     def minutes(self) -> int:
-        return {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "1d": SESSION_MINUTES}[self.value]
+        return {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "1d": SESSION_MINUTES}[self.value]
 
     @property
     def is_intraday(self) -> bool:
@@ -37,11 +38,11 @@ class Timeframe(str, Enum):
 
     @property
     def pandas_freq(self) -> str:
-        return {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "1d": "1D"}[self.value]
+        return {"1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h", "1d": "1D"}[self.value]
 
     @property
     def label(self) -> str:
-        return {"1m": "1 minute", "5m": "5 minutes", "15m": "15 minutes", "1h": "1 hour", "1d": "Daily"}[
+        return {"1m": "1 minute", "5m": "5 minutes", "15m": "15 minutes", "30m": "30 minutes", "1h": "1 hour", "1d": "Daily"}[
             self.value
         ]
 
@@ -56,6 +57,7 @@ class Timeframe(str, Enum):
             "minute": "1m",
             "5min": "5m",
             "15min": "15m",
+            "30min": "30m",
             "60m": "1h",
             "1hour": "1h",
             "hour": "1h",

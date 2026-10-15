@@ -31,12 +31,13 @@ log = logging.getLogger(__name__)
 INTERVALS = {
     Timeframe.D1: "1d",
     Timeframe.H1: "1h",
+    Timeframe.M30: "30m",
     Timeframe.M15: "15m",
     Timeframe.M5: "5m",
     Timeframe.M1: "1m",
 }
 # How far back Yahoo serves each intraday interval (days).
-MAX_LOOKBACK_DAYS = {Timeframe.M1: 7, Timeframe.M5: 59, Timeframe.M15: 59, Timeframe.H1: 729}
+MAX_LOOKBACK_DAYS = {Timeframe.M1: 7, Timeframe.M5: 59, Timeframe.M15: 59, Timeframe.M30: 59, Timeframe.H1: 729}
 
 
 def _yf():
@@ -59,7 +60,7 @@ class YahooProvider(DataProvider):
         ),
         requires_key=False,
         realtime="near real-time (polled)",
-        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M15, Timeframe.M5, Timeframe.M1),
+        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1),
         docs_url="https://github.com/ranaroussi/yfinance",
     )
 

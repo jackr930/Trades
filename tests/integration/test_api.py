@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from trades.api import create_app
 from trades.cli import main as cli_main
+from trades.strategies import REGISTRY
 
 
 @pytest.fixture()
@@ -20,8 +21,8 @@ def client(tmp_path):
 
 def test_meta_and_settings(client):
     meta = client.get("/api/meta").json()
-    assert len(meta["strategies"]) == 20 and meta["disclaimer"]
-    assert {s["family"] for s in meta["strategies"]} == {"classic", "modern"}
+    assert len(meta["strategies"]) == len(REGISTRY) and meta["disclaimer"]
+    assert {s["family"] for s in meta["strategies"]} == {"classic", "modern", "intraday"}
     assert {p["id"] for p in meta["providers"]} == {"synthetic", "yahoo", "alpaca", "csv"}
     s = client.get("/api/settings").json()
     assert s["provider"] == "synthetic" and s["alpaca_secret_key"] == ""

@@ -40,6 +40,7 @@ STREAM_URL = "wss://stream.data.alpaca.markets/v2/{feed}"
 TIMEFRAMES = {
     Timeframe.D1: "1Day",
     Timeframe.H1: "1Hour",
+    Timeframe.M30: "30Min",
     Timeframe.M15: "15Min",
     Timeframe.M5: "5Min",
     Timeframe.M1: "1Min",
@@ -83,7 +84,7 @@ class AlpacaProvider(DataProvider):
         ),
         requires_key=True,
         realtime="real-time (streaming)",
-        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M15, Timeframe.M5, Timeframe.M1),
+        timeframes=(Timeframe.D1, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1),
         docs_url="https://docs.alpaca.markets/docs/about-market-data-api",
         key_fields=("alpaca_key_id", "alpaca_secret_key", "alpaca_feed"),
     )

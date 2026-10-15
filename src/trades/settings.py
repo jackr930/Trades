@@ -104,7 +104,7 @@ def mask(value: str) -> str:
 
 _VALIDATORS = {
     "provider": lambda v: v in ("synthetic", "yahoo", "alpaca", "csv"),
-    "timeframe": lambda v: v in ("1m", "5m", "15m", "1h", "1d"),
+    "timeframe": lambda v: v in ("1m", "5m", "15m", "30m", "1h", "1d"),
     "alpaca_feed": lambda v: v in ("iex", "sip", "delayed_sip"),
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
     "account_type": lambda v: v in ("taxable", "tax_advantaged"),

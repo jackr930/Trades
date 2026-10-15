@@ -113,9 +113,30 @@ def _summarise_backtest(bt) -> dict:
     )
 
 
-def compute_outputs(daily) -> dict:
-    out: dict = {"backtests": {}, "sizings": {}}
+INTRADAY_CASES = (
+    ("orb", {}),
+    ("orb", {"entry": "breakout", "stop_mode": "atr", "target_r": 0.0}),
+    ("orb_sip", {}),
+    ("intraday_momentum", {}),
+    ("intraday_momentum", {"use_r12": True, "allow_short": False}),
+)
+INTRADAY_CONFIG = {  # the repository's cost model (config/base.yaml) on a $25,000 account
+    "initial_cash": 25_000.0,
+    "periods_per_year": 252 * 78,
+    "half_spread_bps": 2.0,
+    "slippage_bps": 3.0,
+    "stop_slippage_bps": 10.0,
+    "sec_fee_per_million": 20.6,
+    "taf_per_share": 0.000195,
+    "taf_max_per_trade": 9.79,
+}
+
+
+def compute_outputs(daily, intraday) -> dict:
+    out: dict = {"backtests": {}, "sizings": {}, "intraday": {}}
     for sid, cls in REGISTRY.items():
+        if cls.intraday:
+            continue  # pinned below, on intraday bars
         data = _inputs(cls, daily)
         for cname, cfg in CONFIGS.items():
             spec = StrategyConfig(sid, _params(cls))
@@ -130,6 +151,14 @@ def compute_outputs(daily) -> dict:
                 strat, sizing = spec.build()
                 bt = backtest_strategy(strat, data, sizing, BacktestConfig())
                 out["sizings"][f"{sid}/{zname}"] = _summarise_backtest(bt)
+
+    for sid, params in INTRADAY_CASES:
+        cls = REGISTRY[sid]
+        data = dict(intraday) if cls.kind is Kind.CROSS_SECTIONAL else {"SIMTEC": intraday["SIMTEC"]}
+        strat, sizing = StrategyConfig(sid, params).build()
+        bt = backtest_strategy(strat, data, sizing, BacktestConfig(**INTRADAY_CONFIG))
+        key = sid + "/" + (",".join(f"{k}={v}" for k, v in sorted(params.items())) or "default")
+        out["intraday"][key] = _summarise_backtest(bt) | {"ambiguous_fills": bt.result.ambiguous_fills}
 
     # After-tax results and the cost-sensitivity rerun of one backtest.
     strat, sizing = StrategyConfig("tsmom", {}).build()
@@ -213,8 +242,8 @@ def _compare(actual, expected, path="$"):
 
 
 @pytest.fixture(scope="module")
-def outputs(daily):
-    return json.loads(json.dumps(compute_outputs(daily)))
+def outputs(daily, intraday):
+    return json.loads(json.dumps(compute_outputs(daily, intraday)))
 
 
 def test_outputs_match_the_snapshot(outputs):

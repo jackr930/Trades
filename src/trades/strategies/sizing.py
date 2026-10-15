@@ -12,6 +12,12 @@ Methods
 ``atr_risk``
     Fixed-fractional risk sizing used by the Turtles: size so that an adverse move of
     ``stop_atr`` x ATR loses ``risk_per_trade`` of equity. Single-asset strategies only.
+``stop_risk``
+    For strategies that set their own protective stops (e.g. the opening range breakout):
+    size so that entering at the reference price (the strategy's ``entry_stop``, else the
+    decision close) and being stopped out loses ``risk_per_trade`` of equity, capped per
+    position at ``max_leverage``. Gross exposure across positions is capped by the broker at
+    fill time instead of here, because a stop entry may never fill.
 
 Sizes are *locked* while a signal is unchanged (so positions are held as shares rather
 than constantly re-traded) unless ``rebalance_every`` > 0, which re-sizes periodically.
@@ -30,7 +36,7 @@ import pandas as pd
 from trades.features import indicators as ind
 from trades.strategies.base import Kind
 
-METHODS = ("fixed", "vol_target", "atr_risk")
+METHODS = ("fixed", "vol_target", "atr_risk", "stop_risk")
 
 
 @dataclass
@@ -104,8 +110,12 @@ def apply_sizing(
     cfg: SizingConfig,
     kind: Kind,
     periods_per_year: int = 252,
+    *,
+    stop_losses: pd.DataFrame | None = None,
+    entry_stops: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Convert signals (T x N) to target weights (T x N)."""
+    """Convert signals (T x N) to target weights (T x N). ``stop_losses`` and ``entry_stops`` are
+    the strategy's order levels, needed by ``stop_risk`` sizing."""
     signals = signals.fillna(0.0)
     cols = list(signals.columns)
     closes = pd.DataFrame({s: data[s]["close"] for s in cols}).reindex(signals.index)
@@ -128,6 +138,18 @@ def apply_sizing(
             with np.errstate(divide="ignore", invalid="ignore"):
                 scale = np.where(pv > 0, cfg.target_vol / pv, np.nan)
             target = signals.mul(scale, axis=0) * cfg.allocation
+    elif method == "stop_risk":
+        if stop_losses is None:
+            raise ValueError("stop_risk sizing needs a strategy that sets protective stops")
+        parts = {}
+        for s in cols:
+            ref = closes[s]
+            if entry_stops is not None and s in entry_stops:
+                ref = entry_stops[s].where(entry_stops[s].notna(), ref)
+            dist = (ref - stop_losses[s].reindex(signals.index)).abs()
+            size = (cfg.risk_per_trade * ref / dist).replace([np.inf, -np.inf], np.nan)
+            parts[s] = np.sign(signals[s]) * size.clip(upper=cfg.max_leverage)
+        target = pd.DataFrame(parts, index=signals.index) * cfg.allocation
     else:  # atr_risk, single-asset
         parts = {}
         for s in cols:
@@ -137,11 +159,13 @@ def apply_sizing(
             parts[s] = np.sign(signals[s]) * size
         target = pd.DataFrame(parts, index=signals.index) * cfg.allocation
 
-    weights = _lock(signals.to_numpy(float), target.to_numpy(float), kind is Kind.SINGLE, cfg.rebalance_every)
-    gross = np.abs(weights).sum(axis=1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        cap = np.where(gross > cfg.max_leverage, cfg.max_leverage / gross, 1.0)
-    weights = weights * cap[:, None]
+    per_column = kind is Kind.SINGLE or method == "stop_risk"  # each stop-sized trade keeps its own size
+    weights = _lock(signals.to_numpy(float), target.to_numpy(float), per_column, cfg.rebalance_every)
+    if method != "stop_risk":
+        gross = np.abs(weights).sum(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cap = np.where(gross > cfg.max_leverage, cfg.max_leverage / gross, 1.0)
+        weights = weights * cap[:, None]
     return pd.DataFrame(weights, index=signals.index, columns=cols)
 
 

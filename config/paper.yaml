@@ -1,0 +1,22 @@
+# The paper trader: Alpaca's PAPER (practice) account only. There is no setting here, or
+# anywhere, that reaches a real-money endpoint.
+#
+# Safe to edit. Whatever this file says, `trades paper --submit` refuses to send orders for a
+# spec whose latest research run did not pass the acceptance checklist; dry runs always work.
+
+paper:
+  spec: STRAT-000 # the one spec this paper account trades (one spec per Alpaca paper account)
+  schedule:
+    start: "09:00" # ET. Intraday runners start before the open; the calendar skips holidays
+    moc_submit: "15:45" # ET. Market-on-close exits go out before the exchange cutoff (verify Alpaca's)
+    flatten: "15:58" # ET. Anything still open in an intraday spec is closed with a market order
+  poll_seconds: 15 # how often an intraday runner looks for a completed bar
+  heartbeat_minutes: 5 # a missed heartbeat raises an alert
+
+alerts:
+  # Telegram needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the env file (never in the repo).
+  telegram: false
+  on: [error, rejection, risk_limit, halt, data_gap, missed_heartbeat, daily_report]
+
+reports:
+  daily_dir: reports/daily # one JSON + Markdown report per trading day, committed for review
