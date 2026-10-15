@@ -191,6 +191,9 @@ def health(
 def digest(record: dict[str, Any], week_end: date) -> str:
     """A plain-English weekly summary of a ``track_record`` result."""
     lines = [f"# Weekly digest: week ending {week_end}", ""]
+    if record.get("decision"):
+        d = record["decision"]
+        lines += [f"**Decision gate: {d['status']}.** {d['summary']}", ""]
     if not record["experiments"]:
         return "\n".join([*lines, "The journal has no rows yet."]) + "\n"
     for exp in record["experiments"]:

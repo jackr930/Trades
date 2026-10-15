@@ -488,9 +488,104 @@ export interface Settings {
   paper_max_daily_loss: number;
   paper_max_orders: number;
   journal_source: string;
+  onboarded: boolean;
+  ui_mode: "full" | "simple";
+  holdings: Holding[];
+  account_types: Record<string, AccountType>;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;
+}
+
+// ---- your money ------------------------------------------------------------------------
+
+export type AccountType = "taxable" | "tax_advantaged";
+
+export interface Holding {
+  account: string;
+  symbol: string;
+  description?: string;
+  quantity: Num;
+  value: Num;
+  cost_basis: Num;
+  cash: boolean;
+}
+
+export interface HoldingsState {
+  holdings: Holding[];
+  account_types: Record<string, AccountType>;
+  summary: {
+    total_value: number;
+    unrealised: number;
+    accounts: Record<string, { type: AccountType; value: number; cash: number; positions: number }>;
+  };
+}
+
+export interface GoalResult {
+  years: number[];
+  p10: number[];
+  p50: number[];
+  p90: number[];
+  p_goal: Num;
+  contributed: number;
+  paths: number;
+  inflation: number;
+  proxies: Record<string, string>;
+  demo: boolean;
+  history: {
+    from: string;
+    to: string;
+    max_drawdown: number;
+    peak: string;
+    trough: string;
+    recovered: string | null;
+    months_below_peak: number;
+    worst_12_months: Num;
+    start_value_at_trough: number;
+    annual_return: number;
+  };
+}
+
+export interface DragResult {
+  rows: { label: string; value: number; cost: number }[];
+  final: number;
+  lost: number;
+  lost_share: number;
+}
+
+export interface AllocationResult {
+  total: number;
+  rows: { class: string; value: number; share: number; target: number; difference: number }[];
+  moves: { class: string; amount: number; action: "add" | "reduce"; where: string }[];
+  location: string[];
+  guessed: string[];
+  band: number;
+}
+
+export interface HarvestCandidate {
+  account: string;
+  symbol: string;
+  value: number;
+  loss: number;
+  loss_share: Num;
+  tax_deferred: [number, number];
+  replacement: string | null;
+  warnings: string[];
+}
+
+export interface VsSpyResult {
+  universe: "watchlist" | "sectors";
+  symbols: string[];
+  demo: boolean;
+  benchmark: string | null;
+  start_time: number;
+  end_time: number;
+  taxable: boolean;
+  strategy: Record<string, Num>;
+  spy: Record<string, Num>;
+  p_beats: Num;
+  research_log?: ResearchLog;
+  warnings: string[];
 }
 
 // ---- forward track record ----------------------------------------------------------
@@ -538,6 +633,13 @@ export interface TrackRecord {
   };
   paper: { orders: number; filled: number; with_slippage: number; mean_slippage_bps: Num; worst_slippage_bps: Num } | null;
   experiments: TrackExperiment[];
+  decision?: Decision;
+}
+
+export interface Decision {
+  status: "YES, WITH CARE" | "NO" | "NOT YET" | "INVALID";
+  summary: string;
+  checks: { name: string; status: Verdict["status"]; detail: string }[];
 }
 
 export interface Backup {
