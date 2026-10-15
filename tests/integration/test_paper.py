@@ -260,8 +260,10 @@ def test_client_refuses_other_hosts_and_redirects():
 
 def test_no_live_trading_url_in_the_code():
     """The only Alpaca hosts in the package are the paper trading API and the market-data API."""
-    root = Path(__file__).resolve().parents[1] / "trades"
-    for path in root.rglob("*.py"):
+    root = Path(__file__).resolve().parents[2] / "src" / "trades"
+    files = list(root.rglob("*.py"))
+    assert len(files) > 50, f"found only {len(files)} files under {root}: this test must never pass vacuously"
+    for path in files:
         text = path.read_text()
         for host in ("://api.alpaca.markets", "broker-api.alpaca.markets", "://alpaca.markets/v2"):
             assert host not in text, f"{path} mentions {host}"
