@@ -5,6 +5,7 @@ import type {
   BacktestResult,
   CostSensitivity,
   CostSensitivityRow,
+  Robustness,
   GridResult,
   Meta,
   OptimizeResult,
@@ -113,6 +114,8 @@ export default function StrategyLab({ route }: { route: Route }) {
     initial_cash: settings.account_equity, // your account profile
     fractional: settings.fractional_shares,
     cash_yield: settings.cash_yield === "tbill",
+    benchmark: "ew",
+    min_trade_weight: 0.005,
     commission_bps: settings.commission_bps,
     slippage_bps: settings.slippage_bps,
     allow_short: settings.allow_short || initial.uses_short,
@@ -273,6 +276,16 @@ export default function StrategyLab({ route }: { route: Route }) {
         <div className="field" style={{ marginTop: 12 }}>
           <span>Symbols</span>
           <SymbolInput symbols={symbols} onChange={setSymbols} max={strategy.max_symbols ?? 30} />
+          {strategy.kind !== "pair" ? (
+            <div className="row tight" style={{ marginTop: 6 }}>
+              <span className="small muted">Or test on a set picked without hindsight:</span>
+              {Object.entries(meta.universes).map(([key, u]) => (
+                <button key={key} type="button" className="btn small ghost" title={u.note} onClick={() => setSymbols(u.symbols.slice(0, strategy.max_symbols ?? 30))}>
+                  {u.label.split(" (")[0]}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <span className="hint">
             {symbolHint}
             {start ? "" : " Leave dates blank to use all available history."} Indicator warm-up history before the start date is
@@ -357,6 +370,27 @@ export default function StrategyLab({ route }: { route: Route }) {
                   value={config.commission_bps}
                   onChange={(e) => setConfig({ ...config, commission_bps: Number(e.target.value) })}
                 />
+              </label>
+              <label className="field" title="Re-sizing trades smaller than this share of equity are skipped. A wider no-trade band trades less (lower costs) but tracks the target less closely.">
+                <span>Skip trades under (% of equity)</span>
+                <input
+                  className="input num"
+                  type="number"
+                  step={0.5}
+                  min={0}
+                  value={Math.round(config.min_trade_weight * 1000) / 10}
+                  onChange={(e) => setConfig({ ...config, min_trade_weight: Number(e.target.value) / 100 })}
+                />
+              </label>
+              <label className="field">
+                <span>Compare with</span>
+                <select className="input" value={config.benchmark} onChange={(e) => setConfig({ ...config, benchmark: e.target.value })}>
+                  {Object.entries(meta.benchmarks).map(([key, b]) => (
+                    <option key={key} value={key}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="field">
                 <span>Fill at</span>
@@ -524,6 +558,7 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         </div>
       ) : null}
       {res.cost_sensitivity ? <CostSensitivityCard cs={res.cost_sensitivity} tax={res.tax} /> : null}
+      {res.robustness ? <RobustnessCard r={res.robustness} benchmark={res.benchmark?.label ?? "buy & hold"} /> : null}
       {res.charts.map((ch) => (
         <TradeChart key={ch.symbol} chart={ch} timeframe={res.timeframe} />
       ))}
@@ -570,6 +605,85 @@ function BacktestView({ res, meta, counterpart, onReplay }: {
         <TradesTable trades={res.trades} showSymbol={res.symbols.length > 1} />
       </div>
     </>
+  );
+}
+
+/** Is the result an accident of timing? Rolling windows, start dates, regimes and bootstrap ranges. */
+function RobustnessCard({ r, benchmark }: { r: Robustness; benchmark: string }) {
+  const colors = useChartColors();
+  const rows = r.rolling?.rows ?? [];
+  const lines = useMemo(
+    () =>
+      rows.length
+        ? [
+            {
+              id: "excess",
+              label: `${r.rolling?.years}-year CAGR minus the benchmark's, by window end`,
+              data: { t: rows.map((x) => x.end), v: rows.map((x) => x.strategy - x.benchmark) },
+              color: colors.series[0],
+              kind: "baseline" as const,
+            },
+          ]
+        : [],
+    [r, colors],
+  );
+  if (r.note) return <div className="callout">{r.note}</div>;
+  const boot = r.bootstrap;
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>How robust is it?</h2>
+        <span className="sub">Compared with {benchmark}, from different angles</span>
+      </div>
+      <ul style={{ marginTop: 0 }}>
+        {r.rolling?.windows ? (
+          <li>
+            Beat the benchmark in <b>{fmtPct(r.rolling.share_beating ?? null, 0, false)}</b> of {r.rolling.windows} rolling{" "}
+            {r.rolling.years}-year windows (median {fmtPct(r.rolling.median_excess ?? null)} a year; worst{" "}
+            {fmtPct(r.rolling.worst_excess ?? null)}, best {fmtPct(r.rolling.best_excess ?? null)}).
+          </li>
+        ) : null}
+        {r.starts?.starts ? (
+          <li>
+            Starting at the beginning of any of {r.starts.starts} quarters, you would be ahead of the benchmark today in{" "}
+            <b>{fmtPct(r.starts.share_ahead ?? null, 0, false)}</b> of them.
+          </li>
+        ) : null}
+      </ul>
+      {lines.length ? <LineChart lines={lines} format={(v) => fmtPct(v, 1)} height={160} label="Rolling excess CAGR" /> : null}
+      {r.regimes?.length ? (
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Market regime (labelled by the benchmark)</th>
+                <th className="num">Time</th>
+                <th className="num">Strategy / yr</th>
+                <th className="num">Benchmark / yr</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.regimes.map((g) => (
+                <tr key={g.regime}>
+                  <td>{g.regime}</td>
+                  <td className="num">{fmtPct(g.share_of_time, 0, false)}</td>
+                  <td className="num">{fmtPct(g.strategy)}</td>
+                  <td className="num">{fmtPct(g.benchmark)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {boot ? (
+        <p className="small secondary" style={{ marginTop: 10 }}>
+          Across 1,000 resampled histories (21-day blocks), the strategy's CAGR ranged from {fmtPct(boot.strategy.cagr[0])} to{" "}
+          {fmtPct(boot.strategy.cagr[2])} (5th to 95th percentile) and its worst drawdown from {fmtPct(boot.strategy.max_drawdown[0])}{" "}
+          to {fmtPct(boot.strategy.max_drawdown[2])}; the benchmark's CAGR from {fmtPct(boot.benchmark.cagr[0])} to{" "}
+          {fmtPct(boot.benchmark.cagr[2])}. One backtest is one draw from a range this wide.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

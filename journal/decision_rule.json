@@ -1,13 +1,19 @@
 {
   "about": "Pre-registered before any real-data result was seen. The git history of this file is the registration date. Edit the thresholds BEFORE running scripts/consensus_check.py on real data or before the journal has rows; the report flags any change made after the first journal row.",
   "backtest": {
-    "description": "On the nine original sector SPDRs from 2010-01-01, the consensus with equal weighting must beat SPY buy-and-hold on after-tax CAGR (everything sold at the end), and beat it on compound growth in at least 95% of block-bootstrap resamples.",
-    "symbol_set": "Sectors",
+    "description": "On the nine original sector SPDRs from 2010-01-01 (T-bill cash), the consensus with equal weighting must beat SPY buy-and-hold on after-tax CAGR (everything sold at the end), and beat it on compound growth in at least 95% of block-bootstrap resamples. Each variant listed is judged the same way, with the 95% raised (Bonferroni) for the number of versions tested: 97.5% each for two.",
+    "symbol_set": "sectors",
     "start": "2010-01-01",
     "weighting": "equal",
     "must_beat": "SPY",
     "metric": "after_tax_cagr_if_sold",
-    "min_probability": 0.95
+    "min_probability": 0.95,
+    "variants": [
+      {
+        "name": "5% no-trade band",
+        "min_trade_weight": 0.05
+      }
+    ]
   },
   "forward": {
     "description": "In the forward journal, on days with a Buy or Strong buy call, those symbols must beat SPY over the next 21 sessions: at least 60 independent days, a positive mean excess return and a t-statistic of at least 2.",

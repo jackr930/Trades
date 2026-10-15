@@ -15,11 +15,13 @@ from fastapi.concurrency import run_in_threadpool
 
 from trades import __version__
 from trades.advisor import AdvisorSettings
-from trades.backtest import trials
+from trades.backtest import robustness, trials
 from trades.backtest.engine import BacktestConfig
 from trades.backtest.metrics import METRIC_INFO
 from trades.backtest.optimize import grid_search, range_values, walk_forward
 from trades.backtest.runner import (
+    BENCHMARKS,
+    Benchmark,
     StrategySpec,
     backtest_payload,
     backtest_strategy,
@@ -33,6 +35,7 @@ from trades.data.base import HISTORY_START, DataError, align_bars, history_start
 from trades.data.synthetic import SCENARIOS, universe_info
 from trades.sim.session import DEFAULT_ADVISORS, HISTORICAL_PRESETS, SimConfig, create_session
 from trades.strategies import Kind, catalog, create_strategy, get_strategy_class
+from trades.universes import UNIVERSES
 
 from .schemas import (
     BacktestBody,
@@ -107,6 +110,23 @@ def _with_cash(c, cfg: BacktestConfig, body, data, provider: str, notes: list[st
     return replace(cfg, cash_returns=rets) if rets is not None else cfg
 
 
+def _benchmark(c, body, data, provider: str) -> Benchmark | None:
+    """The benchmark chosen in the request's config (default: equal-weight of the symbols)."""
+    key = (body.config or {}).get("benchmark", "ew")
+    spec = BENCHMARKS.get(key)
+    if spec is None:
+        raise ValueError(f"unknown benchmark {key!r}; choose one of {', '.join(BENCHMARKS)}")
+    if spec["weights"] is None:
+        return None
+    index = next(iter(data.values())).index
+    frames, errors = c.data.bars_many(
+        list(spec["weights"]), body.timeframe, index[0].date(), index[-1].date(), provider
+    )
+    if errors:
+        raise DataError("benchmark: " + "; ".join(f"{s}: {e}" for s, e in errors.items()))
+    return Benchmark(str(spec["label"]), dict(spec["weights"]), frames)
+
+
 def _config(c, body: DataBody, overrides: dict[str, Any]) -> BacktestConfig:
     s = c.settings.get()
     tf = Timeframe.parse(body.timeframe)
@@ -145,6 +165,8 @@ async def meta(request: Request):
                 for s in SCENARIOS.values()
             ],
             "presets": list(HISTORICAL_PRESETS),
+            "universes": UNIVERSES,
+            "benchmarks": {k: {"label": v["label"], "weights": v["weights"]} for k, v in BENCHMARKS.items()},
             "default_advisors": DEFAULT_ADVISORS,
             "universe": universe_info(),
             "disclaimer": DISCLAIMER,
@@ -297,8 +319,13 @@ async def backtest(request: Request, body: BacktestBody):
         notes: list[str] = []
         run_cfg = _with_cash(c, cfg, body, data, provider, notes)
         tax = c.settings.get().tax_profile()
-        bt = backtest_strategy(strat, data, sizing, run_cfg, eval_start, tax=tax)
+        bench = _benchmark(c, body, data, provider)
+        bt = backtest_strategy(strat, data, sizing, run_cfg, eval_start, tax=tax, benchmark=bench)
         payload = backtest_payload(bt)
+        if bt.benchmark is not None:
+            payload["robustness"] = robustness.report(
+                bt.equity, bt.benchmark.equity.iloc[bt.start :], run_cfg.periods_per_year
+            )
         payload["warnings"] += notes
         payload["research_log"] = trials.record_and_summarise(
             "backtest", spec, list(data), bt.metrics, len(bt.equity) - 1, run_cfg.periods_per_year

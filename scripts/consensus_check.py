@@ -36,8 +36,11 @@ from trades.data.base import align_bars, history_start
 from trades.data.service import DataService
 from trades.journal.rule import backtest_verdict, load_rule
 from trades.strategies.consensus import params_from_settings
+from trades.universes import UNIVERSES
 
-SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"]  # the nine original sector SPDRs
+SETS = {"watchlist": ("Watchlist", DEFAULT_WATCHLISTS["yahoo"])} | {
+    key: (str(u["label"]).split(" (")[0], list(u["symbols"])) for key, u in UNIVERSES.items()
+}
 
 
 def row(label: str, period: str, m: dict, p_spy: float | None) -> str:
@@ -57,7 +60,14 @@ def row(label: str, period: str, m: dict, p_spy: float | None) -> str:
 
 
 def check(
-    name: str, symbols: list[str], data: DataService, provider: str, start, cfg: BacktestConfig, cash_yield: bool
+    name: str,
+    symbols: list[str],
+    data: DataService,
+    provider: str,
+    start,
+    cfg: BacktestConfig,
+    cash_yield: bool,
+    variants: list[dict],
 ) -> tuple[list[str], dict]:
     base = params_from_settings(Settings())
     warm = StrategySpec("consensus", base).build()[0].warmup()
@@ -99,9 +109,16 @@ def check(
         p = p_beats(bt.equity, spy_eq)
         p_equal = p if weighting == "equal" else p_equal
         lines.append(row(f"{name}: consensus, {weighting.replace('_', ' ')}", period, bt.metrics, p))
+    results = {"equal": first.metrics, "spy": spy_m, "p_equal": p_equal, "variants": {}}
+    for v in variants:  # pre-registered variants, e.g. a wider no-trade band to cut turnover
+        strat, sizing = StrategySpec("consensus", {**base, "weighting": "equal"}).build()
+        vcfg = replace(cfg, min_trade_weight=float(v["min_trade_weight"]))
+        bt = backtest_strategy(strat, aligned, sizing, vcfg, eval_start, tax=tax)
+        p = p_beats(bt.equity, spy_eq)
+        results["variants"][v["name"]] = (bt.metrics, p)
+        lines.append(row(f"{name}: consensus, equal, {v['name']}", period, bt.metrics, p))
     lines.append(row(f"{name}: SPY buy & hold", period, spy_m, None))
     lines.append(row(f"{name}: equal-weight buy & hold", period, ew_m, p_beats(ew_eq, spy_eq)))
-    results = {"equal": first.metrics, "spy": spy_m, "p_equal": p_equal}
 
     # Walk-forward: the first training window starts at --start (after the members' warm-up).
     wf_data = {s: df.iloc[max(eval_start - warm + 1, 0) :] for s, df in aligned.items()}
@@ -134,11 +151,18 @@ def main() -> int:
     parser.add_argument("--slippage", type=float, default=5.0, help="basis points per fill (the app default)")
     parser.add_argument("--no-cash-yield", action="store_true", help="idle cash earns nothing")
     parser.add_argument("--rule", default="journal/decision_rule.json", help="the pre-registered decision rule")
+    parser.add_argument(
+        "--sets", default="watchlist,sectors", help=f"comma-separated symbol sets: {', '.join(SETS)}"
+    )
     args = parser.parse_args()
+    unknown = [k for k in args.sets.split(",") if k not in SETS]
+    if unknown:
+        parser.error(f"unknown set(s) {unknown}; choose from {', '.join(SETS)}")
+    rule = load_rule(args.rule)
+    variants = (rule or {}).get("backtest", {}).get("variants", [])
     start = pd.Timestamp(args.start).date()
     data = DataService(SettingsStore())
     cfg = BacktestConfig(slippage_bps=args.slippage, allow_short=False)
-    sets = {"Watchlist": DEFAULT_WATCHLISTS["yahoo"], "Sectors": SECTORS}
     cash = "idle cash earns nothing" if args.no_cash_yield else "idle cash earns T-bill returns (BIL)"
     print(f"Provider: {args.provider}; start {start}; slippage {args.slippage:g} bps per fill; {cash}.\n")
     print("After-tax: 22% short-term / 15% long-term federal estimates, everything sold on the last day. Not")
@@ -149,19 +173,24 @@ def main() -> int:
     )
     print("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     results = {}
-    for name, symbols in sets.items():
-        lines, results[name] = check(name, symbols, data, args.provider, start, cfg, not args.no_cash_yield)
+    for key in args.sets.split(","):
+        name, symbols = SETS[key]
+        lines, results[key] = check(name, symbols, data, args.provider, start, cfg, not args.no_cash_yield, variants)
         for line in lines:
             print(line)
-    rule = load_rule(args.rule)
     if rule and "backtest" in rule and rule["backtest"].get("symbol_set") in results:
         r = rule["backtest"]
         if r.get("start") and r["start"] != start.isoformat() or args.no_cash_yield:
             print(f"\nThe pre-registered rule is for a run from {r.get('start')} with T-bill cash; this run is not it.")
         else:
             res = results[r["symbol_set"]]
-            v = backtest_verdict(res["equal"], res["spy"], res["p_equal"], r)
-            print(f"\n**Pre-registered decision rule: {v['status']}.** {r['description']} Result: {v['detail']}")
+            n = 1 + len(res["variants"])
+            print(f"\n**Pre-registered decision rule.** {r['description']}")
+            v = backtest_verdict(res["equal"], res["spy"], res["p_equal"], r, n)
+            print(f"- consensus, equal: **{v['status']}**. {v['detail']}")
+            for name, (metrics, p) in res["variants"].items():
+                v = backtest_verdict(metrics, res["spy"], p, r, n)
+                print(f"- consensus, equal, {name}: **{v['status']}**. {v['detail']}")
     return 0
 
 

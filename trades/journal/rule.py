@@ -83,17 +83,24 @@ def paper_verdict(orders: pd.DataFrame | None, rule: dict[str, Any]) -> dict[str
 
 
 def backtest_verdict(
-    strategy: dict[str, float | None], benchmark: dict[str, float | None], p_growth: float | None, rule: dict[str, Any]
+    strategy: dict[str, float | None],
+    benchmark: dict[str, float | None],
+    p_growth: float | None,
+    rule: dict[str, Any],
+    n_tests: int = 1,
 ) -> dict[str, str]:
+    """``n_tests``: how many versions (the main one plus its variants) are judged; the required
+    probability is raised accordingly (Bonferroni), since testing more versions finds more luck."""
     key = rule["metric"]
     s, b = strategy.get(key), benchmark.get(key)
     if s is None or b is None or p_growth is None or not math.isfinite(p_growth):
         return _verdict("NOT YET", "missing numbers for the comparison.")
-    ok = s > b and p_growth >= rule["min_probability"]
+    need = 1 - (1 - rule["min_probability"]) / max(n_tests, 1)
+    ok = s > b and p_growth >= need
     return _verdict(
         "PASS" if ok else "FAIL",
-        f"{key} {s:.2%} vs {b:.2%} for {rule['must_beat']}; beats it on growth in {p_growth:.0%} of resamples "
-        f"(the rule needs {rule['min_probability']:.0%}).",
+        f"{key} {s:.2%} vs {b:.2%} for {rule['must_beat']}; beats it on growth in {p_growth:.1%} of resamples "
+        f"(the rule needs {need:.1%}).",
     )
 
 
