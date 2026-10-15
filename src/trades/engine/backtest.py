@@ -9,7 +9,7 @@ plain-language warnings. JSON for the web UI is built in ``trades.reporting.payl
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -21,6 +21,7 @@ from trades.execution.sim_broker import BacktestConfig, ExecutionEngine
 from trades.features.intraday import infer_bar_minutes, session_info
 from trades.reporting.metrics import performance_metrics
 from trades.reporting.tax import TaxProfile, after_tax, cagr, liquidation
+from trades.risk import RiskEngine, RiskEvent, RiskLimits
 from trades.strategies import Kind, Strategy, StrategyOutput
 from trades.strategies.sizing import SizingConfig, apply_sizing
 
@@ -39,6 +40,7 @@ class BacktestResult:
     start: int
     pending: dict[str, float]  # share orders that would execute at the next bar
     ambiguous_fills: int = 0  # fills that relied on the "assume the worse outcome" rule
+    risk_events: list[RiskEvent] = field(default_factory=list)  # what the risk engine changed
 
     @property
     def returns(self) -> pd.Series:
@@ -62,12 +64,15 @@ def run_backtest(
     stop_losses: pd.DataFrame | None = None,
     take_profits: pd.DataFrame | None = None,
     entry_stops: pd.DataFrame | None = None,
+    risk: RiskEngine | None = None,
 ) -> BacktestResult:
     """Simulate trading ``target_weights`` (index aligned with every frame in ``data``).
 
     ``start`` is the first bar of the evaluation period (earlier bars only warm up
     indicators); equity is flat at ``initial_cash`` until then. ``stop_losses``, ``take_profits`` and
-    ``entry_stops`` are optional order levels (same shape as the weights, NaN for none).
+    ``entry_stops`` are optional order levels (same shape as the weights, NaN for none). With a
+    ``risk`` engine, every bar's targets pass through it before any order is placed, exactly as
+    in the paper trader.
     """
     cfg = config or BacktestConfig()
     symbols = list(target_weights.columns)
@@ -103,7 +108,9 @@ def run_backtest(
     start = max(0, min(start, T - 1))
 
     for t in range(start, T):
-        engine.execute(t, index[t], O[t], H[t], L[t], C[t], bool(closing[t]))
+        fills = engine.execute(t, index[t], O[t], H[t], L[t], C[t], bool(closing[t]))
+        if risk is not None:
+            risk.note_fills(len(fills))
         eq = engine.equity
         equity[t], cash[t] = eq, ledger.cash
         for j, s in enumerate(symbols):
@@ -114,10 +121,21 @@ def run_backtest(
             equity[t + 1 :] = eq
             cash[t + 1 :] = ledger.cash
             break
+        target = W[t]
+        if risk is not None:
+            target = risk.review(
+                index[t],
+                eq,
+                W[t],
+                act_w[t],
+                C[t],
+                S[t] if S is not None else None,
+                E[t] if E is not None else None,
+            )
         # On the last bar these become the "pending" orders a live user would place for tomorrow.
         engine.decide(
             t,
-            W[t],
+            target,
             S[t] if S is not None else None,
             TP[t] if TP is not None else None,
             E[t] if E is not None else None,
@@ -137,6 +155,7 @@ def run_backtest(
         start=start,
         pending={symbols[j]: q for j, q in engine.pending.items()},
         ambiguous_fills=engine.ambiguous_fills,
+        risk_events=list(risk.events) if risk is not None else [],
     )
 
 
@@ -199,8 +218,10 @@ def backtest_strategy(
     eval_start: int | None = None,
     with_benchmark: bool = True,
     tax: TaxProfile | None = None,
+    risk: RiskLimits | None = None,
 ) -> StrategyBacktest:
-    """Backtest ``strategy``; with a ``tax`` profile, also report after-tax results (post-processing)."""
+    """Backtest ``strategy``; with a ``tax`` profile, also report after-tax results (post-processing).
+    With ``risk`` limits, the risk engine reviews every bar's targets (see ``trades.risk.engine``)."""
     cfg = config or BacktestConfig()
     sizing = sizing or SizingConfig.from_dict(None, strategy.default_sizing)
     aligned = align_bars({s.upper() if isinstance(s, str) else s: df for s, df in data.items()})
@@ -243,6 +264,11 @@ def backtest_strategy(
 
     # Fills may not push gross exposure past the sizing's leverage cap (e.g. after an opening gap).
     cfg = cfg.capped(sizing.max_leverage)
+    risk_engine = None
+    if risk is not None:
+        cap = min(cfg.max_gross_leverage or risk.max_gross_exposure, risk.max_gross_exposure)
+        cfg = replace(cfg, max_gross_leverage=cap, allow_short=cfg.allow_short and risk.allow_short)
+        risk_engine = RiskEngine(risk, symbols)
     result = run_backtest(
         aligned,
         weights,
@@ -251,6 +277,7 @@ def backtest_strategy(
         stop_losses=output.stop_losses,
         take_profits=output.take_profits,
         entry_stops=output.entry_stops,
+        risk=risk_engine,
     )
     bench = None
     bench_metrics = None
@@ -266,6 +293,17 @@ def backtest_strategy(
         bench.equity.iloc[start:] if bench is not None else None,
     )
     warnings += interpretation_warnings(metrics, T - start, cfg.periods_per_year, cfg.initial_cash)
+    if risk_engine is not None:
+        warnings += risk_warnings(risk_engine.summary())
+        if not risk.allow_short:  # type: ignore[union-attr]
+            w = weights.to_numpy(float)
+            prev = np.vstack([np.zeros((1, w.shape[1])), w[:-1]])
+            wanted = int(((w < -1e-12) & (prev >= -1e-12)).sum())
+            if wanted:
+                warnings.append(
+                    f"The strategy wanted to go short {wanted} times; shorting is off in risk/limits.yaml, "
+                    "so those trades were skipped."
+                )
     if result.ambiguous_fills:
         warnings.append(
             f"{result.ambiguous_fills} exits assumed the worse of two outcomes because one bar could have hit "
@@ -359,4 +397,22 @@ def interpretation_warnings(
     turnover = m.get("turnover")
     if turnover is not None and turnover > 20:
         out.append(f"Turnover is {turnover:.0f}x per year: results are very sensitive to trading costs.")
+    return out
+
+
+def risk_warnings(counts: dict[str, int]) -> list[str]:
+    """Plain words for what the risk engine did during a backtest."""
+    out = []
+    if counts.get("daily_loss"):
+        out.append(f"The daily loss limit fired {counts['daily_loss']} times; each time the account was flattened until the next session.")
+    if counts.get("weekly_loss"):
+        out.append(f"The weekly loss limit fired {counts['weekly_loss']} times; each time the account was flattened until the next week.")
+    if counts.get("trade_risk"):
+        out.append(f"On {counts['trade_risk']} sessions a trade was shrunk to the maximum risk per trade.")
+    if counts.get("positions"):
+        out.append(f"On {counts['positions']} sessions the strategy wanted more positions than the limit allows.")
+    if counts.get("position_size"):
+        out.append(f"On {counts['position_size']} sessions a position was cut to the maximum position size.")
+    if counts.get("short"):
+        out.append(f"Short trades were refused on {counts['short']} sessions (shorting is off in risk/limits.yaml).")
     return out
