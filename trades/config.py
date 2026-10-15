@@ -252,6 +252,13 @@ class SettingsStore:
             self._save()
             return self.get()
 
+    def reset(self) -> Settings:
+        """Forget everything stored: back to the defaults, and the file deleted."""
+        with self._lock:
+            self._settings = Settings()
+            self.path.unlink(missing_ok=True)
+            return self.get()
+
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")

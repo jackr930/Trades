@@ -1528,3 +1528,8 @@ table.leaderboard tbody tr.selected {
   margin: 2px 0 0;
   color: var(--text-secondary);
 }
+
+.btn.danger {
+  color: var(--neg-text);
+  border-color: var(--neg-text);
+}

@@ -53,7 +53,11 @@ function ProvenCard() {
           Track record
         </button>
       </div>
-      {!exp ? (
+      {rec?.decision && rec.decision.status !== "NOT YET" ? (
+        <p className="secondary" style={{ margin: 0 }}>
+          <b>{rec.decision.status}.</b> {rec.decision.summary}
+        </p>
+      ) : !exp ? (
         <p className="secondary" style={{ margin: 0 }}>
           <b>Not yet.</b> The forward test has not started, so nobody knows whether these calls beat simply holding SPY. Treat them
           as untested ideas.

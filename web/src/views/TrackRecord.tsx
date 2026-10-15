@@ -4,7 +4,7 @@ import LineChart from "../components/LineChart";
 import { ErrorBox, Help, Spinner, StatTile, StatusDot, Tabs } from "../components/ui";
 import { fmtNum, fmtPct, pnlClass } from "../format";
 import { useChartColors } from "../theme";
-import type { JournalStat, TrackExperiment, TrackRecord, Verdict } from "../types";
+import type { Decision, JournalStat, TrackExperiment, TrackRecord, Verdict } from "../types";
 
 const LABEL_ORDER = ["Strong buy", "Buy", "Neutral", "Sell / avoid", "Strong sell / avoid", "Sell / short", "Strong sell / short"];
 const MIN_DAYS = 60;
@@ -57,6 +57,7 @@ function Record({ rec }: { rec: TrackRecord }) {
   const older = rec.experiments.filter((e) => e !== current);
   return (
     <>
+      {rec.decision ? <DecisionCard d={rec.decision} /> : null}
       <HealthCard problems={rec.health} />
       <RuleCard rec={rec} />
       {current ? <ExperimentCard exp={current} benchmark={rec.benchmark} current /> : <div className="callout">The journal has no rows yet.</div>}
@@ -297,6 +298,31 @@ function PaperCard({ paper, verdict }: { paper: NonNullable<TrackRecord["paper"]
       <p className="small muted">
         Alpaca&apos;s paper account simulates fills from quotes, so this is only a rough check of the cost assumption.
       </p>
+    </div>
+  );
+}
+
+/** The gate: real money only if every pre-registered check passed. */
+export function DecisionCard({ d }: { d: Decision }) {
+  const tone = d.status === "YES, WITH CARE" ? "info" : d.status === "NOT YET" ? "warn" : "bad";
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Would the evidence justify real money?</h2>
+        <span className="sub">Decided by the pre-registered rule, not by anyone&apos;s judgement</span>
+      </div>
+      <div className={`callout ${tone}`}>
+        <b>{d.status}.</b> {d.summary}
+      </div>
+      <ul style={{ marginBottom: 0 }}>
+        {d.checks.map((c) => (
+          <li key={c.name}>
+            <b>{c.status}</b>: {c.name}
+            {/[.?]$/.test(c.name) ? " " : ". "}
+            <span className="secondary">{c.detail}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -212,6 +212,35 @@ The **Plan** page works on your own money; it never trades, and none of it is ta
   rule: no purchase of the same or a substantially identical fund in any account, IRAs included, from 30 days
   before to 30 days after; dividend reinvestment counts. Harvesting defers tax rather than avoiding it.
 
+## The decision
+
+Everything above serves one question: would the evidence justify putting real money into the Live Desk's
+consensus instead of an index fund? The **decision gate** on the Track Record page (and in the weekly digest)
+answers it from the pre-registered rule alone:
+
+- **Backtest**: `python scripts/consensus_check.py --provider yahoo` on the registered symbols and start writes
+  `journal/backtest_check.json`. Commit it.
+- **Forward journal**: the rule's verdict on calls recorded before their outcome (about five years to decide).
+- **Paper fills**: whether the assumed trading costs hold up.
+
+**YES, WITH CARE** only when all three passed; **NO** as soon as one failed; **NOT YET** otherwise; **INVALID** if the
+rule was edited after the journal started. Even a YES is acted on by you, at your broker: this app never places
+real orders.
+
+## Your data, and other users
+
+Everything the server keeps for you lives in one folder (`$TRADES_HOME`): `settings.json` (including API keys and
+imported holdings), `trials.jsonl` (the research log) and `sim_history.jsonl`. **Settings → Your data** downloads all
+of it except API keys, restores it, or deletes all of it. The Privacy and Terms pages (linked at the bottom of every
+page) say what is kept and where things are sent.
+
+Trades is built for one person on their own server; it has no sign-up. The code keeps each user's files under one
+home folder so that serving several people would mean one home per account, but before letting anyone else in you
+would still need: real accounts (not one shared password) and a home per account; rate limits on backtests; a
+lawyer's review of the draft privacy and terms pages; market-data licences that allow redistribution (Yahoo's data
+is for personal use only); and advice on whether personalised suggestions to others need registration as an
+investment adviser. None of that is done.
+
 ## Put it online (Render)
 
 Trades is a server that has to keep running: it streams prices and simulator bars to your browser over WebSockets

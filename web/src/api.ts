@@ -145,6 +145,7 @@ export const api = {
     request<HoldingsState>(`/api/holdings${account ? `?account=${encodeURIComponent(account)}` : ""}`, { method: "DELETE" }),
   trackRecord: () => request<{ source: string; record: TrackRecord | null }>("/api/track-record"),
   backup: () => request<Backup>("/api/backup"),
+  deleteMyData: () => post<{ deleted: string[]; settings_now: Settings }>("/api/delete-my-data", { confirm: "delete everything" }),
   restore: (backup: unknown) =>
     post<{ settings: string[]; lines_added: Record<string, number>; settings_now: Settings }>("/api/restore", backup),
   testProvider: (id: string) => post<{ ok: boolean; message: string }>(`/api/providers/${id}/test`),
