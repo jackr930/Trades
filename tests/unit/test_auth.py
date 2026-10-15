@@ -138,7 +138,7 @@ def test_health_checks_pass_whatever_host_name_they_use(hosted):
 
 def test_serve_listens_on_the_port_a_host_assigns(monkeypatch):
     seen = {}
-    monkeypatch.setattr("trades.cli.cmd_serve", lambda args: seen.update(port=args.port, host=args.host) or 0)
+    monkeypatch.setattr("trades.cli.app.cmd_serve", lambda args: seen.update(port=args.port, host=args.host) or 0)
     monkeypatch.setenv("PORT", "10000")
     assert cli_main(["serve"]) == 0 and seen["port"] == 10000
     monkeypatch.delenv("PORT")

@@ -305,8 +305,9 @@ def backtest_strategy(
                     "so those trades were skipped."
                 )
     if result.ambiguous_fills:
+        n = result.ambiguous_fills
         warnings.append(
-            f"{result.ambiguous_fills} exits assumed the worse of two outcomes because one bar could have hit "
+            f"{n} {'exit' if n == 1 else 'exits'} assumed the worse of two outcomes because one bar could have hit "
             "both orders; test on finer bars (e.g. 1 minute) to see how much this matters."
         )
     after_tax_equity = None
