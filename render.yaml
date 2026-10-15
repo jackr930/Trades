@@ -11,3 +11,11 @@ services:
         sync: false
       - key: TRADES_SECRET_KEY # signs login cookies, so logins survive restarts
         generateValue: true
+    # Optional: keep settings, the research log and the simulator history through restarts and
+    # redeploys (the app stores them in /data). Render's free plan has no disks: switch to a paid
+    # instance type (for example plan: starter) and uncomment these lines. Without a disk, use
+    # Settings -> Backup to download them now and then, and Restore after a redeploy.
+    # disk:
+    #   name: trades-data
+    #   mountPath: /data
+    #   sizeGB: 1

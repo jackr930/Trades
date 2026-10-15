@@ -459,6 +459,35 @@ export default function SettingsView() {
         </div>
       </div>
 
+      <div className="card">
+        <div className="card-header">
+          <h2>Track record source</h2>
+          <span className="sub">Where the Track Record page reads the committed journal</span>
+        </div>
+        <label className="field">
+          <span>
+            GitHub address <Help text="Leave empty to read the journal/ folder next to where the server runs. A hosted copy never sees the workflow's later commits, so point it at your repository instead." />
+          </span>
+          <input
+            className="input"
+            placeholder="https://raw.githubusercontent.com/<you>/Trades/<branch>/journal"
+            value={draft.journal_source}
+            onChange={(e) => setDraft({ ...draft, journal_source: e.target.value.trim() })}
+          />
+        </label>
+        <p className="small muted" style={{ marginTop: 8 }}>
+          Only <code>raw.githubusercontent.com</code> addresses are accepted. For a private repository, give the server a read-only
+          GitHub token in the <code>TRADES_JOURNAL_TOKEN</code> environment variable.
+        </p>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn primary" onClick={() => void save({ journal_source: draft.journal_source })}>
+            Save source
+          </button>
+        </div>
+      </div>
+
+      <BackupCard onRestored={() => void refreshMeta()} toast={toast} />
+
       {meta.auth_enabled ? (
         <div className="card">
           <div className="card-header">
@@ -522,6 +551,65 @@ export default function SettingsView() {
             </select>
           </label>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Download everything this server remembers (except API keys) and load it back, e.g. after a redeploy. */
+function BackupCard({ onRestored, toast }: { onRestored: () => void; toast: (m: string) => void }) {
+  const { refreshSettings } = useApp();
+  const [error, setError] = useState<string | null>(null);
+
+  const download = async () => {
+    setError(null);
+    try {
+      const backup = await api.backup();
+      const blob = new Blob([JSON.stringify(backup, null, 1)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `trades-backup-${backup.created.slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const restore = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    try {
+      const r = await api.restore(JSON.parse(await file.text()));
+      await refreshSettings();
+      onRestored();
+      const lines = Object.values(r.lines_added).reduce((a, b) => a + b, 0);
+      toast(`Restored ${r.settings.length} settings and ${lines} log entries`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h2>Backup and restore</h2>
+        <span className="sub">Settings, the research log and simulator history; never API keys</span>
+      </div>
+      <ErrorBox error={error} />
+      <p className="secondary" style={{ marginTop: 0 }}>
+        A hosted copy without a disk forgets everything when it restarts, including the research log that counts how many
+        configurations you have tried (which the Deflated Sharpe Ratio needs to be honest). Download a backup now and then; restoring
+        adds back anything missing and never deletes.
+      </p>
+      <div className="row">
+        <button className="btn" onClick={() => void download()}>
+          Download backup
+        </button>
+        <label className="btn">
+          Restore from file
+          <input type="file" accept="application/json,.json" style={{ display: "none" }} onChange={(e) => void restore(e.target.files?.[0])} />
+        </label>
       </div>
     </div>
   );

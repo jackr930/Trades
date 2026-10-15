@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from datetime import date, timedelta
 from typing import Any
 
+import httpx
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -30,9 +31,11 @@ from trades.backtest.runner import (
     overlays_payload,
     sanitize,
 )
+from trades.backup import make_backup, restore_backup
 from trades.core.timeframes import Timeframe
 from trades.data.base import HISTORY_START, DataError, align_bars, history_start, last_bar_forming
 from trades.data.synthetic import SCENARIOS, universe_info
+from trades.journal.source import load_track_record
 from trades.sim.session import DEFAULT_ADVISORS, HISTORICAL_PRESETS, SimConfig, create_session
 from trades.strategies import Kind, catalog, create_strategy, get_strategy_class
 from trades.universes import UNIVERSES
@@ -198,6 +201,42 @@ async def put_settings(request: Request, patch: dict[str, Any]):
     c.recommender.clear()  # cached evidence may come from the old source or costs
     c.live.poke()
     return updated.public_dict()
+
+
+def _backup_files(c) -> dict:
+    return {"trials.jsonl": trials.log_path(), "sim_history.jsonl": c.sims.history_path}
+
+
+@router.get("/backup")
+async def backup(request: Request):
+    """Settings (without API keys), the research log and the simulator history, as one JSON file."""
+    c = ctx(request)
+    return make_backup(c.settings, _backup_files(c))
+
+
+@router.post("/restore")
+async def restore(request: Request, body: dict[str, Any]):
+    c = ctx(request)
+    summary = restore_backup(c.settings, _backup_files(c), body)
+    c.data.invalidate()
+    c.recommender.clear()
+    c.live.poke()
+    return {**summary, "settings_now": c.settings.get().public_dict()}
+
+
+# --------------------------------------------------------------------------------------
+# The forward track record (committed by the journal workflow)
+# --------------------------------------------------------------------------------------
+
+
+@router.get("/track-record")
+async def track_record(request: Request):
+    source = ctx(request).settings.get().journal_source
+    try:
+        record = await run_in_threadpool(load_track_record, source)
+    except (httpx.HTTPError, ValueError) as exc:  # unreachable, or not JSON
+        raise HTTPException(502, f"Could not read the track record from {source}: {exc}") from exc
+    return sanitize({"source": source or "the local journal/ folder", "record": record})
 
 
 @router.get("/providers")

@@ -6,6 +6,7 @@ import type {
   ArenaState,
   ArenaSummary,
   BacktestResult,
+  Backup,
   ChartResponse,
   LiveSnapshot,
   Meta,
@@ -15,6 +16,7 @@ import type {
   SimHistoryRow,
   SimOrder,
   SimState,
+  TrackRecord,
 } from "./types";
 
 export class ApiError extends Error {
@@ -122,6 +124,10 @@ export const api = {
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  trackRecord: () => request<{ source: string; record: TrackRecord | null }>("/api/track-record"),
+  backup: () => request<Backup>("/api/backup"),
+  restore: (backup: unknown) =>
+    post<{ settings: string[]; lines_added: Record<string, number>; settings_now: Settings }>("/api/restore", backup),
   testProvider: (id: string) => post<{ ok: boolean; message: string }>(`/api/providers/${id}/test`),
   backtest: (body: BacktestRequest) => post<BacktestResult>("/api/backtest", body),
   optimize: (body: OptimizeRequest) => post<OptimizeResult>("/api/optimize", body),
