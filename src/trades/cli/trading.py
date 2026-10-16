@@ -107,14 +107,16 @@ def cmd_paper(args) -> int:
         return cmd_halt(args)
     if action == "resume":
         return cmd_resume(args)
-    return {"run": _paper_run, "status": _paper_status, "flatten": _paper_flatten, "drill": _paper_drill}[action](args)
+    actions = {"run": _paper_run, "status": _paper_status, "flatten": _paper_flatten, "drill": _paper_drill,
+               "backstop": _paper_backstop}
+    return actions[action](args)
 
 
 def _paper_run(args) -> int:
     from dataclasses import replace
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
-    from trades.data.calendar import NY, is_trading_day
+    from trades.data.calendar import NY, is_trading_day, session_bounds
     from trades.engine.paper import PaperRecords, PaperTarget, paper_allowed, run
     from trades.execution.alpaca import PaperAPIError
     from trades.journal.experiment import code_version
@@ -137,9 +139,16 @@ def _paper_run(args) -> int:
         from trades.engine.intraday import IntradayRunner, Schedule, live_bars
         from trades.reporting.alerts import Alerts
 
-        today = datetime.now(NY).date()
+        now = datetime.now(NY)
+        today = now.date()
         if not is_trading_day(today):
             print(f"{today} is not a trading day: nothing to do.")
+            return 0
+        saved = records.load_state()
+        unfinished = saved.get("session") == today.isoformat() and saved.get("phase") != "done"
+        if now >= session_bounds(today)[1] + timedelta(minutes=5) and not unfinished:
+            print(f"The {today} session is over. Intraday specs run through the session on a machine that "
+                  "stays up: see deploy/README.md.")
             return 0
         runner = IntradayRunner(
             target, client, live_bars(target, args.provider), limits, records, session=today,
@@ -205,6 +214,50 @@ def _paper_flatten(args) -> int:
     except PaperAPIError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    print(detail)
+    return 0 if ok else 1
+
+
+def _paper_backstop(args) -> int:
+    """Run by a timer shortly before the close: if the intraday runner's heartbeat has stopped while
+    the account holds positions, flatten (and turn the kill switch on, so a person looks first)."""
+    import json
+    from datetime import datetime, timezone
+
+    import pandas as pd
+
+    from trades import config
+    from trades.data.calendar import NY, is_trading_day, session_bounds
+    from trades.engine.paper import PaperRecords, flatten
+    from trades.execution.alpaca import PaperAPIError
+    from trades.reporting.alerts import Alerts
+    from trades.risk import load_limits
+
+    spec = _paper_spec(args)
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(NY).date()
+    if not is_trading_day(today) or not (session_bounds(today)[0] <= now < session_bounds(today)[1]):
+        print("The market is closed: nothing to do (a market order now would wait for the next open).")
+        return 0
+    beat = PaperRecords(spec.key).folder / "heartbeat.json"
+    limit = float(config.section("paper", "paper").get("backstop_after_seconds", 120))
+    age = None
+    if beat.exists():
+        age = (now - pd.Timestamp(json.loads(beat.read_text())["time"]).to_pydatetime()).total_seconds()
+    if age is not None and age <= limit:
+        print(f"The runner is alive (heartbeat {age:.0f} s ago): nothing to do.")
+        return 0
+    try:
+        client = _paper_client()
+        if not client.positions():
+            print("No positions: nothing to do.")
+            return 0
+        why = "no heartbeat" if age is None else f"no heartbeat for {age:.0f} s"
+        ok, detail = flatten(client, load_limits(), reason=f"backstop: the runner stopped ({why})")
+    except PaperAPIError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    Alerts.from_config(prefix=f"[{spec.key}] ")("error", f"Backstop: the runner stopped ({why}) with positions open. {detail}")
     print(detail)
     return 0 if ok else 1
 
@@ -326,9 +379,10 @@ def register(sub) -> None:
         help="trade a spec on an Alpaca PAPER account (dry run unless --submit; never real money)",
         description="run (default): one nightly run for a daily spec, or the whole session for an intraday "
         "spec. status: the pre-market check. flatten: kill switch on, cancel everything, close everything. "
-        "drill NAME: rehearse a kill switch (halt, flatten, daily-loss, revoke-key) or test the alerts (alert).",
+        "drill NAME: rehearse a kill switch (halt, flatten, daily-loss, revoke-key) or test the alerts (alert). "
+        "backstop: flatten if the intraday runner's heartbeat stopped while positions are open (for a timer).",
     )
-    p.add_argument("paper_command", nargs="?", choices=("run", "status", "flatten", "drill", "halt", "resume"))
+    p.add_argument("paper_command", nargs="?", choices=("run", "status", "flatten", "drill", "backstop", "halt", "resume"))
     p.add_argument("drill", nargs="?", help="with drill: halt | flatten | daily-loss | revoke-key | alert")
     p.add_argument("--spec", help="the spec to trade (default: paper.spec in config/paper.yaml)")
     p.add_argument("--submit", action="store_true", help="send the orders (default: print them only)")

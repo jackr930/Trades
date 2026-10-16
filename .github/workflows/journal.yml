@@ -2,7 +2,9 @@ name: Journal
 
 # After every US close: log the Live Desk's recommendations for the session, score the
 # ones whose 5- and 21-session windows have passed, and commit both to the repository.
-# Later the same evening, a separate job trades the experiment on an Alpaca PAPER account.
+# Later the same evening, a separate job runs config/paper.yaml's spec (a daily one) on an Alpaca
+# PAPER account and commits its records (paper/<spec>/). Intraday specs run on a machine that stays
+# up instead (deploy/README.md). A HALT file committed to the repository stops the paper job.
 on:
   schedule:
     # 22:15 UTC on weekdays: after the 16:00 New York close in both EDT (20:00 UTC) and EST (21:00 UTC).
@@ -63,7 +65,8 @@ jobs:
 
   paper:
     # Paper account only (https://paper-api.alpaca.markets is hard-coded; there is no live endpoint).
-    # Orders are sent only when the repository variable PAPER_SUBMIT is "true"; otherwise this is a dry run.
+    # Orders are sent only when the repository variable PAPER_SUBMIT is "true", and only for a spec
+    # whose latest research run passed the acceptance checklist; otherwise this is a dry run.
     if: github.event.schedule == '30 0 * * 2-6' || (github.event_name == 'workflow_dispatch' && inputs.job == 'paper')
     runs-on: ubuntu-latest
     steps:
@@ -84,12 +87,13 @@ jobs:
           else
             trades paper
           fi
-      - name: Commit the order log
+      - name: Commit the paper records
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add journal/
+          mkdir -p paper
+          git add journal/ paper/
           if git diff --cached --quiet; then
             echo "Nothing changed; no commit."
             exit 0

@@ -12,6 +12,10 @@ RUN npm run build
 # --- runtime -----------------------------------------------------------------------
 FROM python:3.12-slim
 WORKDIR /app
+# git: the paper trader stamps every order with the code version (`git rev-parse`) of the checkout it
+# runs from (mounted at /repo by the "trader" service).
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory /repo
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TRADES_HOME=/data \

@@ -7,11 +7,12 @@
 paper:
   spec: STRAT-000 # the one spec this paper account trades (one spec per Alpaca paper account)
   schedule:
-    start: "09:00" # ET. Intraday runners start before the open; the calendar skips holidays
-    moc_submit: "15:45" # ET. Market-on-close exits go out before the exchange cutoff (verify Alpaca's)
-    flatten: "15:58" # ET. Anything still open in an intraday spec is closed with a market order
+    start: "09:00" # ET. Intraday runners start before the open (deploy/systemd); holidays are skipped
+    moc_before_close_minutes: 15 # market-on-close exits replace working orders (Alpaca refuses them after 3:50pm ET)
+    flatten_before_close_minutes: 2 # anything still open is closed with a market order
   poll_seconds: 15 # how often an intraday runner looks for a completed bar
-  heartbeat_minutes: 5 # a missed heartbeat raises an alert
+  heartbeat_minutes: 5 # pings TRADES_HEARTBEAT_URL (a dead-man's switch) this often
+  backstop_after_seconds: 120 # `trades paper backstop` flattens if the heartbeat is older than this
 
 alerts:
   # Telegram needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the env file (never in the repo).

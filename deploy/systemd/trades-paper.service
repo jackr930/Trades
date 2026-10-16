@@ -1,0 +1,11 @@
+# Starts the day's intraday paper session (deploy/docker-compose.yml, service "trader").
+# The runner itself skips holidays, waits for the open and exits after the close.
+[Unit]
+Description=Trades: intraday paper session
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trades
+ExecStart=/usr/bin/docker compose -f deploy/docker-compose.yml --profile trader up -d --build trader

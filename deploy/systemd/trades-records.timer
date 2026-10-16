@@ -1,0 +1,8 @@
+[Unit]
+Description=Trades: commit the paper records after the close
+
+[Timer]
+OnCalendar=Mon..Fri 16:30 America/New_York
+
+[Install]
+WantedBy=timers.target

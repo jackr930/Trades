@@ -162,6 +162,27 @@ def test_paper_commands(scratch, broker, monkeypatch, capsys):
     assert cli_main(["resume"]) == 0 and not killswitch.is_halted(load_limits())
 
 
+def test_the_backstop_flattens_only_when_the_runner_has_stopped(scratch, broker, monkeypatch, capsys):
+    import json
+
+    import trades.data.calendar as calendar
+
+    monkeypatch.setattr(trading, "_paper_client", lambda: broker)
+    monkeypatch.setattr(calendar, "session_bounds", lambda d: (datetime.min.replace(tzinfo=timezone.utc),
+                                                               datetime.max.replace(tzinfo=timezone.utc)))
+    monkeypatch.setattr(calendar, "is_trading_day", lambda d: True)  # the market is open, whatever today is
+    broker.submit(OrderRequest("SIMTEC", "buy", 1, "manual"))
+    broker.advance(ny_time(MARKET, "11:10"))
+    beat = PaperRecords("STRAT-002-v1").folder / "heartbeat.json"
+    beat.parent.mkdir(parents=True)
+    beat.write_text(json.dumps({"time": datetime.now(timezone.utc).isoformat()}))
+    assert cli_main(["paper", "backstop", "--spec", "STRAT-002"]) == 0
+    assert "The runner is alive" in capsys.readouterr().out and broker.positions()
+    beat.write_text(json.dumps({"time": "2026-08-26T15:00:00Z"}))  # long silent
+    assert cli_main(["paper", "backstop", "--spec", "STRAT-002"]) == 0
+    assert broker.positions() == {} and "backstop" in killswitch.reason(load_limits())
+
+
 def test_track_and_gate_commands(scratch, capsys):
     assert cli_main(["track", "STRAT-002"]) == 0 and "No paper decisions yet" in capsys.readouterr().out
     assert cli_main(["gate", "STRAT-002"]) == 0 and "NOT YET" in capsys.readouterr().out
