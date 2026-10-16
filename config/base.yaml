@@ -24,4 +24,5 @@ costs:
   taf_max_per_trade: 9.79
 
 runs_dir: runs # every research run writes runs/<id>/ (summaries committed, bulky artifacts ignored)
-reports_dir: reports # daily paper reports and tracking reports
+paper_dir: paper # paper/<spec key>/: the paper trader's orders, decisions, equity, events, state and
+# daily reports, committed so the record outlives the machine it ran on

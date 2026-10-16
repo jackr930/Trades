@@ -65,8 +65,15 @@ def cmd_journal_score(args) -> int:
         else:
             print(f"ERROR: no prices to score with: {'; '.join(problems)}", file=sys.stderr)
             return 1
-    orders_path = Path(args.journal).parent / "paper_orders.csv"
-    paper = pd.read_csv(orders_path, dtype=str) if orders_path.exists() else None
+    paper = None
+    try:  # the paper account's fills, if config/paper.yaml's spec has traded
+        from trades.engine.paper import PaperRecords
+        from trades.specs import SpecError
+
+        orders_path = PaperRecords(_paper_spec(args).key).orders_path
+        paper = pd.read_csv(orders_path, dtype=str) if orders_path.exists() else None
+    except SpecError:
+        pass
     report = render_report(
         journal, bars, exp.benchmark, last_completed_session(), paper, float(exp.account["slippage_bps"])
     )
@@ -75,54 +82,204 @@ def cmd_journal_score(args) -> int:
     return 0
 
 
-def cmd_paper(args) -> int:
-    """Plan (or with --submit, send) today's orders on the Alpaca paper account."""
-    from pathlib import Path
+def _paper_spec(args):
+    """The spec named by --spec (or the command's SPEC), else config/paper.yaml's ``paper.spec``."""
+    from trades import config, specs
 
-    from trades.engine.paper import HALT_FILE, Limits, halted, run
-    from trades.execution.alpaca import PaperAPIError, PaperClient
-    from trades.journal.experiment import Experiment, code_version
-    from trades.journal.recorder import StaleData
+    ref = getattr(args, "spec", None) or config.section("paper", "paper").get("spec")
+    if not ref:
+        raise specs.SpecError("No spec to paper trade: pass --spec or set paper.spec in config/paper.yaml.")
+    return specs.find(ref)
+
+
+def _paper_client():
+    """The Alpaca *paper* account, with the keys from Settings or APCA_API_KEY_ID / APCA_API_SECRET_KEY."""
+    from trades.execution.alpaca import PaperClient
     from trades.settings import SettingsStore
 
-    store = SettingsStore()
-    if args.paper_command in ("halt", "resume"):
-        on = args.paper_command == "halt"
-        store.update({"paper_halted": on})
-        if on:
-            HALT_FILE.parent.mkdir(parents=True, exist_ok=True)
-            HALT_FILE.write_text(f"Paper trading halted: {args.reason or 'no reason given'}\n")
-            print(f"Kill switch ON. Commit {HALT_FILE} to stop the GitHub Actions job too.")
-        else:
-            HALT_FILE.unlink(missing_ok=True)
-            print(f"Kill switch OFF (and {HALT_FILE} removed; commit that to resume the Actions job).")
-        return 0
-    s = store.get()
-    exp = Experiment.load(args.experiment)
-    a = exp.account
-    limits = Limits(
-        halted=halted(s.paper_halted),
-        max_daily_loss=s.paper_max_daily_loss,
-        max_orders=s.paper_max_orders,
-        max_gross=min(1.0, float(a["max_gross_exposure"])),
-        allow_short=bool(a["allow_short"]),
-        fractional=bool(a["fractional"]),
-    )
+    return PaperClient(*SettingsStore().get().alpaca_credentials())
+
+
+def cmd_paper(args) -> int:
+    """``trades paper [run|status|flatten|drill|halt|resume]``: the paper account for one spec."""
+    action = args.paper_command or "run"
+    if action == "halt":
+        return cmd_halt(args)
+    if action == "resume":
+        return cmd_resume(args)
+    return {"run": _paper_run, "status": _paper_status, "flatten": _paper_flatten, "drill": _paper_drill}[action](args)
+
+
+def _paper_run(args) -> int:
+    from dataclasses import replace
+    from datetime import datetime
+
+    from trades.data.calendar import NY, is_trading_day
+    from trades.engine.paper import PaperRecords, PaperTarget, paper_allowed, run
+    from trades.execution.alpaca import PaperAPIError
+    from trades.journal.experiment import code_version
+    from trades.journal.recorder import StaleData
+    from trades.risk import killswitch, load_limits
+
+    spec = _paper_spec(args)
+    target = PaperTarget.from_spec(spec)
+    if args.provider:
+        target = replace(target, providers=[args.provider])
+    validated, why = paper_allowed(spec)
+    limits = load_limits()
+    records = PaperRecords(target.key)
+    print(why)
     try:
-        client = PaperClient(*s.alpaca_credentials())
-        return run(
-            exp,
-            client,
-            _journal_fetcher(),
-            limits,
-            submit=args.submit,
-            orders_path=Path(args.orders),
-            halt_check=lambda: halted(store.get().paper_halted),
+        client = _paper_client()
+        if not target.intraday:
+            return run(target, client, _journal_fetcher(), limits, records, submit=args.submit, validated=validated,
+                       halt_check=lambda: killswitch.is_halted(limits), version=code_version())
+        from trades.engine.intraday import IntradayRunner, Schedule, live_bars
+        from trades.reporting.alerts import Alerts
+
+        today = datetime.now(NY).date()
+        if not is_trading_day(today):
+            print(f"{today} is not a trading day: nothing to do.")
+            return 0
+        runner = IntradayRunner(
+            target, client, live_bars(target, args.provider), limits, records, session=today,
+            schedule=Schedule.from_config(), submit=args.submit, validated=validated,
+            halt_check=lambda: killswitch.is_halted(limits), alert=Alerts.from_config(prefix=f"[{target.key}] "),
             version=code_version(),
         )
+        return runner.run()
     except (PaperAPIError, StaleData) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+
+
+def _paper_status(args) -> int:
+    """Everything the pre-market check needs on one screen: the spec, the switches, the account, the runner."""
+    import json
+    from datetime import datetime, timezone
+
+    import pandas as pd
+
+    from trades.engine.paper import PaperRecords, PaperTarget, paper_allowed
+    from trades.execution.alpaca import PaperAPIError
+    from trades.risk import killswitch, load_limits
+
+    spec = _paper_spec(args)
+    target = PaperTarget.from_spec(spec)
+    limits = load_limits()
+    records = PaperRecords(target.key)
+    kind = "intraday" if target.intraday else "daily"
+    print(f"{spec.key}: {spec.name} ({kind}, {spec.strategy.id} on {', '.join(spec.symbols[:6])}"
+          f"{' ...' if len(spec.symbols) > 6 else ''})")
+    print(f"  Checklist: {paper_allowed(spec)[1]}")
+    halted = killswitch.is_halted(limits)
+    print(f"  Kill switch: {'ON: ' + killswitch.reason(limits).strip() if halted else 'off'}")
+    try:
+        client = _paper_client()
+        account, positions, orders = client.account(), client.positions(), client.open_orders()
+        equity, last = float(account["equity"]), float(account.get("last_equity") or account["equity"])
+        print(f"  Paper account: equity ${equity:,.2f} ({equity / last - 1:+.2%} since the last close), "
+              f"{len(positions)} position(s), {len(orders)} open order(s)")
+        for sym, pos in sorted(positions.items()):
+            print(f"    {sym}: {pos['qty']:g} shares, ${pos['market_value']:,.2f}")
+    except PaperAPIError as exc:
+        print(f"  Paper account: not reachable ({exc})")
+    beat = records.folder / "heartbeat.json"
+    if beat.exists():
+        b = json.loads(beat.read_text())
+        age = (datetime.now(timezone.utc) - pd.Timestamp(b["time"]).to_pydatetime()).total_seconds()
+        print(f"  Runner heartbeat: {b['time']} ({age:,.0f} s ago), phase {b['phase']}, last bar {b['last_bar']}")
+    decisions, fills = records.decisions(), records.read_fills()
+    print(f"  Records ({records.folder}): {len(decisions)} decisions, {len(records.read_orders())} orders, "
+          f"{len(fills)} fills, {len(records.equity())} sessions")
+    return 0
+
+
+def _paper_flatten(args) -> int:
+    from trades.engine.paper import flatten
+    from trades.execution.alpaca import PaperAPIError
+    from trades.risk import load_limits
+
+    try:
+        ok, detail = flatten(_paper_client(), load_limits(), reason=args.reason or "trades paper flatten")
+    except PaperAPIError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(detail)
+    return 0 if ok else 1
+
+
+def _paper_drill(args) -> int:
+    from trades.engine.paper import PaperRecords
+    from trades.execution.alpaca import PaperAPIError
+    from trades.reporting.alerts import Alerts
+    from trades.risk import load_limits
+    from trades.validation.gate import DRILLS, run_drill
+
+    if not args.drill:
+        print(f"Which drill? One of: {', '.join((*DRILLS, 'alert'))}", file=sys.stderr)
+        return 1
+    spec = _paper_spec(args)
+    try:
+        ok, detail = run_drill(args.drill, _paper_client, PaperRecords(spec.key), load_limits(),
+                               alerts=Alerts.from_config(prefix=f"[{spec.key}] "))
+    except PaperAPIError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"Drill {args.drill}: {'PASSED' if ok else 'FAILED'}. {detail}")
+    return 0 if ok else 1
+
+
+def cmd_track(args) -> int:
+    """``trades track``: the paper record against a replay of the same bars through the backtest engine."""
+    from trades.engine.paper import PaperRecords
+    from trades.reporting.tracking import TrackingError, render, track
+
+    spec = _paper_spec(args)
+    records = PaperRecords(spec.key)
+    try:
+        result = track(spec, records, provider=args.provider)
+    except TrackingError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    text = render(result)
+    if result.first is not None:
+        records.folder.mkdir(parents=True, exist_ok=True)
+        (records.folder / "TRACKING.md").write_text(text)
+    print(text)
+    return 0
+
+
+def cmd_gate(args) -> int:
+    """``trades gate``: the ten checks before real money; ``trades gate attest`` records what only you can confirm."""
+    from trades.cli.research import _confirm
+    from trades.engine.paper import PaperRecords
+    from trades.reporting.tracking import Tracking, TrackingError, track
+    from trades.validation import gate
+
+    spec = _paper_spec(args)
+    records = PaperRecords(spec.key)
+    if args.attest:
+        statement = gate.ATTESTATIONS.get(args.attest)
+        if statement is None:
+            print(f"ERROR: attest one of: {', '.join(gate.ATTESTATIONS)}", file=sys.stderr)
+            return 1
+        if not _confirm(f"{spec.key}: \"{statement}\"", spec.id, args.yes):
+            print("Nothing recorded.")
+            return 1
+        entry = gate.attest(records, args.attest, args.note)
+        print(f"Recorded: {entry['statement']} ({entry['by']}, {entry['on']}).")
+        return 0
+    try:
+        result = track(spec, records, provider=args.provider)
+    except TrackingError as exc:
+        result = Tracking(spec.key, notes=[str(exc)])
+    checks = gate.evaluate(spec, result, records)
+    text = gate.render(spec, checks)
+    if records.folder.exists():  # a spec with a paper record keeps its latest gate report beside it
+        (records.folder / "GATE.md").write_text(text)
+    print(text)
+    return 0
 
 
 def cmd_halt(args) -> int:
@@ -165,11 +322,29 @@ def register(sub) -> None:
         jp.set_defaults(func=func)
 
     p = sub.add_parser(
-        "paper", help="trade the experiment on an Alpaca PAPER account (dry run unless --submit; never real money)"
+        "paper",
+        help="trade a spec on an Alpaca PAPER account (dry run unless --submit; never real money)",
+        description="run (default): one nightly run for a daily spec, or the whole session for an intraday "
+        "spec. status: the pre-market check. flatten: kill switch on, cancel everything, close everything. "
+        "drill NAME: rehearse a kill switch (halt, flatten, daily-loss, revoke-key) or test the alerts (alert).",
     )
-    p.add_argument("paper_command", nargs="?", choices=("halt", "resume"), help="turn the kill switch on or off")
+    p.add_argument("paper_command", nargs="?", choices=("run", "status", "flatten", "drill", "halt", "resume"))
+    p.add_argument("drill", nargs="?", help="with drill: halt | flatten | daily-loss | revoke-key | alert")
+    p.add_argument("--spec", help="the spec to trade (default: paper.spec in config/paper.yaml)")
     p.add_argument("--submit", action="store_true", help="send the orders (default: print them only)")
-    p.add_argument("--reason", default="", help="with halt: why (written to journal/PAPER_HALTED)")
-    p.add_argument("--experiment", default="journal/experiment.json")
-    p.add_argument("--orders", default="journal/paper_orders.csv")
+    p.add_argument("--provider", help="override the spec's data provider")
+    p.add_argument("--reason", default="", help="with halt or flatten: why (written into the HALT file)")
     p.set_defaults(func=cmd_paper)
+
+    p = sub.add_parser("track", help="paper trading against a replay of the same bars: signals, fills, expectancy")
+    p.add_argument("spec", nargs="?", help="default: paper.spec in config/paper.yaml")
+    p.add_argument("--provider", help="where the replay's bars come from (default: the spec's provider)")
+    p.set_defaults(func=cmd_track)
+
+    p = sub.add_parser("gate", help="the paper-to-live gate: ten checks before real money")
+    p.add_argument("spec", nargs="?", help="default: paper.spec in config/paper.yaml")
+    p.add_argument("--attest", choices=("live_config", "broker_account"), help="record what only you can confirm")
+    p.add_argument("--note", default="", help="with --attest: anything worth writing down")
+    p.add_argument("--provider", help="where the replay's bars come from (default: the spec's provider)")
+    p.add_argument("--yes", action="store_true", help="with --attest: skip the typed confirmation")
+    p.set_defaults(func=cmd_gate)

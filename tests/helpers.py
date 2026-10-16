@@ -65,6 +65,24 @@ def synthetic_experiment(tmp_path, providers=("synthetic",)) -> Experiment:
     return Experiment.load(path)
 
 
+def synthetic_target(key: str = "TEST-v1", providers=("synthetic",)):
+    """A paper target on three synthetic symbols: a small consensus, costed at 5 bps per fill."""
+    from trades.engine.paper import PaperTarget
+    from trades.execution.sim_broker import BacktestConfig
+    from trades.strategies import StrategyConfig
+
+    members = [{"id": "tsmom"}, {"id": "faber_trend"}, {"id": "rsi2_reversion"}]
+    return PaperTarget(
+        key=key,
+        symbols=["SIMIDX", "SIMTEC", "SIMBNK"],
+        strategy=StrategyConfig("consensus", {"members": members, "pairs": [], "allow_short": False}),
+        providers=list(providers),
+        engine=BacktestConfig(slippage_bps=5.0),
+        history_start=date(2015, 1, 2),
+        benchmark="SIMIDX",
+    )
+
+
 def synthetic_fetch(end: date, calls: list | None = None):
     """A journal ``fetch`` backed by the synthetic market; every other provider is "down"."""
     provider = SyntheticProvider(seed=7, end=end)
@@ -77,3 +95,31 @@ def synthetic_fetch(end: date, calls: list | None = None):
         return {s: provider.history(s, start=start) for s in symbols}, {}
 
     return fetch
+
+
+def orb_target(entry: str = "next_open"):
+    """A paper target trading the opening range breakout on SIMTEC's 5-minute bars (STRAT-002's rules)."""
+    from trades.engine.paper import PaperTarget
+    from trades.execution.sim_broker import BacktestConfig
+    from trades.strategies import StrategyConfig
+
+    params = {"or_minutes": 5, "entry": entry, "stop_mode": "range", "target_r": 10.0, "allow_short": True}
+    return PaperTarget(
+        key=f"ORB-{entry}-v1",
+        symbols=["SIMTEC"],
+        strategy=StrategyConfig("orb", params, {"method": "stop_risk", "risk_per_trade": 0.005, "max_leverage": 1.0}),
+        providers=["synthetic"],
+        timeframe="5m",
+        intraday=True,
+        engine=BacktestConfig(half_spread_bps=2.0, slippage_bps=1.0, stop_slippage_bps=5.0, periods_per_year=252 * 78),
+    )
+
+
+def ny_time(day: date, hhmm: str, seconds: int = 20):
+    """``day`` at ``hhmm`` New York time (20 seconds past the minute: just after a bar completes)."""
+    from datetime import datetime
+
+    from trades.data.calendar import NY
+
+    h, m = map(int, hhmm.split(":"))
+    return datetime(day.year, day.month, day.day, h, m, seconds, tzinfo=NY)

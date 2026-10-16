@@ -33,6 +33,7 @@ class BacktestResult:
     positions: pd.DataFrame  # shares held at each close
     weights: pd.DataFrame  # actual weights at each close
     targets: pd.DataFrame  # target weights supplied
+    approved: pd.DataFrame  # the targets after the risk engine (what orders were placed for)
     fills: list[Fill]
     trades: list[Trade]
     ledger: Ledger
@@ -105,6 +106,7 @@ def run_backtest(
     cash = np.full(T, float(cfg.initial_cash))
     pos = np.zeros((T, N))
     act_w = np.zeros((T, N))
+    approved = W.copy()
     start = max(0, min(start, T - 1))
 
     for t in range(start, T):
@@ -132,6 +134,7 @@ def run_backtest(
                 S[t] if S is not None else None,
                 E[t] if E is not None else None,
             )
+            approved[t] = target
         # On the last bar these become the "pending" orders a live user would place for tomorrow.
         engine.decide(
             t,
@@ -148,6 +151,7 @@ def run_backtest(
         positions=pd.DataFrame(pos, index=index, columns=symbols),
         weights=pd.DataFrame(act_w, index=index, columns=symbols),
         targets=pd.DataFrame(W, index=index, columns=symbols),
+        approved=pd.DataFrame(approved, index=index, columns=symbols),
         fills=list(ledger.fills),
         trades=ledger.all_trades(),
         ledger=ledger,

@@ -56,6 +56,7 @@ from typing import Any
 import numpy as np
 
 from trades.execution.ledger import EPS, Fill, Ledger
+from trades.execution.orders import plan_symbol, round_qty
 
 COST_FIELDS = (
     "half_spread_bps",
@@ -150,13 +151,6 @@ class BacktestConfig:
         if self.max_gross_leverage is not None:
             return self
         return replace(self, max_gross_leverage=float(max_gross_leverage))
-
-
-def round_qty(qty: float, fractional: bool) -> float:
-    """Shares to order for ``qty``: whole shares toward zero unless fractional shares are allowed."""
-    if fractional:
-        return round(qty, 6)
-    return float(math.trunc(qty))  # toward zero: never oversize
 
 
 def _level(levels, j: int) -> float | None:
@@ -288,43 +282,32 @@ class ExecutionEngine:
         W = np.nan_to_num(np.asarray(targets, dtype=float))
         if not cfg.allow_short:
             W = np.clip(W, 0.0, None)
-        eq = self.equity
         for j, s in enumerate(self.symbols):
-            tw = W[j]
-            px = self.close[j]
-            cur = self.ledger.qty(s)
-            if not np.isfinite(px) or px <= 0:
+            plan = plan_symbol(
+                float(W[j]),
+                self.ledger.qty(s),
+                float(self.close[j]),
+                self.equity,
+                last_target=float(self.last_target[j]),
+                latched=self.latched.get(j),
+                entry=_level(entry_stops, j),
+                stop=_level(stop_losses, j),
+                take=_level(take_profits, j),
+                fractional=cfg.fractional,
+                min_trade_weight=cfg.min_trade_weight,
+            )
+            if plan.skip:
                 continue
-            direction = float(np.sign(tw))
-            if j in self.latched:
-                if direction == self.latched[j]:
-                    continue  # stopped out of this trade: wait for the target to change
-                del self.latched[j]
-            if abs(tw) <= 1e-12:
-                if abs(cur) > EPS:
-                    self.pending[j] = 0.0
-                self.last_target[j] = 0.0
-                continue
-            entry = _level(entry_stops, j)
-            if entry is not None and abs(cur) <= EPS:
-                qty = round_qty(tw * eq / entry, cfg.fractional)
-                if abs(qty) > EPS:
-                    self.entries[j] = (entry, qty)
+            self.latched.pop(j, None)
+            self.last_target[j] = plan.last_target
+            if plan.market is not None:
+                self.pending[j] = plan.market
+            if plan.cancel_market:
                 self.pending.pop(j, None)
-                self.last_target[j] = tw
-            else:
-                changed = abs(tw - self.last_target[j]) > 1e-9
-                flipped = cur * tw < 0
-                if changed or flipped or abs(cur) <= EPS:
-                    desired = round_qty(tw * eq / px, cfg.fractional)
-                    trade_value = abs(desired - cur) * px
-                    if abs(cur) <= EPS or flipped or trade_value >= cfg.min_trade_weight * eq:
-                        if abs(desired - cur) > EPS:
-                            self.pending[j] = desired
-                self.last_target[j] = tw
-            stop, take = _level(stop_losses, j), _level(take_profits, j)
-            if stop is not None or take is not None:
-                self.protect[j] = (stop, take)
+            if plan.entry is not None:
+                self.entries[j] = plan.entry
+            if plan.protect is not None:
+                self.protect[j] = plan.protect
         return self.orders()
 
     # -- internals -------------------------------------------------------------------

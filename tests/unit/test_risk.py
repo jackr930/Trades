@@ -33,13 +33,15 @@ def test_sessions_of_daily_and_intraday_bars():
     assert session_of(at("2026-03-10", "09:30")) == date(2026, 3, 10)
 
 
-def test_kill_switch_flattens_everything():
+def test_kill_switch_trades_nothing():
     halted = {"on": False}
     r = RiskEngine(RiskLimits(), SYMS, halt_check=lambda: halted["on"])
     w = np.array([0.2, 0.0, 0.0])
     assert r.review(at("2026-03-10"), 10_000, w, NONE, P).tolist() == [0.2, 0.0, 0.0]
     halted["on"] = True
-    assert r.review(at("2026-03-10", "15:05"), 10_000, w, w, P).tolist() == [0.0, 0.0, 0.0]
+    held = np.array([0.19, 0.0, 0.0])
+    # Neither the exit nor the new trade the strategy wants: the account keeps what it holds.
+    assert r.review(at("2026-03-10", "15:05"), 10_000, np.array([0.0, 0.1, 0.0]), held, P).tolist() == [0.19, 0.0, 0.0]
     r.review(at("2026-03-10", "15:10"), 10_000, w, w, P)
     assert [e.kind for e in r.events] == ["halt"]  # reported once per session, not every bar
 

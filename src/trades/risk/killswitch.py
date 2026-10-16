@@ -4,6 +4,9 @@ A file is the simplest switch there is. You can create it from a phone (commit i
 scheduled paper job stops), from a terminal on the trading machine (``touch HALT`` or ``trades halt``)
 or from the web app, and every component checks it before every order. Deleting it (``trades
 resume``) turns trading back on. The file name comes from ``halt_file`` in risk/limits.yaml.
+
+The switch stops new orders; it does not close positions, and leaves protective stops already at the
+broker in place. ``trades paper flatten`` closes everything (and turns the switch on).
 """
 
 from __future__ import annotations

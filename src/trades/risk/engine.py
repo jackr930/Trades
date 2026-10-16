@@ -3,7 +3,9 @@
 A strategy says what it wants to hold; the risk engine decides what it may hold. At each bar's
 close, before any order is placed, ``RiskEngine.review`` applies ``risk/limits.yaml`` in this order:
 
-1. **Kill switch.** While the HALT file exists, every target is zero: flatten, trade nothing new.
+1. **Kill switch.** While the HALT file exists, the targets are what the account already holds:
+   nothing is bought or sold. (Closing positions is a separate, deliberate act: ``trades paper
+   flatten``.)
 2. **Loss stops.** If equity has fallen more than ``daily_loss_limit`` since the session opened
    (the previous session's closing equity), flatten and accept no new trades until the next
    session; likewise ``weekly_loss_limit`` since the week opened, until next week.
@@ -104,6 +106,32 @@ class RiskEngine:
     def note_fills(self, n: int) -> None:
         self.fills_today += n
 
+    # -- persistence (the paper runners stop and start; the limits must not forget) ----------
+    def state(self) -> dict[str, Any]:
+        """What a paper runner saves between runs; ``restore`` reads it back."""
+        return {
+            "session": self.session.isoformat() if self.session else None,
+            "week": list(self.week) if self.week else None,
+            "week_open_equity": self.week_open_equity if math.isfinite(self.week_open_equity) else None,
+            "blocked_until": self.blocked_until,
+            "fills_today": self.fills_today,
+            "approved": {self.symbols[j]: float(w) for j, w in self.approved.items()},
+        }
+
+    def restore(self, saved: dict[str, Any], opening_equity: float) -> None:
+        """Pick up where a saved run stopped. ``opening_equity``: the account's equity at the last
+        close (Alpaca's ``last_equity``), which opens the current session."""
+        self._last_equity = float(opening_equity)
+        if saved.get("week"):
+            self.week = tuple(saved["week"])  # type: ignore[assignment]
+            self.week_open_equity = float(saved.get("week_open_equity") or opening_equity)
+        if saved.get("session"):
+            self.session = date.fromisoformat(saved["session"])
+            self.session_open_equity = float(opening_equity)
+            self.fills_today = int(saved.get("fills_today") or 0)
+        self.blocked_until = saved.get("blocked_until")
+        self.approved = {self.symbols.index(s): float(w) for s, w in (saved.get("approved") or {}).items() if s in self.symbols}
+
     # -- the checks -------------------------------------------------------------------
     def review(
         self,
@@ -124,10 +152,10 @@ class RiskEngine:
         self._roll(time, equity)
         self._last_equity = equity
 
-        # 1. Kill switch.
+        # 1. Kill switch: hold what is held, trade nothing.
         if self.halt_check is not None and self.halt_check():
-            self._event(time, "halt", "The kill switch (HALT file) is on: flatten and trade nothing.", once_per_session=True)
-            return self._flat(W)
+            self._event(time, "halt", "The kill switch (HALT file) is on: nothing is traded.", once_per_session=True)
+            return held.copy()
         # 2. Loss stops.
         if equity <= 0:
             return self._flat(W)

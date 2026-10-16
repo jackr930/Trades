@@ -27,6 +27,7 @@ web/playwright-report/
 /data/
 /runs/*/artifacts/
 /state/
+/paper/*/heartbeat.json
 
 # Editors / OS
 .vscode/

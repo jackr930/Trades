@@ -105,6 +105,11 @@ def section(mode: str, name: str) -> dict[str, Any]:
     return dict(value)
 
 
+def value(mode: str, name: str, default: Any = None) -> Any:
+    """One top-level setting of a mode's merged configuration, e.g. ``value("paper", "paper_dir")``."""
+    return _cached(mode, str(repo_root())).get(name, default)
+
+
 def strict(cls_name: str, data: dict[str, Any], known: set[str]) -> dict[str, Any]:
     """Reject keys a dataclass does not know: a misspelt risk limit must fail loudly, not be ignored."""
     unknown = sorted(set(data) - known)
