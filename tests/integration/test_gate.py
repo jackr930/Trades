@@ -197,3 +197,27 @@ def test_track_and_gate_commands(scratch, capsys):
 def test_drills_never_touch_the_real_repository():
     assert not (REPO / "HALT").exists()
     assert RiskLimits().halt_file == "HALT"
+
+
+def test_the_pipeline_in_the_app(scratch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from trades.api import create_app
+
+    app = create_app(tmp_path / "home" / "settings.json", start_live=False, web_dist=tmp_path / "no-dist")
+    with TestClient(app) as client:
+        overview = client.get("/api/pipeline").json()
+        by_key = {s["key"]: s for s in overview["specs"]}
+        assert {"STRAT-000-v1", "STRAT-002-v1"} <= set(by_key) and overview["kill_switch"] == {"on": False, "reason": ""}
+        assert by_key["STRAT-000-v1"]["paper_target"] and not by_key["STRAT-002-v1"]["paper_target"]
+        assert by_key["STRAT-002-v1"]["latest_run"] is None and by_key["STRAT-002-v1"]["paper"] == {"started": False}
+        detail = client.get("/api/pipeline/specs/STRAT-002").json()
+        assert detail["spec"]["key"] == "STRAT-002-v1" and detail["runs"] == [] and "Hypothesis" in detail["body"]
+        assert client.get("/api/pipeline/specs/STRAT-999").status_code == 404
+        assert client.get("/api/pipeline/paper/STRAT-002").json()["equity"] == []
+        # The kill switch, from the app.
+        on = client.post("/api/killswitch", json={"on": True, "reason": "checking the data feed"}).json()
+        assert on["on"] and "checking the data feed" in on["reason"] and killswitch.is_halted(load_limits())
+        assert client.post("/api/killswitch", json={"on": False}).json() == {"on": False, "reason": ""}
+        gate_now = client.post("/api/pipeline/gate/STRAT-002").json()
+        assert gate_now["verdict"] == "not_yet" and len(gate_now["checks"]) == 10

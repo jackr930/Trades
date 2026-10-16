@@ -436,6 +436,11 @@ p {
   border-color: var(--down);
   color: #fff;
 }
+.btn.danger {
+  background: var(--down);
+  border-color: var(--down);
+  color: #fff;
+}
 .btn.ghost {
   border-color: transparent;
   background: transparent;
@@ -1489,4 +1494,72 @@ table.leaderboard tbody tr.selected {
   .hero {
     font-size: 40px;
   }
+}
+
+/* ---- the pipeline ------------------------------------------------------------------- */
+.stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.stage {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+.stage-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.spec-card {
+  gap: 8px;
+}
+.stage-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stage-pip {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.stage-pip.done {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.stage-pip.now {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.checklist {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+.code-block {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
 }

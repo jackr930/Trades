@@ -3,12 +3,14 @@ import { AppProvider, useApp, useRoute, type Route } from "./state";
 import { Disclaimer, ErrorBox, Spinner } from "./components/ui";
 import { applyTheme, loadTheme, type ThemeChoice } from "./theme";
 import LiveDesk from "./views/LiveDesk";
+import Pipeline from "./views/Pipeline";
 import StrategyLab from "./views/StrategyLab";
 import Simulator from "./views/Simulator";
 import Library from "./views/Library";
 import SettingsView from "./views/Settings";
 
 const NAV: [string, string][] = [
+  ["/pipeline", "Pipeline"],
   ["/live", "Live Desk"],
   ["/lab", "Strategy Lab"],
   ["/sim", "Simulator"],
@@ -65,13 +67,16 @@ function Shell({ route }: { route: Route }) {
     case "/settings":
       view = <SettingsView />;
       break;
-    default:
+    case "/live":
       view = <LiveDesk />;
+      break;
+    default:
+      view = <Pipeline route={route} />;
   }
   return (
     <div className="app">
       <header className="topbar">
-        <a className="brand" href="#/live" style={{ color: "inherit", textDecoration: "none" }}>
+        <a className="brand" href="#/pipeline" style={{ color: "inherit", textDecoration: "none" }}>
           <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
             <rect width="32" height="32" rx="7" fill="var(--accent)" />
             <path d="M6 21l6-6 5 4 9-10" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -80,7 +85,7 @@ function Shell({ route }: { route: Route }) {
         </a>
         <nav className="nav" aria-label="Main">
           {NAV.map(([path, label]) => (
-            <a key={path} href={`#${path}`} aria-current={route.path === path || (path === "/live" && route.path === "/") ? "page" : undefined}>
+            <a key={path} href={`#${path}`} aria-current={route.path === path || (path === "/pipeline" && route.path === "/") ? "page" : undefined}>
               {label}
             </a>
           ))}

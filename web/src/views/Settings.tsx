@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useApp } from "../state";
 import type { Meta, Settings } from "../types";
 import { ErrorBox, EvidenceBadge, Help, StatusDot } from "../components/ui";
+import { KillSwitchControl } from "../components/KillSwitch";
 import { applyCandles, applyTheme, loadCandles, loadTheme, type CandleChoice, type ThemeChoice } from "../theme";
 
 export default function SettingsView() {
@@ -392,41 +393,19 @@ export default function SettingsView() {
           <dt>API key</dt>
           <dd>{draft.has_alpaca_credentials ? "Uses your Alpaca key above" : "Add an Alpaca paper key under Market data source"}</dd>
         </dl>
-        <div className="form-grid" style={{ marginTop: 12 }}>
-          <label className="field">
-            <span>
-              Max daily loss (%) <Help text="No new orders if the paper account fell more than this since the prior close." />
-            </span>
-            <input className="input num" type="number" step={0.5} {...num("paper_max_daily_loss", 100)} />
-          </label>
-          <label className="field">
-            <span>Max orders per run</span>
-            <input className="input num" type="number" step={1} min={1} {...num("paper_max_orders")} />
-          </label>
-        </div>
-        <label className="check" style={{ marginTop: 10 }}>
-          <input type="checkbox" checked={draft.paper_halted} onChange={(e) => setDraft({ ...draft, paper_halted: e.target.checked })} />
-          Kill switch: send no paper orders
-        </label>
+        <h3 className="section-title" style={{ marginTop: 14 }}>
+          Kill switch
+        </h3>
+        <KillSwitchControl />
+        <h3 className="section-title" style={{ marginTop: 14 }}>
+          Risk limits <Help text="Every target passes through these before any order, in backtests and in paper trading alike." />
+        </h3>
+        <RiskLimitsTable />
         <p className="small muted" style={{ marginTop: 8 }}>
-          Orders are planned and sent from the command line: <code>trades paper</code> prints them, <code>trades paper --submit</code>{" "}
-          sends them, <code>trades paper halt</code> turns the kill switch on (and writes <code>journal/PAPER_HALTED</code>, which
-          stops the GitHub Actions job once committed). Set your Alpaca paper balance to the amount you would really trade.
+          The limits live in <code>risk/limits.yaml</code>, which only you edit (Claude Code is blocked from it). Paper orders are sent
+          from the command line or a scheduled job: <code>trades paper</code> prints the plan, <code>trades paper --submit</code> sends
+          it for a spec that passed the acceptance checklist. The Pipeline page shows each spec&apos;s progress.
         </p>
-        <div className="row" style={{ marginTop: 12 }}>
-          <button
-            className="btn primary"
-            onClick={() =>
-              void save({
-                paper_halted: draft.paper_halted,
-                paper_max_daily_loss: draft.paper_max_daily_loss,
-                paper_max_orders: draft.paper_max_orders,
-              })
-            }
-          >
-            Save paper trading
-          </button>
-        </div>
       </div>
 
       {meta.auth_enabled ? (
@@ -494,5 +473,47 @@ export default function SettingsView() {
         </div>
       </div>
     </div>
+  );
+}
+
+const LIMIT_LABELS: [string, string, "pct" | "x" | "int" | "bool" | "list"][] = [
+  ["max_risk_per_trade", "Risk per trade (loss if the stop is hit)", "pct"],
+  ["daily_loss_limit", "Daily loss limit: flatten, no new trades today", "pct"],
+  ["weekly_loss_limit", "Weekly loss limit: flatten, no new trades this week", "pct"],
+  ["max_position_pct", "Largest single position", "pct"],
+  ["max_gross_exposure", "Gross exposure cap", "x"],
+  ["max_open_positions", "Open positions at most", "int"],
+  ["max_orders_per_day", "Fills per day before exits only", "int"],
+  ["allow_short", "Short selling", "bool"],
+  ["allowed_symbols", "Allowed symbols", "list"],
+  ["blocked_symbols", "Blocked symbols", "list"],
+];
+
+function RiskLimitsTable() {
+  const [limits, setLimits] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.riskLimits().then((r) => setLimits(r.limits), (e: Error) => setError(e.message));
+  }, []);
+  if (error) return <ErrorBox error={error} />;
+  if (!limits) return null;
+  const show = (v: unknown, kind: string) => {
+    if (kind === "pct") return `${(Number(v) * 100).toFixed(2).replace(/\.?0+$/, "")}% of equity`;
+    if (kind === "x") return `${Number(v)}x equity`;
+    if (kind === "bool") return v ? "allowed" : "off";
+    if (kind === "list") return Array.isArray(v) && v.length ? v.join(", ") : "any in the spec's universe";
+    return String(v);
+  };
+  return (
+    <dl className="kv">
+      {LIMIT_LABELS.filter(([k, , kind]) => k in limits && (kind !== "list" || k === "allowed_symbols" || (limits[k] as unknown[]).length)).map(
+        ([k, label, kind]) => (
+          <div key={k} style={{ display: "contents" }}>
+            <dt>{label}</dt>
+            <dd>{show(limits[k], kind)}</dd>
+          </div>
+        ),
+      )}
+    </dl>
   );
 }

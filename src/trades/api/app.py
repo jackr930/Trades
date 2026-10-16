@@ -101,12 +101,13 @@ def create_app(
     async def _data_error(_: Request, exc: DataError):
         return JSONResponse({"detail": str(exc), "code": "data_error"}, status_code=502)
 
-    from trades.api import simulator_routes  # noqa: PLC0415
+    from trades.api import pipeline_routes, simulator_routes  # noqa: PLC0415
     from trades.api.routes import router, ws_router  # noqa: PLC0415
 
     app.include_router(make_router(auth))
     app.include_router(router, prefix="/api")
     app.include_router(simulator_routes.router, prefix="/api")
+    app.include_router(pipeline_routes.router, prefix="/api")
     app.include_router(ws_router)
     app.include_router(simulator_routes.ws_router)
 

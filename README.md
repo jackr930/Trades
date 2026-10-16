@@ -328,53 +328,37 @@ trades journal score      # rewrites journal/REPORT.md
 
 ## Paper trading (Alpaca paper account only)
 
-`trades paper` trades the journal's experiment (by default the Live Desk consensus) on an
-[Alpaca](https://alpaca.markets) **paper** account, so the forward test includes real order handling: queued
-orders, fills, partial fills and slippage. It talks only to `https://paper-api.alpaca.markets`. That address is
-hard-coded, every request is checked against it, redirects are not followed, and there is no setting, flag or code
-path for Alpaca's live endpoint. **Moving to real money is out of scope for this app.**
+`trades paper` trades one spec on an [Alpaca](https://alpaca.markets) **paper** account through the same code
+path as its backtest: the strategy, sizing and risk engine decide, and the backtest's own rule turns targets into
+orders. It talks only to `https://paper-api.alpaca.markets`. That address is hard-coded, every request is checked
+against it, redirects are not followed, and there is no setting, flag or code path for Alpaca's live endpoint.
 
-**Before you start, reset your Alpaca paper account's balance to the amount you would really trade** (in Alpaca's
-dashboard), so that position sizes, whole-share rounding and the costs per trade look like yours. It uses the same
-Alpaca key as the data provider (Settings, or `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`); generate it from the
-*paper* account.
-
-Each run, in the evening after the close:
-
-1. **Reconciles** earlier orders: their status and Alpaca's fill price, next to the price the backtest engine would
-   have assumed (that session's open moved against you by the slippage setting, 5 bps by default).
-2. **Computes target weights** from completed bars, exactly as a backtest does.
-3. **Reads the paper account's actual positions and equity** from Alpaca (it never assumes earlier orders filled)
-   and orders the difference, rounded to whole shares unless the experiment's account allows fractional shares,
-   skipping re-sizing trades under 0.5% of equity as the backtest engine does.
-4. **Matches the engine's next-open fill.** Whole-share orders go to the opening auction (`time_in_force` "opg").
-   Alpaca does not accept fractional quantities in the auction, so those go as day market orders queued for the
-   open. Alpaca accepts auction orders before 9:28am ET or after 7:00pm ET, so orders are only sent in that window
-   (the GitHub job runs at 00:30 UTC, which is 8:30pm EDT / 7:30pm EST). Alpaca allows no fractional short sales,
-   so shorts are whole shares, and a position is closed before it flips. Note that Alpaca's *paper* account fills
-   auction orders like ordinary market orders, so its "slippage" is only a rough check.
-5. **Checks the guardrails before sending anything**: a kill switch (Settings, or `trades paper halt`; checked
-   again before each order), a maximum daily loss (no orders if the paper equity fell more than 3% since the prior
-   close; configurable), long-only unless the experiment allows shorting, gross exposure at most 100%, only the
-   experiment's watchlist, a maximum number of orders per run (20), and no earlier orders still open. If any check
-   fails, nothing is sent.
+- **Which spec:** `paper.spec` in `config/paper.yaml` (or `--spec`). Orders go out (`--submit`) only for a spec whose
+  latest research run passed the 14-point acceptance checklist. Dry runs always work, and send or record nothing.
+- **Daily specs** run once each evening (the Journal workflow's `paper` job, or cron) and send opening-auction orders
+  for the next session. **Intraday specs** run through the session on a machine that stays up: entries carry their
+  protective stop and take-profit as a bracket at the broker, positions leave in the closing auction, and a heartbeat
+  and alerts watch the runner (see [deploy/README.md](deploy/README.md)).
+- **Limits** come from `risk/limits.yaml` (risk per trade, daily and weekly loss stops, exposure, positions, orders a
+  day). The risk engine applies them to every decision, and the orders are checked again before they leave.
+- **Records** go to `paper/<spec key>/`: orders, Alpaca's own fills (protective legs included), every decision,
+  equity per session, events and daily reports.
 
 ```bash
-trades paper              # dry run (the default): prints the orders
-trades paper --submit     # sends them to the paper account
-trades paper halt --reason "taking a break"     # kill switch on; also writes journal/PAPER_HALTED
-trades paper resume       # kill switch off
+trades paper status            # the pre-market check: kill switch, account, positions, runner heartbeat
+trades paper                   # dry run: prints the plan
+trades paper --submit          # sends it (for a spec that passed the checklist)
+trades halt --reason "..."     # kill switch on: nothing new is sent (a file named HALT; commit it to stop the GitHub job)
+trades resume                  # kill switch off
+trades paper flatten           # cancel everything, close everything, and turn the kill switch on
+trades track                   # paper against a replay of the same bars: signals, fills, expectancy, daily P&L
+trades gate                    # the ten checks before real money
 ```
 
-Every order's `client_order_id` is built from the session date, symbol and experiment id, so a rerun finds the
-order it already sent and never orders twice. Sent orders are logged to `journal/paper_orders.csv` with the
-engine's assumed price and, once known, Alpaca's fill; `trades journal score` adds the real slippage in basis
-points (against the assumed 5) to `journal/REPORT.md`.
-
-The journal workflow has a second job, `paper`, that runs at 00:30 UTC on weekday evenings. It sends orders only
-when the repository *variable* `PAPER_SUBMIT` is `true` (Settings -> Secrets and variables -> Actions ->
-Variables); otherwise it is a dry run. The Alpaca keys go in the `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`
-*secrets*. To stop it, run `trades paper halt` and commit `journal/PAPER_HALTED` (or create that file on GitHub).
+Every order's `client_order_id` is built from the session, symbol and spec, so a rerun never orders twice. The
+GitHub job sends orders only when the repository *variable* `PAPER_SUBMIT` is `true`; the Alpaca keys go in the
+`APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` *secrets*. **Real money is out of scope for this app:** passing the
+gate is evidence, not a switch.
 
 ## Architecture
 
@@ -384,9 +368,10 @@ src/trades/
   features/    pure functions of past prices: indicators, time-series statistics (ADF, cointegration)
   strategies/  signals and position sizing; the strategy library and registry
   execution/   how targets become fills: the simulated broker, the ledger, the Alpaca paper API client
-  engine/      the loop: backtests, and the daily paper trader
-  validation/  is the edge real? Sharpe statistics (PSR/DSR), grid search, walk-forward
-  reporting/   performance metrics, after-tax results, JSON for the web UI
+  risk/        the risk engine (limits from risk/limits.yaml, applied to every decision) and the kill switch
+  engine/      backtests, one live decision, and the daily and intraday paper runners
+  validation/  is the edge real? the 14-point checklist, research runs, DSR, PBO, walk-forward, the gate
+  reporting/   performance metrics, after-tax results, tracking (paper vs replay), alerts, JSON for the web UI
   recommend/   the Live Desk: recommendations with evidence and sizing, and the live quote service
   journal/     forward journal: record recommendations after the close, score them later
   simulator/   strategy races on a steerable simulated market, practice trading and its scorecard

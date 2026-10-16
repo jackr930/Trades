@@ -7,7 +7,7 @@ so a refactor that is meant to move code without changing behaviour can prove it
 
 When a change *should* alter results, regenerate the snapshot on purpose and review the diff:
 
-    TRADES_REGEN_GOLDEN=1 pytest tests/test_golden.py
+    TRADES_REGEN_GOLDEN=1 pytest tests/integration/test_golden.py
 """
 
 from __future__ import annotations

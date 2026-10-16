@@ -126,6 +126,11 @@ export default function StrategyLab({ route }: { route: Route }) {
     const s = byId.get(id);
     if (!s) return;
     setStrategyId(id);
+    if (s.family === "intraday" && timeframe === "1d") {
+      // Intraday rules decide within the session: they need intraday bars.
+      const offered = meta.providers.find((p) => p.id === provider)?.timeframes ?? [];
+      setTimeframe(offered.includes("5m") ? "5m" : offered.find((t) => t !== "1d") ?? "5m");
+    }
     setParams(defaultParams(s, provider, settings));
     setSizing(baseSizing(s));
     setSymbols(defaultSymbols(s, provider, settings));
@@ -244,8 +249,9 @@ export default function StrategyLab({ route }: { route: Route }) {
               {meta.timeframes
                 .filter((t) => provInfo?.timeframes.includes(t.value) ?? true)
                 .map((t) => (
-                  <option key={t.value} value={t.value}>
+                  <option key={t.value} value={t.value} disabled={strategy.family === "intraday" && t.value === "1d"}>
                     {t.label}
+                    {strategy.family === "intraday" && t.value === "1d" ? " (intraday rules need intraday bars)" : ""}
                   </option>
                 ))}
             </select>

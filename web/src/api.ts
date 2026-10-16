@@ -7,14 +7,19 @@ import type {
   ArenaSummary,
   BacktestResult,
   ChartResponse,
+  GateResult,
+  KillSwitch,
   LiveSnapshot,
   Meta,
   OptimizeResult,
+  PaperDetail,
+  PipelineOverview,
   Recommendation,
   Settings,
   SimHistoryRow,
   SimOrder,
   SimState,
+  SpecDetail,
 } from "./types";
 
 export class ApiError extends Error {
@@ -119,6 +124,13 @@ export const api = {
   /** Password-protected servers only: end this browser's login. */
   logout: () => fetch("/api/logout", { method: "POST" }).then(() => undefined),
   meta: () => request<Meta>("/api/meta"),
+  pipeline: () => request<PipelineOverview>("/api/pipeline"),
+  spec: (ref: string) => request<SpecDetail>(`/api/pipeline/specs/${encodeURIComponent(ref)}`),
+  paper: (ref: string) => request<PaperDetail>(`/api/pipeline/paper/${encodeURIComponent(ref)}`),
+  gate: (ref: string) => post<GateResult>(`/api/pipeline/gate/${encodeURIComponent(ref)}`),
+  killSwitch: () => request<KillSwitch>("/api/killswitch"),
+  setKillSwitch: (on: boolean, reason = "") => post<KillSwitch>("/api/killswitch", { on, reason }),
+  riskLimits: () => request<{ limits: Record<string, number | boolean | string | string[]>; file: string }>("/api/risk/limits"),
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (patch: Partial<Settings> | Record<string, unknown>) =>
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),

@@ -12,12 +12,18 @@ function shortCite(authors: string): string {
 
 const EVIDENCE_ORDER = { strong: 0, moderate: 1, practitioner: 2, experimental: 3, benchmark: 4 } as const;
 
-type Family = "all" | "modern" | "classic";
+type Family = "all" | "modern" | "classic" | "intraday";
 const FAMILIES: [Family, string][] = [
   ["all", "All"],
   ["modern", "Modern quant methods"],
   ["classic", "Classic published rules"],
+  ["intraday", "Intraday rules"],
 ];
+const FAMILY_TITLE: Record<Exclude<Family, "all">, string> = {
+  modern: "Modern quant methods",
+  classic: "Classic published rules",
+  intraday: "Intraday rules",
+};
 
 export default function Library({ route }: { route: Route }) {
   const { meta, navigate } = useApp() as { meta: Meta; navigate: (p: string, q?: Record<string, string>) => void };
@@ -81,6 +87,12 @@ export default function Library({ route }: { route: Route }) {
               that flexibility makes them easier to overfit. Each one names the classic rule it refines: race the two in the simulator and
               see whether the extra machinery pays for itself.
             </div>
+          ) : family === "intraday" ? (
+            <div className="callout info" style={{ maxWidth: "90ch" }}>
+              Rules that trade within the session on 1- to 30-minute bars and are flat by the close: the opening range breakout and
+              intraday momentum. Costs decide them: a spread of a few basis points, paid twice a day, can turn a gross edge into a net
+              loss. Test them in the Lab on intraday bars, and read their evidence first: much of it comes from working papers.
+            </div>
           ) : null}
           <div className="row small secondary">
             <span className="legend-item">
@@ -96,9 +108,9 @@ export default function Library({ route }: { route: Route }) {
               <span className="badge ev-experimental">Experimental</span> promising, too new or too flexible to rate
             </span>
           </div>
-          {(family === "all" ? (["modern", "classic"] as const) : [family]).map((f) => (
+          {(family === "all" ? (["modern", "classic", "intraday"] as const) : [family]).map((f) => (
             <section key={f} className="stack" style={{ gap: 10 }}>
-              {family === "all" ? <h2>{f === "modern" ? "Modern quant methods" : "Classic published rules"}</h2> : null}
+              {family === "all" ? <h2>{FAMILY_TITLE[f]}</h2> : null}
               <div className="lib-grid">
                 {shown
                   .filter((s) => s.family === f)
@@ -162,7 +174,7 @@ function StrategyDetail({ s, counterpart, onBack, onTry, onRace, onOpen }: {
         <div className="card-header">
           <div>
             <div className="small muted">
-              {s.family === "modern" ? "Modern quant method · " : ""}
+              {s.family === "modern" ? "Modern quant method · " : s.family === "intraday" ? "Intraday rule · " : ""}
               {s.category}
             </div>
             <h1>{s.name}</h1>
