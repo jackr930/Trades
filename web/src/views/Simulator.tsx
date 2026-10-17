@@ -18,6 +18,7 @@ import {
 } from "../components/ui";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 import { useChartColors } from "../theme";
+import "../styles/simulator.css";
 
 export default function Simulator({ route }: { route: Route }) {
   const { navigate } = useApp();

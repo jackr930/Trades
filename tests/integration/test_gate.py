@@ -221,3 +221,11 @@ def test_the_pipeline_in_the_app(scratch, tmp_path):
         assert client.post("/api/killswitch", json={"on": False}).json() == {"on": False, "reason": ""}
         gate_now = client.post("/api/pipeline/gate/STRAT-002").json()
         assert gate_now["verdict"] == "not_yet" and len(gate_now["checks"]) == 10
+        # The top bar's clock and the alert feed.
+        assert client.get("/api/clock").json()["phase"] in ("regular", "pre", "post", "closed")
+        records = PaperRecords("STRAT-002-v1")
+        records.log_event(datetime.now(timezone.utc), "error", "the feed stopped")
+        records.log_event(datetime.now(timezone.utc), "close", "market-on-close sent")
+        feed = client.get("/api/alerts").json()
+        assert [a["severity"] for a in feed["alerts"][:2]] in (["info", "crit"], ["crit", "info"])
+        assert feed["counts_24h"] == {"crit": 1, "warn": 0, "info": 1} and feed["alerts"][0]["spec"] == "STRAT-002-v1"

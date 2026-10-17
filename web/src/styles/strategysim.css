@@ -1,0 +1,138 @@
+/* strategysim.css: styles for this view only, prefixed ss-. Shared tokens and components live in ../styles.css;
+   the design language is docs/DESIGN.md. */
+
+.strategy-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.pick {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface-1);
+}
+
+.pick[data-checked="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pick-name {
+  font-weight: 600;
+}
+
+.subcard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--surface-2);
+}
+
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+
+.regimes .regime-up {
+  background: var(--up-wash);
+}
+
+.regimes .regime-down {
+  background: var(--down-wash);
+}
+
+.regimes .regime-flat {
+  background: var(--surface-3);
+}
+
+.swatch-line {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex: none;
+}
+
+table.leaderboard tbody tr {
+  cursor: pointer;
+}
+
+table.leaderboard tbody tr:hover {
+  background: var(--surface-2);
+}
+
+table.leaderboard tbody tr.selected {
+  background: var(--surface-3);
+}
+
+.lb-name {
+  font-weight: 600;
+}
+
+.lb-pos {
+  display: block;
+  margin-left: 20px;
+}
+
+.symbol-tabs {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.inject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.btn.inject {
+  height: auto;
+  min-height: 44px;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 10px;
+}
+
+.btn.inject.danger {
+  border-color: var(--down);
+}
+
+.ev-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.ev-body {
+  margin-top: 2px;
+}
+
+.ev-why {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}

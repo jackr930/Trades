@@ -5,6 +5,7 @@ import type { Meta, Settings } from "../types";
 import { ErrorBox, EvidenceBadge, Help, StatusDot } from "../components/ui";
 import { KillSwitchControl } from "../components/KillSwitch";
 import { applyCandles, applyTheme, loadCandles, loadTheme, type CandleChoice, type ThemeChoice } from "../theme";
+import "../styles/settings.css";
 
 export default function SettingsView() {
   const { meta, settings, saveSettings, refreshMeta, toast } = useApp() as {

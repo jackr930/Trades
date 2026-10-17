@@ -153,6 +153,41 @@ async def gate_check(ref: str):
     return sanitize(out)
 
 
+# How loud each kind of paper event is, for the alert feed (every kind not listed is INFO).
+SEVERITY = {
+    "error": "crit", "halt": "crit", "daily_loss": "crit", "weekly_loss": "crit",
+    "rejection": "warn", "data_gap": "warn", "orders": "warn", "positions": "warn",
+}
+
+
+@router.get("/alerts")
+async def alerts(limit: int = 50):
+    """The newest events from every paper record, graded CRIT / WARN / INFO, and counts for the last 24h."""
+    from datetime import datetime, timedelta, timezone
+
+    import pandas as pd
+
+    folder = config.path(str(config.value("paper", "paper_dir", "paper")))
+    events: list[dict[str, Any]] = []
+    if folder.exists():
+        for spec_dir in sorted(p for p in folder.iterdir() if p.is_dir()):
+            for e in PaperRecords(spec_dir.name, root=folder).events()[-200:]:
+                events.append({**e, "spec": spec_dir.name, "severity": SEVERITY.get(e.get("kind", ""), "info")})
+    events.sort(key=lambda e: e.get("time", ""), reverse=True)
+    since = pd.Timestamp(datetime.now(timezone.utc) - timedelta(hours=24))
+    recent = [e for e in events if e.get("time") and pd.Timestamp(e["time"]) >= since]
+    counts = {k: sum(1 for e in recent if e["severity"] == k) for k in ("crit", "warn", "info")}
+    return sanitize({"alerts": events[: max(1, min(limit, 500))], "counts_24h": counts})
+
+
+@router.get("/clock")
+async def clock():
+    """The market's state now (NYSE calendar, New York time): for the clock in the app's top bar."""
+    from trades.data.calendar import market_status
+
+    return market_status().to_dict()
+
+
 @router.get("/risk/limits")
 async def risk_limits():
     """risk/limits.yaml as the risk engine reads it (read-only here: the file is Jack's to edit)."""

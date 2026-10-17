@@ -16,6 +16,7 @@ import {
 } from "../components/ui";
 import { dirClass, fmtCompact, fmtDate, fmtMoney, fmtNum, fmtPct, fmtPrice, isNum } from "../format";
 import { useChartColors } from "../theme";
+import "../styles/livedesk.css";
 
 type WsState = "connecting" | "open" | "closed";
 

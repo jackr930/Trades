@@ -1,0 +1,123 @@
+/* simulator.css: styles for this view only, prefixed sim-. Shared tokens and components live in ../styles.css;
+   the design language is docs/DESIGN.md. */
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.option-card {
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option-card:hover {
+  background: var(--surface-2);
+}
+
+.option-card[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.option-card .title {
+  font-weight: 600;
+}
+
+.option-card .desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+  min-width: 120px;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+.diag {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.diag .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diag .head .title {
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.diag .lesson {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.diag .ref {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.hero {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.regimes {
+  display: flex;
+  height: 26px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.regimes div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-primary);
+  background: var(--surface-3);
+  min-width: 2px;
+}
+
+.kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--text-secondary);
+}

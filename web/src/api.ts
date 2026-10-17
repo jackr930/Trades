@@ -1,4 +1,5 @@
 import type {
+  AlertFeed,
   ArenaAgentDetail,
   ArenaEvent,
   ArenaOptions,
@@ -10,6 +11,7 @@ import type {
   GateResult,
   KillSwitch,
   LiveSnapshot,
+  MarketClock,
   Meta,
   OptimizeResult,
   PaperDetail,
@@ -129,6 +131,8 @@ export const api = {
   paper: (ref: string) => request<PaperDetail>(`/api/pipeline/paper/${encodeURIComponent(ref)}`),
   gate: (ref: string) => post<GateResult>(`/api/pipeline/gate/${encodeURIComponent(ref)}`),
   killSwitch: () => request<KillSwitch>("/api/killswitch"),
+  clock: () => request<MarketClock>("/api/clock"),
+  alerts: (limit = 50) => request<AlertFeed>(`/api/alerts?limit=${limit}`),
   setKillSwitch: (on: boolean, reason = "") => post<KillSwitch>("/api/killswitch", { on, reason }),
   riskLimits: () => request<{ limits: Record<string, number | boolean | string | string[]>; file: string }>("/api/risk/limits"),
   settings: () => request<Settings>("/api/settings"),

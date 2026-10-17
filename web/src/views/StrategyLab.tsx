@@ -33,6 +33,7 @@ import {
 } from "../components/ui";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, isNum } from "../format";
 import { useChartColors } from "../theme";
+import "../styles/lab.css";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const REAL_SECTORS = ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"];

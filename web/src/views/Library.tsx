@@ -3,6 +3,7 @@ import { useApp, type Route } from "../state";
 import type { Meta, StrategyMeta } from "../types";
 import { EvidenceBadge, ReferenceList, Tabs } from "../components/ui";
 import { CONCEPTS } from "../concepts";
+import "../styles/library.css";
 
 function shortCite(authors: string): string {
   const first = authors.split(",")[0].trim();

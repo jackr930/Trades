@@ -1,0 +1,15 @@
+/* library.css: styles for this view only, prefixed lib-. Shared tokens and components live in ../styles.css;
+   the design language is docs/DESIGN.md. */
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}

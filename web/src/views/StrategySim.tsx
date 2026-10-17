@@ -22,6 +22,8 @@ import LineChart, { type LineSpec } from "../components/LineChart";
 import { ErrorBox, EvidenceBadge, Help, ParamForm, Spinner, StatTile, SymbolInput, Tabs, VoteGlyph, Warnings } from "../components/ui";
 import { fmtDate, fmtDateTime, fmtMoney, fmtNum, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 import { useChartColors, type ChartColors } from "../theme";
+import "../styles/simulator.css";
+import "../styles/strategysim.css";
 
 type Source = "simulated" | "replay" | "realtime";
 

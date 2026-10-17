@@ -879,3 +879,28 @@ export interface GateResult {
   checks: GateCheck[];
   verdict: "pass" | "not_yet" | "fail";
 }
+
+// ---- the shell: market clock and alerts -----------------------------------------------------
+
+export interface MarketClock {
+  is_open: boolean;
+  phase: "regular" | "pre" | "post" | "closed";
+  now: string;
+  session_date: string;
+  next_open: string;
+  next_close: string;
+}
+
+export interface AlertEvent {
+  time: string;
+  spec: string;
+  kind: string;
+  severity: "crit" | "warn" | "info";
+  message: string;
+  symbol?: string | null;
+}
+
+export interface AlertFeed {
+  alerts: AlertEvent[];
+  counts_24h: { crit: number; warn: number; info: number };
+}

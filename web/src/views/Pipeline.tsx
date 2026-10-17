@@ -8,6 +8,7 @@ import LineChart from "../components/LineChart";
 import Markdown from "../components/Markdown";
 import { fmtMoney } from "../format";
 import { useChartColors } from "../theme";
+import "../styles/pipeline.css";
 
 /** The four stages every strategy passes, in order, before real money. */
 const STAGES: [string, string][] = [

@@ -121,3 +121,31 @@ export function useAction<A extends unknown[], R>(fn: (...args: A) => Promise<R>
   );
   return { run, loading, error, setError };
 }
+
+// ---- the status line ---------------------------------------------------------------------
+// One sentence under the top bar that says what is true on this screen and what to do next
+// (docs/DESIGN.md). Views set it with useStatusLine; the shell shows it.
+const StatusSetCtx = createContext<(text: string | null) => void>(() => undefined);
+const StatusTextCtx = createContext<string | null>(null);
+
+export function StatusLineProvider({ children }: { children: ReactNode }) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <StatusSetCtx.Provider value={setText}>
+      <StatusTextCtx.Provider value={text}>{children}</StatusTextCtx.Provider>
+    </StatusSetCtx.Provider>
+  );
+}
+
+/** Narrate this view in the status line while it is shown. `code` and **bold** spans are rendered. */
+export function useStatusLine(text: string | null) {
+  const set = useContext(StatusSetCtx);
+  useEffect(() => {
+    set(text);
+  }, [text, set]);
+  useEffect(() => () => set(null), [set]);
+}
+
+export function useStatusText(): string | null {
+  return useContext(StatusTextCtx);
+}

@@ -180,7 +180,7 @@ export default function PriceChart({
       layout: {
         background: { color: colors.surface },
         textColor: colors.axisText,
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize: 11,
         attributionLogo: true,
         panes: { separatorColor: colors.grid, separatorHoverColor: colors.axis },

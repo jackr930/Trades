@@ -88,7 +88,7 @@ export default function LineChart({ lines, height = 240, format, legend, label, 
       layout: {
         background: { color: colors.surface },
         textColor: colors.axisText,
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
         fontSize: 11,
       },
       grid: { vertLines: { visible: false }, horzLines: { color: colors.grid } },
