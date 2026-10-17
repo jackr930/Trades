@@ -2,7 +2,8 @@
 
 API keys never leave this machine: they are stored locally (file mode 0600), sent only
 to the data provider they belong to, and masked whenever settings are returned by the API.
-Environment variables ``APCA_API_KEY_ID`` / ``APCA_API_SECRET_KEY`` override stored keys.
+Environment variables override stored keys: ``APCA_API_KEY_ID`` / ``APCA_API_SECRET_KEY`` for
+Alpaca, ``MASSIVE_API_KEY`` (and ``MASSIVE_BASE_URL``) for Massive.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Any
 
 from trades.defaults import DEFAULT_ADVISORS, DEFAULT_PAIRS, DEFAULT_WATCHLISTS, WEIGHTINGS
 
-SECRET_FIELDS = ("alpaca_key_id", "alpaca_secret_key")
+SECRET_FIELDS = ("alpaca_key_id", "alpaca_secret_key", "massive_api_key")
 MASK_PREFIX = "****"
 
 
@@ -37,6 +38,8 @@ class Settings:
     alpaca_key_id: str = ""
     alpaca_secret_key: str = ""
     alpaca_feed: str = "iex"
+    massive_api_key: str = ""
+    massive_base_url: str = ""  # empty: https://api.massive.com (the old https://api.polygon.io also works)
     csv_dir: str = ""
     synthetic_seed: int = 7
     # Account profile: the default for the Lab, the simulators and the Live Desk.
@@ -82,6 +85,12 @@ class Settings:
         secret = os.environ.get("APCA_API_SECRET_KEY") or self.alpaca_secret_key
         return key, secret
 
+    def massive_credentials(self) -> tuple[str, str]:
+        """(API key, base URL); an empty base URL means the provider's default."""
+        key = os.environ.get("MASSIVE_API_KEY") or self.massive_api_key
+        url = os.environ.get("MASSIVE_BASE_URL") or self.massive_base_url
+        return key, url
+
     def public_dict(self) -> dict[str, Any]:
         """Settings safe to send to the browser (secrets masked)."""
         data = asdict(self)
@@ -89,6 +98,9 @@ class Settings:
         for name, value in (("alpaca_key_id", key), ("alpaca_secret_key", secret)):
             data[name] = mask(value)
         data["has_alpaca_credentials"] = bool(key and secret)
+        massive_key, _ = self.massive_credentials()
+        data["massive_api_key"] = mask(massive_key)
+        data["has_massive_credentials"] = bool(massive_key)
         data["csv_dir_resolved"] = str(self.resolved_csv_dir())
         return data
 
@@ -100,9 +112,13 @@ def mask(value: str) -> str:
 
 
 _VALIDATORS = {
-    "provider": lambda v: v in ("synthetic", "yahoo", "alpaca", "csv"),
+    "provider": lambda v: v in ("synthetic", "yahoo", "alpaca", "csv", "massive"),
     "timeframe": lambda v: v in ("1m", "5m", "15m", "30m", "1h", "1d"),
     "alpaca_feed": lambda v: v in ("iex", "sip", "delayed_sip"),
+    # The key travels to this address, so only HTTPS, and nothing that could smuggle in a path.
+    "massive_base_url": lambda v: v == "" or (
+        isinstance(v, str) and v.startswith("https://") and " " not in v and "?" not in v and "@" not in v
+    ),
     "account_equity": lambda v: 100 <= float(v) <= 1e10,
     "account_type": lambda v: v in ("taxable", "tax_advantaged"),
     "short_term_tax_rate": lambda v: 0 <= float(v) <= 0.6,

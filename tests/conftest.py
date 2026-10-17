@@ -14,6 +14,9 @@ def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
     monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
     monkeypatch.delenv("TRADES_PROVIDER", raising=False)
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+    monkeypatch.delenv("MASSIVE_BASE_URL", raising=False)
+    monkeypatch.setenv("TRADES_DATA_CACHE", "off")  # tests that use the bar cache give it a tmp folder
     for var in (
         "TRADES_PASSWORD",
         "TRADES_SECRET_KEY",

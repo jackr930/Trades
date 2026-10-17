@@ -21,10 +21,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The parquet cache of downloaded bars (trades.data.cache); without it every request downloads.
+cache = ["pyarrow>=15"]
 dev = [
     "pytest>=8",
     "ruff>=0.5",
     "statsmodels>=0.14",
+    "pyarrow>=15",
 ]
 
 [project.scripts]

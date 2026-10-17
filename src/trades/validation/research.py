@@ -1,8 +1,9 @@
 """``trades research STRAT-xxx``: put a spec through the acceptance checklist and record the run.
 
 1. Load the spec; refuse a frozen spec whose rules changed after it was frozen.
-2. Load bars from the train period's start (plus warm-up) to the validation period's end. The
-   locked test's bars are not even loaded unless the test is being opened.
+2. Load bars from the train period's start (plus warm-up) to the validation period's end. Unless
+   the locked test is being opened, nothing after the validation period reaches the run: later
+   bars that the bar cache holds, or fetches while repairing itself, are cut off first.
 3. Backtest the spec's strategy once over train and validation, under the repository's cost model
    and risk limits (the risk engine the paper trader uses), then again at twice the costs.
 4. Backtest every variant in the spec's parameter grid and every numeric parameter moved +/-20%;

@@ -9,6 +9,7 @@ DEFAULT_WATCHLISTS: dict[str, list[str]] = {
     "synthetic": ["SIMIDX", "SIMTEC", "SIMBNK", "SIMNRG", "SIMUTL", "SIMHLC", "SIMBND", "SIMGLD"],
     "yahoo": ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "JPM", "XOM", "TLT"],
     "alpaca": ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "JPM", "XOM", "TLT"],
+    "massive": ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "JPM", "XOM", "TLT"],
     "csv": [],
 }
 

@@ -1,4 +1,5 @@
-"""Provider registry plus a small TTL cache in front of provider requests."""
+"""Provider registry, a small TTL cache in front of provider requests, and the parquet cache of
+downloaded history (``trades.data.cache``) behind them."""
 
 from __future__ import annotations
 
@@ -11,9 +12,11 @@ from typing import Any
 
 import pandas as pd
 
+from trades.data import cache as disk
 from trades.data.alpaca import AlpacaProvider
 from trades.data.base import DataError, DataProvider, ProviderNotConfigured, Quote, lookback_start
 from trades.data.csv_provider import CSVProvider
+from trades.data.massive import MassiveProvider
 from trades.data.synthetic import SyntheticProvider
 from trades.data.timeframes import Timeframe
 from trades.data.yahoo import YahooProvider
@@ -24,6 +27,7 @@ PROVIDER_CLASSES: dict[str, type[DataProvider]] = {
     "yahoo": YahooProvider,
     "alpaca": AlpacaProvider,
     "csv": CSVProvider,
+    "massive": MassiveProvider,
 }
 
 
@@ -37,6 +41,9 @@ def build_provider(provider_id: str, settings: Settings) -> DataProvider:
         return AlpacaProvider(key, secret, feed=settings.alpaca_feed)
     if provider_id == "csv":
         return CSVProvider(settings.resolved_csv_dir())
+    if provider_id == "massive":
+        key, url = settings.massive_credentials()
+        return MassiveProvider(key, base_url=url or None)
     raise DataError(f"unknown data provider {provider_id!r}")
 
 
@@ -47,7 +54,14 @@ def _provider_signature(provider_id: str, s: Settings) -> tuple:
         return (str(s.resolved_csv_dir()),)
     if provider_id == "synthetic":
         return (s.synthetic_seed,)
+    if provider_id == "massive":
+        return s.massive_credentials()
     return ()
+
+
+def _cache_folder(provider_id: str, s: Settings) -> str:
+    """The cache keeps feeds apart: Alpaca's IEX bars are not its SIP bars."""
+    return f"alpaca-{s.alpaca_feed}" if provider_id == "alpaca" else provider_id
 
 
 class TTLCache:
@@ -80,11 +94,19 @@ class TTLCache:
             self._data.clear()
 
 
-class DataService:
-    """Hands out provider instances (rebuilt when their settings change) and caches bars."""
+_DEFAULT = object()
 
-    def __init__(self, settings: SettingsStore):
+
+class DataService:
+    """Hands out provider instances (rebuilt when their settings change) and caches bars: briefly
+    in memory, and completed history from deep-history providers on disk (``trades.data.cache``)."""
+
+    def __init__(self, settings: SettingsStore, disk_cache: disk.BarCache | None | object = _DEFAULT):
         self.settings = settings
+        if disk_cache is _DEFAULT:
+            root = disk.default_root()
+            disk_cache = disk.BarCache(root) if root is not None and disk.available() else None
+        self.disk: disk.BarCache | None = disk_cache  # type: ignore[assignment]
         self._providers: dict[str, tuple[tuple, DataProvider]] = {}
         self._lock = threading.Lock()
         self.cache = TTLCache()
@@ -112,6 +134,8 @@ class DataService:
             configured = True
             if pid == "alpaca":
                 configured = all(s.alpaca_credentials())
+            elif pid == "massive":
+                configured = bool(s.massive_credentials()[0])
             info["configured"] = configured
             info["active"] = pid == s.provider
             out.append(info)
@@ -138,7 +162,12 @@ class DataService:
         key = ("bars", pid, symbol.upper(), tf.value, str(start), str(end))
         df = self.cache.get(key)
         if df is None:
-            df = self.provider(pid).history(symbol.upper(), tf, start, end)
+            prov, sym = self.provider(pid), symbol.upper()
+            if self.disk is not None and pid in disk.CACHED_PROVIDERS:
+                folder = _cache_folder(pid, self.settings.get())
+                df = self.disk.history(folder, sym, tf, start, end, lambda a, b: prov.history(sym, tf, a, b))
+            else:
+                df = prov.history(sym, tf, start, end)
             self.cache.set(key, df, self._ttl(pid, tf, end))
         if count:
             df = df.iloc[-count:]

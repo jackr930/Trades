@@ -3,9 +3,12 @@
   1. write it down     trades spec new | show | list | version | freeze
   2. research it       trades research STRAT-xxx            (writes runs/<id>/)
                        trades runs list | show | reproduce
-  3. paper trade it    trades paper                         (Alpaca paper only)
+  3. paper trade it    trades paper [status | flatten | drill]   (Alpaca paper only)
+                       trades track                         (paper against a replay)
                        trades halt | resume                 (the kill switch)
-  4. watch it          trades journal record | score
+  4. the gate          trades gate                          (ten checks before real money)
+  the journal          trades journal record | score
+  data                 trades data check PROVIDER | cache | clear
   the app              trades serve | strategies | backtest | recommend
 """
 
@@ -15,7 +18,7 @@ import argparse
 import os
 import sys
 
-from trades.cli import app, research, trading
+from trades.cli import app, data, research, trading
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True, metavar="command")
     research.register(sub)
     trading.register(sub)
+    data.register(sub)
     app.register(sub)
     args = parser.parse_args(argv)
     from trades.config import ConfigError

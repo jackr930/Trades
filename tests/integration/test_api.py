@@ -23,12 +23,15 @@ def test_meta_and_settings(client):
     meta = client.get("/api/meta").json()
     assert len(meta["strategies"]) == len(REGISTRY) and meta["disclaimer"]
     assert {s["family"] for s in meta["strategies"]} == {"classic", "modern", "intraday"}
-    assert {p["id"] for p in meta["providers"]} == {"synthetic", "yahoo", "alpaca", "csv"}
+    assert {p["id"] for p in meta["providers"]} == {"synthetic", "yahoo", "alpaca", "csv", "massive"}
     s = client.get("/api/settings").json()
     assert s["provider"] == "synthetic" and s["alpaca_secret_key"] == ""
     r = client.put("/api/settings", json={"alpaca_key_id": "AKXYZ12345", "alpaca_secret_key": "s3cr3tvalue"})
     assert r.json()["alpaca_key_id"] == "****2345"
     assert "s3cr3tvalue" not in r.text
+    r = client.put("/api/settings", json={"massive_api_key": "mk_0123456789"})
+    assert r.json()["massive_api_key"] == "****6789" and r.json()["has_massive_credentials"]
+    assert "mk_0123456789" not in r.text and "mk_0123456789" not in client.get("/api/settings").text
     assert client.put("/api/settings", json={"risk_per_trade": 3}).status_code == 400
     assert client.put("/api/settings", json={"advisors": [{"id": "nope"}]}).status_code == 400
     assert client.put("/api/settings", json={"advisors": [{"id": "consensus"}]}).status_code == 400
