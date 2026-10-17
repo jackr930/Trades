@@ -38,7 +38,7 @@ data -> features -> strategies (signals, order levels) -> sizing -> risk engine 
 
 | Folder (`src/trades/`) | What lives there |
 | --- | --- |
-| `data/` | providers (synthetic, yahoo, alpaca, csv), the NYSE calendar, timeframes |
+| `data/` | providers (synthetic, yahoo, alpaca, csv, massive), the NYSE calendar, timeframes, the parquet bar cache |
 | `features/` | pure indicator functions, causal intraday session features |
 | `strategies/` | the registry; strategies emit target weights and stop/take/entry levels only |
 | `risk/` | `RiskEngine` (eight checks on every bar), `RiskLimits` from risk/limits.yaml, the HALT kill switch |
@@ -59,7 +59,10 @@ records in `paper/<spec key>/`, configuration in `config/` (base, backtest, pape
 - Lint: `ruff check src tests scripts`; web: `cd web && npm run build`
 - The pipeline: `trades spec new|show|list|version`, `trades research STRAT-xxx [--provider synthetic]`,
   `trades runs list|show|reproduce`, `trades paper [status|flatten]`, `trades track`, `trades gate`
+- Data: `trades data check PROVIDER`, `trades data cache|clear` (completed bars cached in `data/cache/`)
 - The app: `trades serve`
+- Docs: `docs/PLAYBOOK.md` (stages, checks, gate), `docs/ARCHITECTURE.md`, `docs/DATA.md`, `docs/APP.md`,
+  `docs/DESIGN.md` (UI work follows it), `docs/SELLING.md`
 
 ## Style
 
