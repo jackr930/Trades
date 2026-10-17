@@ -149,3 +149,17 @@ export function useStatusLine(text: string | null) {
 export function useStatusText(): string | null {
   return useContext(StatusTextCtx);
 }
+
+// ---- the top bar's signals -----------------------------------------------------------------
+// The kill switch and the alert count in the top bar poll every 30 seconds. Whatever changes
+// one of them (turning the kill switch on or off) says so, and the top bar reloads at once.
+const SIGNALS_EVENT = "trades:signals";
+
+export function signalsChanged() {
+  window.dispatchEvent(new Event(SIGNALS_EVENT));
+}
+
+export function onSignalsChanged(listener: () => void): () => void {
+  window.addEventListener(SIGNALS_EVENT, listener);
+  return () => window.removeEventListener(SIGNALS_EVENT, listener);
+}

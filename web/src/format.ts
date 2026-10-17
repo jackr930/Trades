@@ -76,14 +76,16 @@ export function fmtMetric(value: Num | undefined, info: MetricInfo | undefined):
 }
 
 /** CSS class for signed numbers that represent *your* profit or loss. */
-export function pnlClass(x: Num | undefined): string {
-  if (!isNum(x) || x === 0) return "";
+export function pnlClass(x: Num | undefined, tiny = 0): string {
+  if (!isNum(x) || Math.abs(x) <= tiny) return "";
   return x > 0 ? "pos" : "neg";
 }
 
-/** CSS class for market direction (price up/down). */
-export function dirClass(x: Num | undefined): string {
-  if (!isNum(x) || x === 0) return "";
+/** CSS class for market direction (price up/down). `tiny`: a change that rounds to zero where it
+ *  is shown (under half its last digit, e.g. 0.00005 for a percentage with two decimals) stays
+ *  uncoloured, so "0.00%" is never red. */
+export function dirClass(x: Num | undefined, tiny = 0): string {
+  if (!isNum(x) || Math.abs(x) <= tiny) return "";
   return x > 0 ? "upc" : "downc";
 }
 

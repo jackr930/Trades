@@ -1,138 +1,615 @@
-/* strategysim.css: styles for this view only, prefixed ss-. Shared tokens and components live in ../styles.css;
-   the design language is docs/DESIGN.md. */
+/* strategysim.css: the strategy simulator, prefixed ss-. Shared tokens and components live in
+   ../styles.css; the design language is docs/DESIGN.md. The pieces both simulators share (tiles, the
+   transport bar and timeline, readout grids, the feed, unit inputs, the launch bar) are in simulator.css. */
 
-.strategy-picks {
+/* ---- set-up: quick picks, strategy tiles, the parameter editor ----------------------- */
+.ss-quick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-quick .label {
+  margin-right: 4px;
+}
+
+.ss-over {
+  color: var(--accent-text);
+}
+
+.ss-family {
+  margin-top: 18px;
+}
+
+.ss-family-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ss-family-head .section-title {
+  margin: 0;
+}
+
+.ss-picks {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 10px;
-}
-
-.pick {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--surface-1);
-}
-
-.pick[data-checked="true"] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-
-.pick-name {
-  font-weight: 600;
-}
-
-.subcard {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  background: var(--surface-2);
-}
-
-.live-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  margin-right: 5px;
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .live-dot {
-    animation: none;
-  }
-}
-
-.regimes .regime-up {
-  background: var(--up-wash);
-}
-
-.regimes .regime-down {
-  background: var(--down-wash);
-}
-
-.regimes .regime-flat {
-  background: var(--surface-3);
-}
-
-.swatch-line {
-  display: inline-block;
-  width: 14px;
-  height: 3px;
-  border-radius: 2px;
-  flex: none;
-}
-
-table.leaderboard tbody tr {
-  cursor: pointer;
-}
-
-table.leaderboard tbody tr:hover {
-  background: var(--surface-2);
-}
-
-table.leaderboard tbody tr.selected {
-  background: var(--surface-3);
-}
-
-.lb-name {
-  font-weight: 600;
-}
-
-.lb-pos {
-  display: block;
-  margin-left: 20px;
-}
-
-.symbol-tabs {
-  flex-wrap: wrap;
-  max-width: 100%;
-}
-
-.inject-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 8px;
 }
 
-.btn.inject {
-  height: auto;
-  min-height: 44px;
-  flex-direction: column;
-  gap: 0;
-  padding: 6px 10px;
-}
-
-.btn.inject.danger {
-  border-color: var(--down);
-}
-
-.ev-head {
+.ss-pick {
+  position: relative;
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+
+.ss-pick:hover {
+  border-color: var(--border-strong);
+}
+
+.ss-pick[data-checked="true"] {
+  border-color: var(--ink-fill);
+  box-shadow: inset 0 0 0 1px var(--ink-fill);
+}
+
+/* The tile whose parameters are open below carries the orange "current selection" mark. */
+.ss-pick[data-editing="true"]::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: -1px;
+  height: 3px;
+  background: var(--accent);
+}
+
+.ss-pick-main {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.ss-pick-main input {
+  grid-row: 1 / span 3;
+  width: 14px;
+  height: 14px;
+  margin: 1px 0 0;
+  accent-color: var(--ink-fill);
+  cursor: pointer;
+}
+
+.ss-pick-kicker {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ss-pick-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.ss-pick[data-checked="false"] .ss-pick-name {
+  color: var(--text-secondary);
+}
+
+.ss-pick-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.ss-pick-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: auto;
+  padding: 7px 12px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ss-pick-foot .btn {
+  margin-left: auto;
+}
+
+.ss-params {
+  margin-top: 10px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.ss-params-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.ss-params-head h3 {
+  color: var(--text-primary);
+}
+
+/* Open simulations. */
+.ss-runbar {
+  display: block;
+  height: 2px;
+  margin-top: 4px;
+  background: var(--surface-3);
+}
+
+.ss-runbar span {
+  display: block;
+  height: 100%;
+  background: var(--text-primary);
+}
+
+/* ---- the run header ------------------------------------------------------------------- */
+.ss-head h1 {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  font-size: 13px;
+  gap: 6px 12px;
 }
 
-.ev-body {
-  margin-top: 2px;
+.ss-head-text {
+  min-width: 0;
 }
 
-.ev-why {
-  margin-top: 2px;
-  font-size: 12px;
+.ss-head-text p {
+  max-width: 96ch;
+  margin: 4px 0 0;
   color: var(--text-secondary);
+}
+
+.ss-live {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.ss-head .sim-readouts {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- the run layout: figure + side panel, twice ------------------------------------------ */
+.ss-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 36%);
+  align-items: stretch;
+  gap: 16px;
+}
+
+.ss-market .caption .aside {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.segmented.ss-symtabs {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.segmented.ss-symtabs button {
+  height: 24px;
+  padding: 0 9px;
+  flex: none;
+}
+
+/* ---- leaderboard: a full-width monitor table --------------------------------------------- */
+table.data.ss-lb th,
+table.data.ss-lb td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+table.data.ss-lb tbody tr {
+  cursor: pointer;
+}
+
+table.data.ss-lb tbody tr:focus-visible {
+  outline-offset: -1px;
+}
+
+.ss-rank {
+  width: 36px;
+  color: var(--text-muted);
+}
+
+tr.ss-lead .ss-rank {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ss-lb-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ss-lb-name > .sim-swatch {
+  margin-top: 0.68em;
+}
+
+.ss-lb-n .tag {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+
+.ss-lb-hold,
+.ss-lb-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ss-lb-sub {
+  display: none;
+  margin-top: 1px;
+  padding-left: 22px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.ss-glyph {
+  align-self: center;
+  font-size: 0.6em;
+}
+
+/* ---- shock the market: a row of keys, the crash key is the dangerous one ------------------ */
+.ss-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.ss-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ss-key:hover:not(:disabled) {
+  border-color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.ss-key:active:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.ss-key:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ss-key-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+}
+
+.ss-key-val {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.ss-key-note {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ss-key-danger {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ss-key-danger .ss-key-note {
+  color: inherit;
+  opacity: 0.72;
+}
+
+.ss-key-danger:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.ss-shock-opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 16px;
+  margin-top: 12px;
+}
+
+.ss-shock-opts > .field {
+  width: 180px;
+}
+
+.ss-custom {
+  flex: 1 1 260px;
+  margin-top: 23px;
+}
+
+/* ---- the feed panel ------------------------------------------------------------------------ */
+.ss-feed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ss-feed .sim-feed {
+  flex: 1 1 0;
+  min-height: 220px;
+}
+
+.ss-feed-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ss-feed-filter select.input {
+  width: 200px;
+  height: 28px;
+  font-size: 11.5px;
+}
+
+/* ---- the inspector ---------------------------------------------------------------------- */
+.ss-insp-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.ss-insp-kv {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.ss-insp-sec {
+  margin: 18px 0 8px;
+}
+
+.ss-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+.ss-view {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ss-view-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.ss-view-sym {
+  margin-right: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.ss-view-w {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.ss-view-headline {
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+.ss-rules {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.ss-rules li {
+  display: grid;
+  grid-template-columns: 14px fit-content(60%) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.ss-mark {
+  flex: none;
+  width: 14px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.ss-mark-ok {
+  color: var(--pos-text);
+}
+
+.ss-val {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+.ss-view-exit {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.ss-trades {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* ---- the debrief ------------------------------------------------------------------------ */
+.ss-debrief-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+}
+
+.ss-debrief-title {
+  margin: 4px 0 0;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.ss-debrief-title .sim-swatch {
+  margin: 0 10px 0 0;
+  border-top-width: 3px;
+}
+
+.ss-debrief-sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.ss-debrief-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1100px) {
+  .ss-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ss-lb-holdcol {
+    display: none;
+  }
+
+  .ss-lb-sub {
+    display: block;
+    white-space: normal;
+  }
+
+  .ss-lb-name {
+    white-space: normal;
+  }
+
+  .ss-feed .sim-feed {
+    flex: none;
+    max-height: 460px;
+  }
+}
+
+@media (max-width: 760px) {
+  table.data.ss-lb th,
+  table.data.ss-lb td {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  table.data.ss-lb th:first-child,
+  table.data.ss-lb td:first-child {
+    padding-left: 0;
+  }
+
+  table.data.ss-lb th:last-child,
+  table.data.ss-lb td:last-child {
+    padding-right: 0;
+  }
+
+  .ss-rank {
+    width: 24px;
+  }
+
+  .segmented.ss-symtabs button {
+    padding: 0 6px;
+    font-size: 10px;
+  }
+
+  .ss-shock-opts > .field {
+    width: calc(50% - 8px);
+  }
+
+  .ss-custom {
+    margin-top: 0;
+  }
+
+  .ss-feed-filter select.input {
+    width: 100%;
+  }
+
+  .ss-keys {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

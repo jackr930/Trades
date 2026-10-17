@@ -209,6 +209,7 @@ class StrategyAgent:
             "signals": dict(self._state),
             "pending": {s: q for s, q in self.engine.orders().items() if abs(q) > EPS},
             "trades": len(led.closed_trades),
+            "costs": led.total_commission + led.total_slippage,  # slippage and commissions so far
             "unrealized": sum(led.unrealized_pnl(s, p) for s, p in prices.items() if s in self.symbols),
             "stopped": self.engine.stopped,
         }
@@ -250,7 +251,6 @@ class StrategyAgent:
             "trades_list": trades,
             "events": self.events[-150:],
             "financing": led.total_financing,
-            "costs": led.total_commission + led.total_slippage,
         }
 
     def metrics(self, benchmark: pd.Series | None = None) -> dict[str, float | None]:

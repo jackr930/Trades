@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AppProvider, StatusLineProvider, useApp, useRoute, useStatusText, type Route } from "./state";
+import { AppProvider, StatusLineProvider, onSignalsChanged, useApp, useRoute, useStatusText, type Route } from "./state";
 import { Disclaimer, ErrorBox, Spinner } from "./components/ui";
 import { InlineText } from "./components/instrument";
 import { api } from "./api";
@@ -77,15 +77,17 @@ function MarketStatus() {
     };
   }, []);
   let label = "NYSE";
+  let bell = ""; // the next bell, dropped first when the top bar runs out of room
   let state: "open" | "closed" | "ext" = "closed";
   if (clock) {
     if (clock.is_open) {
-      label = `NYSE OPEN · CLOSES IN ${until(clock.next_close, now)}`;
+      label = "NYSE OPEN";
+      bell = `CLOSES IN ${until(clock.next_close, now)}`;
       state = "open";
     } else {
       const day = NY_DAY.format(new Date(clock.next_open)).toUpperCase();
-      const phase = clock.phase === "pre" ? "PRE-MARKET" : clock.phase === "post" ? "AFTER HOURS" : "CLOSED";
-      label = `NYSE ${phase} · OPENS ${day} ${NY_HM.format(new Date(clock.next_open))}`;
+      label = `NYSE ${clock.phase === "pre" ? "PRE-MARKET" : clock.phase === "post" ? "AFTER HOURS" : "CLOSED"}`;
+      bell = `OPENS ${day} ${NY_HM.format(new Date(clock.next_open))}`;
       state = clock.phase === "closed" ? "closed" : "ext";
     }
   }
@@ -96,6 +98,7 @@ function MarketStatus() {
           <span className="dot" />
         </span>
         {label}
+        {bell ? <span className="bell"> · {bell}</span> : null}
       </span>
       <span className="clock" title="New York time">
         {NY_TIME.format(new Date(now))} ET
@@ -116,7 +119,11 @@ function Signals() {
     };
     load();
     const poll = window.setInterval(load, 30_000);
-    return () => window.clearInterval(poll);
+    const off = onSignalsChanged(load);
+    return () => {
+      window.clearInterval(poll);
+      off();
+    };
   }, []);
   const loud = feed ? feed.counts_24h.crit + feed.counts_24h.warn : 0;
   return (
@@ -143,6 +150,12 @@ function Signals() {
 
 function ThemeToggle() {
   const [theme, setTheme] = useState<ThemeChoice>(loadTheme());
+  useEffect(() => {
+    // Settings can change the theme too: follow it.
+    const follow = () => setTheme(loadTheme());
+    window.addEventListener("trades-theme", follow);
+    return () => window.removeEventListener("trades-theme", follow);
+  }, []);
   const order: ThemeChoice[] = ["system", "light", "dark"];
   const next = order[(order.indexOf(theme) + 1) % order.length];
   return (
@@ -217,6 +230,10 @@ function Shell({ route }: { route: Route }) {
       view = <Pipeline route={route} />;
   }
   const current = route.path === "/" ? "/pipeline" : route.path;
+  useEffect(() => {
+    // On a narrow screen the navigation scrolls sideways: keep the current screen's tab in view.
+    document.querySelector('.nav a[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [current]);
   return (
     <div className="app">
       <header className="topbar">

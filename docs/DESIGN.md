@@ -52,7 +52,7 @@ references are three tools that manage both at once:
 | `--ink-fill` | `#121212` | `#ecece9` | primary buttons, pressed segments |
 | `--pos-text` / `--neg-text` | `#11753a` / `#c63434` | `#2fbf55` / `#ec7b7b` | your profit and loss |
 | `--up` / `--down` | blue / red | blue / red | market direction (colour-blind safe; classic green opt-in) |
-| `--series-1..8` | validated palette | validated palette | categorical chart series, fixed order |
+| `--series-1..8` | validated palette | validated palette | categorical chart series, fixed order: blue, dark green, pink, amber, purple, red, green, and orange last (orange means attention) |
 
 Type: body 14px sans; `h1` 22px sans 500; `h2` (panel titles) 11.5px mono caps; labels 10.5px
 mono caps, tracking 0.08em; readouts 30px (22px small) mono 300. Spacing on a 4px grid (4, 8,
@@ -77,7 +77,10 @@ the kill switch and other deliberate, risky acts), `.btn.ghost`, `.btn.small`; `
 `.tabs`; `table.data` (mono caps headers, tabular numbers, orange left marker on the selected
 row); `.field` + `.input`; `.chip.toggle`; `.callout.info|warn|bad`; `.status.good|warn|bad|info|live`
 (square dots); `.badge` (square, mono caps); `.rail` (a vertical list with an orange square on the
-current item); `.marks`; `.hatch`; `.label`; `.kv` and `.kv-grid`; `.event-feed`.
+current item); `.marks`; `.hatch`; `.label`; `.kv` and `.kv-grid`; `.sr-only` (read by screen
+readers, not shown). `Help` tooltips render in a portal at fixed coordinates, so no scrolling
+table or clipped panel cuts them off and they stay on screen on a phone. Anything pinned under the
+top bar uses `top: var(--topbar-h)` (44px; two rows and 85px on a phone).
 
 Existing helpers in `components/ui.tsx` (`StatTile`, `MetricTiles`, `MetricsTable`, `TradesTable`,
 `Tabs`, `ParamForm`, `SizingForm`, `SymbolInput`, `Help`, `StatusDot`, `ErrorBox`, `Spinner`) are
@@ -106,7 +109,8 @@ line (`colors.text`), the accent only for the highlighted part. Two or more: the
 palette in slot order with a legend (and direct labels for up to four). Thresholds and baselines
 are dashed `--axis` lines with mono labels. No dual axes, no rainbow, no 3D. The palette is
 validated for colour-vision deficiency on these exact surfaces (dataviz skill); three light-mode
-slots sit under 3:1 contrast, so charts always carry a legend or labels.
+slots sit under 3:1 contrast, so charts always carry a legend or labels. Re-run the validator after any
+change to the palette or its order: order matters, because only neighbours are checked.
 
 ## Screens: what each one answers
 

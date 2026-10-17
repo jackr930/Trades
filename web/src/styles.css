@@ -12,6 +12,7 @@
  * View-specific styles live in src/styles/<view>.css with a view prefix.
  */
 :root {
+  --topbar-h: 44px; /* the sticky top bar (two rows, taller, on a phone) */
   color-scheme: light;
   --page: #ededea;
   --surface-1: #ffffff;
@@ -22,19 +23,21 @@
   --rule: #d5d5cf;
   --text-primary: #121212;
   --text-secondary: #4d4d50;
-  --text-muted: #86868a;
+  --text-muted: #6b6b6f; /* 5.3:1 on white, 4.5:1 on the page */
   --axis-text: #8a8a8e;
   --grid: #ececea;
   --axis: #c8c8c2;
 
+  /* Categorical chart series, validated for colour-vision deficiency (dataviz skill). The accent's
+     hue, orange, is the last slot: in a chart it should read as attention, not as series 2. */
   --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
+  --series-2: #008300;
+  --series-3: #e87ba4;
   --series-4: #eda100;
-  --series-5: #e87ba4;
-  --series-6: #008300;
-  --series-7: #6250d6;
-  --series-8: #e34948;
+  --series-5: #6250d6;
+  --series-6: #e34948;
+  --series-7: #1baf7a;
+  --series-8: #eb6834;
   --deemph: #9b9b9f;
 
   --up: #2a78d6;
@@ -90,18 +93,18 @@
     --rule: #2c2f34;
     --text-primary: #ecece9;
     --text-secondary: #b3b3ae;
-    --text-muted: #85858a;
+    --text-muted: #8f8f94; /* 5.7:1 on panels */
     --axis-text: #85858a;
     --grid: #1f2124;
     --axis: #3a3d42;
     --series-1: #3987e5;
-    --series-2: #d95926;
-    --series-3: #199e70;
+    --series-2: #008300;
+    --series-3: #d55181;
     --series-4: #c98500;
-    --series-5: #d55181;
-    --series-6: #008300;
-    --series-7: #9085e9;
-    --series-8: #e66767;
+    --series-5: #9085e9;
+    --series-6: #e66767;
+    --series-7: #199e70;
+    --series-8: #d95926;
     --deemph: #77777c;
     --up: #3987e5;
     --down: #e66767;
@@ -141,18 +144,18 @@
   --rule: #2c2f34;
   --text-primary: #ecece9;
   --text-secondary: #b3b3ae;
-  --text-muted: #85858a;
+  --text-muted: #8f8f94; /* 5.7:1 on panels */
   --axis-text: #85858a;
   --grid: #1f2124;
   --axis: #3a3d42;
   --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
+  --series-2: #008300;
+  --series-3: #d55181;
   --series-4: #c98500;
-  --series-5: #d55181;
-  --series-6: #008300;
-  --series-7: #9085e9;
-  --series-8: #e66767;
+  --series-5: #9085e9;
+  --series-6: #e66767;
+  --series-7: #199e70;
+  --series-8: #d95926;
   --deemph: #77777c;
   --up: #3987e5;
   --down: #e66767;
@@ -309,7 +312,7 @@ code {
   display: flex;
   align-items: stretch;
   gap: 0;
-  height: 44px;
+  height: var(--topbar-h); /* sticky things below it use the same variable */
   padding: 0 0 0 16px;
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
@@ -345,6 +348,9 @@ code {
   overflow: hidden;
 }
 .crumbs b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis; /* a long strategy id gives way before the navigation does */
   color: var(--text-primary);
   font-weight: 500;
 }
@@ -353,6 +359,7 @@ code {
 }
 .nav {
   display: flex;
+  flex: none; /* every section stays visible; the breadcrumb shrinks instead */
   align-items: stretch;
   gap: 0;
   overflow-x: auto;
@@ -484,21 +491,6 @@ code {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
-.split {
-  display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.split.side-right {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
-}
-.split.halves {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.split.wide-left {
-  grid-template-columns: minmax(400px, 480px) minmax(0, 1fr);
-}
 .stack {
   display: flex;
   flex-direction: column;
@@ -524,9 +516,6 @@ code {
 .right {
   text-align: right;
 }
-.grow {
-  flex: 1;
-}
 .hidden {
   display: none !important;
 }
@@ -542,19 +531,6 @@ code {
 }
 .card.flush {
   padding: 0;
-}
-.card-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-.card-header .sub {
-  color: var(--text-muted);
-  font-family: var(--mono);
-  font-size: 11px;
 }
 .section-title {
   font-family: var(--mono);
@@ -588,9 +564,6 @@ code {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.hatch-fill {
-  background-image: var(--hatch);
-}
 
 /* ---- the instrument primitives (components/instrument.tsx) ------------------------- */
 .label,
@@ -604,9 +577,10 @@ code {
 }
 .panel-head {
   display: flex;
+  flex-wrap: wrap; /* on a phone the aside and actions drop under the title */
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 6px 12px;
   margin-bottom: 12px;
 }
 .panel-head .fig {
@@ -618,19 +592,21 @@ code {
   font-size: 11px;
   color: var(--text-muted);
 }
+/* Readouts divided by hairlines, wrapping cleanly: each one carries a hairline on its left, and
+   the strip's negative margin and overflow hide the hairline that starts each row. */
 .readouts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 0;
-}
-.readouts > .readout + .readout {
-  border-left: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 12px;
+  margin-left: -14px;
+  overflow: hidden;
 }
 .readouts > .readout {
+  flex: 1 1 110px;
+  min-width: auto; /* never narrower than its number: wrap to the next row instead */
   padding: 2px 14px;
-}
-.readouts > .readout:first-child {
-  padding-left: 0;
+  margin-left: -1px;
+  border-left: 1px solid var(--border);
 }
 .readout {
   min-width: 0;
@@ -735,14 +711,16 @@ code {
 }
 .figure .caption {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 10px;
+  gap: 4px 10px;
   margin-bottom: 10px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-secondary);
 }
 .figure .caption .fig {
+  white-space: nowrap; /* "FIG. 2" never breaks */
   color: var(--text-muted);
   letter-spacing: var(--track);
   text-transform: uppercase;
@@ -921,7 +899,7 @@ code {
   gap: 5px;
   min-width: 0;
 }
-.field > span {
+.field > span:not(.hint) {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1097,9 +1075,6 @@ input[type="range"] {
 }
 .badge.ev-benchmark {
   color: var(--text-muted);
-}
-.badge.family-modern {
-  color: var(--text-primary);
 }
 .status {
   display: inline-flex;
@@ -1308,14 +1283,10 @@ table.data tr.clickable {
   border-color: var(--text-primary);
   color: var(--text-primary);
 }
-.help .tip {
-  display: none;
-  position: absolute;
-  z-index: 50;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 270px;
+/* The bubble lives in a portal on <body> (components/ui.tsx), placed at fixed coordinates. */
+.help-tip {
+  position: fixed;
+  z-index: 1000;
   padding: 9px 11px;
   border-radius: var(--radius-sm);
   background: var(--ink-fill);
@@ -1324,12 +1295,27 @@ table.data tr.clickable {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
   text-align: left;
+  white-space: normal;
   box-shadow: var(--shadow);
+  pointer-events: none;
 }
-.help:hover .tip,
-.help:focus .tip {
-  display: block;
+.help-tip.above {
+  transform: translateY(-100%);
+}
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---- key-value lists, vote cards, feeds -------------------------------------------- */
@@ -1354,62 +1340,6 @@ table.data tr.clickable {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-weight: 500;
-}
-.vote-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  background: var(--surface-1);
-}
-.vote-card + .vote-card {
-  margin-top: 8px;
-}
-.vote-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.vote-head .title {
-  font-weight: 600;
-  margin-right: auto;
-}
-.event-feed {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 520px;
-  overflow-y: auto;
-  font-size: 12.5px;
-}
-.event-feed .ev,
-.event-feed > li {
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-.event-feed .ev:first-child,
-.event-feed > li:first-child {
-  border-top: 0;
-}
-.event-feed .ev-regime .ev-body,
-.event-feed .ev-injected .ev-body {
-  font-weight: 600;
-}
-.lib-card {
-  text-align: left;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-1);
-  padding: 14px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: inherit;
-  font: inherit;
-}
-.lib-card:hover {
-  border-color: var(--text-primary);
 }
 .refs {
   margin: 0;
@@ -1610,22 +1540,6 @@ table.data tr.clickable {
   border-radius: 0;
   background: var(--text-primary);
 }
-.consensus-bar {
-  position: relative;
-  height: 6px;
-  border-radius: 0;
-  background: linear-gradient(90deg, var(--down) 0%, var(--neutral-mid) 50%, var(--up) 100%);
-}
-.consensus-bar .pin {
-  position: absolute;
-  top: -5px;
-  width: 2px;
-  height: 16px;
-  border-radius: 0;
-  background: var(--text-primary);
-  box-shadow: 0 0 0 2px var(--surface-1);
-  transform: translateX(-50%);
-}
 
 /* ---- misc -------------------------------------------------------------------------- */
 .empty {
@@ -1698,23 +1612,48 @@ table.data tr.clickable {
   border-bottom-color: var(--accent);
 }
 
-@media (max-width: 1100px) {
-  .split,
-  .split.wide-left,
-  .split.side-right,
-  .split.halves {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* The top bar gives way in order: the breadcrumb, the market's next bell, the clock, then the
+   navigation moves to a row of its own. */
+@media (max-width: 1400px) {
   .crumbs {
     display: none;
+  }
+}
+@media (max-width: 1280px) {
+  .topbar-status .market .bell {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  .topbar-status .clock {
+    display: none;
+  }
+}
+@media (max-width: 1024px) {
+  :root {
+    --topbar-h: 85px;
+  }
+  .topbar {
+    flex-wrap: wrap;
+  }
+  .brand,
+  .topbar .spacer,
+  .topbar-status {
+    height: 44px;
+  }
+  .nav {
+    order: 3;
+    flex: 1 0 100%;
+    height: 40px;
+    margin-left: -16px;
+    border-top: 1px solid var(--border);
   }
 }
 @media (max-width: 760px) {
   .main {
     padding: 12px 16px;
   }
-  .hide-sm,
-  .topbar .theme-select {
+  .hide-sm {
     display: none !important;
   }
   .grid-2 {
@@ -1722,6 +1661,12 @@ table.data tr.clickable {
   }
   .topbar {
     padding: 0 0 0 12px;
+  }
+  .nav {
+    margin-left: -12px;
+  }
+  .nav a {
+    padding: 0 12px;
   }
   .brand span,
   .topbar-status .market,

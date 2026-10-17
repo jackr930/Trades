@@ -434,6 +434,8 @@ export interface Settings {
   alpaca_key_id: string;
   alpaca_secret_key: string;
   alpaca_feed: string;
+  massive_api_key: string;
+  massive_base_url: string;
   csv_dir: string;
   csv_dir_resolved: string;
   synthetic_seed: number;
@@ -453,6 +455,7 @@ export interface Settings {
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;
+  has_massive_credentials: boolean;
 }
 
 // ---- simulator -------------------------------------------------------------------
@@ -630,6 +633,7 @@ export interface ArenaAgentSnap {
   signals: Record<string, string>;
   pending: Record<string, number>;
   trades: number;
+  costs: number; // slippage and commissions paid so far
   unrealized: number;
   stopped: boolean;
 }
@@ -832,7 +836,7 @@ export interface KillSwitch {
 
 export interface PipelineOverview {
   specs: PipelineSpec[];
-  problems: [string, string][];
+  problems: Record<string, string>; // file name -> why it could not be read
   kill_switch: KillSwitch;
   paper_spec: string | null;
 }

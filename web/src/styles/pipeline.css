@@ -1,70 +1,1398 @@
-/* pipeline.css: styles for this view only, prefixed pl-. Shared tokens and components live in ../styles.css;
-   the design language is docs/DESIGN.md. */
+/* pipeline.css: the Pipeline view and the kill switch control (components/KillSwitch.tsx, also shown in
+   Settings). Every class is prefixed pl-. Shared tokens and components live in ../styles.css; the
+   design language is docs/DESIGN.md.
 
-.stages {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
+   Note: this file is bundled before styles.css, so where a rule here adjusts a property that a shared
+   class also sets on the same element, the selector carries two classes (e.g. .card.pl-insp). */
 
-.stage {
+/* ---- page frame -------------------------------------------------------------------------- */
+.pl-home,
+.pl-page {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-1);
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
-.stage-n {
-  flex: none;
+.pl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 40px;
+}
+.pl-head-text {
+  flex: 1 1 420px;
+  max-width: 76ch;
+}
+.pl-head-text p {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.pl-accent {
+  color: var(--accent-text);
+}
+.pl-label-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pl-fig {
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+.pl-kicker {
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-sub {
+  margin-bottom: 10px;
+}
+.pl-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.pl-lede {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+.pl-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Readouts in one hairline-divided strip that wraps cleanly on narrow screens. */
+.pl-readouts {
   display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
+  grid-template-columns: repeat(5, minmax(84px, auto));
+  justify-content: start;
+  row-gap: 14px;
+}
+.pl-readouts-4 {
+  grid-template-columns: repeat(4, minmax(84px, auto));
+}
+.pl-readouts-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.pl-ro {
+  min-width: 0;
+  padding: 2px 18px;
+  border-left: 1px solid var(--border);
+}
+.pl-ro:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 
-.spec-card {
-  gap: 8px;
+/* A caption line for figures drawn inside panels ("FIG. 1  The four stages ..."). */
+.pl-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.pl-cap-fig {
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-cap-aside {
+  margin-left: auto;
+  color: var(--text-muted);
 }
 
-.stage-track {
+.pl-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.stage-pip {
+/* "Nothing here yet": a hatched band, a sentence and the command that fills it. */
+.pl-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pl-empty-text {
+  max-width: 76ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.pl-empty-text p {
+  margin: 0 0 10px;
+}
+.pl-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 560px;
+}
+
+/* ---- a command, ready to copy ------------------------------------------------------------ */
+.pl-cmd {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+  font-family: var(--mono);
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
+  line-height: 1.4;
+}
+.pl-cmd-prompt {
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.pl-cmd-text {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px 8px 8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow-x: auto;
+  user-select: all;
+  scrollbar-width: thin;
+}
+.pl-cmd-copy {
+  flex: none;
+  min-width: 66px;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+}
+.pl-cmd-copy:hover {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+/* ---- the next step ----------------------------------------------------------------------- */
+.pl-next {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
   border: 1px solid var(--border);
+  border-left: 2px solid var(--text-primary);
+  background: var(--surface-2);
+}
+.pl-next.wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 10px 28px;
+}
+.pl-next-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.pl-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pl-next-text {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.pl-next-cmd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.pl-next-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---- the deck: the queue rail and the inspector ------------------------------------------- */
+.pl-deck {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.pl-strip {
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.pl-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pl-rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.pl-rail-head h2::before {
+  content: "[";
+  color: var(--text-muted);
+}
+.pl-rail-head h2::after {
+  content: "]";
+  color: var(--text-muted);
+}
+.pl-rail-count {
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 560px;
+  overflow-y: auto;
+}
+.pl-q {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 10px;
+  width: 100%;
+  padding: 10px 14px 10px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-q:hover {
+  background: var(--surface-2);
+}
+.pl-q[aria-current="true"] {
+  background: var(--accent-wash);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.pl-q:focus-visible {
+  outline-offset: -3px;
+}
+.pl-q-key {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+.pl-q-name {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+.pl-q[aria-current="true"] .pl-q-name {
+  color: var(--text-primary);
+}
+.pl-q-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-q-meta > span + span:not(.pl-q-acct)::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--text-muted);
+}
+.pl-q-acct {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  line-height: 14px;
+  color: var(--text-secondary);
+}
+.pl-rail-empty {
+  padding: 16px;
+}
+.pl-rail-foot {
+  margin-top: auto;
+  padding-bottom: 14px;
+}
+.pl-rail-legend {
+  padding: 12px 16px 0;
+}
+.pl-rail-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 16px 0;
+}
+.pl-rail-add .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pl-rail-hint {
+  margin: 10px 16px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* The four stages as four small cells (queue rows) and their key. */
+.pl-track {
+  display: inline-flex;
+  gap: 2px;
+}
+.pl-track-cell {
+  display: inline-block;
+  width: 13px;
+  height: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+}
+.pl-track-cell.done {
+  border-color: var(--ink-fill);
+  background: var(--ink-fill);
+}
+.pl-track-cell.now {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.pl-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---- the inspector ----------------------------------------------------------------------- */
+.pl-insp-wrap {
+  min-width: 0;
+  scroll-margin-top: 56px;
+}
+.card.pl-insp {
+  height: 100%;
+  padding: 18px 20px 20px;
+}
+.pl-insp-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.pl-insp-title {
+  min-width: 0;
+}
+.pl-insp-name {
+  margin: 4px 0 10px;
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text-primary);
+}
+.pl-insp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px 28px;
+  margin-top: 20px;
+}
+.pl-insp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.pl-mini {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pl-spark {
+  display: block;
+  width: 100%;
+  height: 56px;
+  color: var(--text-primary);
+}
+.pl-spark-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.pl-spark-base {
+  stroke: var(--axis-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.pl-mini-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ---- the schematic: four compartments, like the cross-section of a hull --------------------- */
+.pl-schem {
+  margin: 18px 0 0;
+}
+.pl-hull {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(5, auto);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+}
+.pl-comp {
+  position: relative;
+  display: grid;
+  grid-row: span 5;
+  grid-template-rows: subgrid;
+  row-gap: 10px;
+  min-width: 0;
+  padding: 16px 14px 12px;
+  border-left: 1px solid var(--border-strong);
+}
+.pl-comp:first-child {
+  border-left: 0;
+}
+/* The top bar: ink when done, orange for the current stage, hatched for later ones. */
+.pl-comp::before,
+.pl-step::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--hatch);
+}
+.pl-comp.done::before,
+.pl-step.done::before {
+  background: var(--ink-fill);
+}
+.pl-comp.now::before,
+.pl-step.now::before {
+  background: var(--accent);
+}
+.pl-comp.now {
+  background: var(--accent-wash);
+}
+.pl-comp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pl-comp-n {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+}
+.pl-comp.now .pl-comp-n,
+.pl-comp.done .pl-comp-n {
+  color: var(--text-primary);
+}
+.pl-comp-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.pl-comp.later .pl-comp-name {
+  color: var(--text-secondary);
+}
+.pl-comp-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.pl-comp-fact {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.pl-comp.later .pl-comp-fact {
+  color: var(--text-secondary);
+}
+.pl-comp-when {
+  color: var(--text-muted);
+}
+.pl-comp-link {
+  justify-self: start;
+  align-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.pl-comp-link:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--accent);
+}
+
+/* Cells: one per check, week or step. Ink = done or passed, orange = failed, outline = to come,
+   dashed = not applicable, hatched = not known yet. */
+.pl-cells {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 12px;
+}
+.pl-cell {
+  flex: 1 1 0;
+  min-width: 3px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1);
+}
+.pl-cell.pass {
+  border-color: var(--ink-fill);
+  background: var(--ink-fill);
+}
+.pl-cell.fail {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.pl-cell.na {
+  border-style: dashed;
+  background: transparent;
+}
+.pl-cell.unknown {
+  background: var(--hatch);
+}
+.pl-cell.part {
+  border-color: var(--ink-fill);
+  background: linear-gradient(90deg, var(--ink-fill) var(--fill, 50%), var(--surface-1) var(--fill, 50%));
+}
+/* Names under a few cells (stage 1: written, rehearsed, frozen). */
+.pl-cells-named {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.pl-cells-names {
+  display: flex;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-cells-names span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-cells-names span.on {
+  color: var(--text-primary);
+}
+/* The gate's minimum paper duration, between two week cells. */
+.pl-cells-mark {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 2px;
+  background: var(--text-primary);
+}
+
+/* ---- the strip: the kill switch and the alert feed ----------------------------------------- */
+.card.pl-ks-panel {
+  display: flex;
+  flex-direction: column;
+}
+/* The kill switch in the paper record, at the foot of the panel (level with the end of the feed). */
+.pl-ks-record {
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.pl-ks-panel > .pl-ks {
+  margin-bottom: 16px;
+}
+.pl-ks-when {
+  display: block;
+  color: var(--text-secondary);
+}
+.pl-ks-msg {
+  display: block;
+  font-family: var(--font);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.pl-ks-panel:has(.pl-ks.on) {
+  border-color: var(--accent);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.pl-feed-panel {
+  scroll-margin-top: 60px;
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
+}
+.card.pl-flash {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--accent-wash),
+    inset 0 2px 0 var(--accent);
+}
+.pl-feed-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pl-feed-aside b {
+  font-weight: 500;
+}
+.pl-feed-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 14px;
+}
+.pl-seg-n {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+.pl-feed-tz {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-feed {
+  margin: 0;
+  padding: 0;
+  max-height: 284px;
+  overflow-y: auto;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+.pl-feed-tall {
+  max-height: 318px;
+}
+.pl-ev {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 8px 8px 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.pl-ev.crit {
+  background: var(--accent-wash);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.pl-ev-time {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.pl-ev-time span:last-child {
+  color: var(--text-secondary);
+}
+.pl-ev-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pl-ev-msg {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.pl-ev-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-ev-meta .linklike {
+  letter-spacing: inherit;
   color: var(--text-secondary);
 }
 
-.stage-pip.done {
+/* Events per day, above the feed. */
+.pl-evstrip {
+  margin: 0 0 12px;
+}
+.pl-evstrip svg {
+  display: block;
+  width: 100%;
+  height: 34px;
+}
+.pl-evstrip-base {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.pl-evstrip-info {
+  fill: var(--deemph);
+}
+.pl-evstrip-loud {
+  fill: var(--accent);
+}
+.pl-evstrip-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ---- the kill switch (KillSwitch.tsx) ------------------------------------------------------ */
+.pl-ks {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pl-ks-state {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+/* A lamp: grey when off, orange when on. */
+.pl-ks-lamp {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--border-strong);
+}
+.pl-ks.on .pl-ks-lamp {
+  border-color: var(--accent);
   background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  box-shadow: 0 0 0 4px var(--accent-wash);
 }
-
-.stage-pip.now {
-  border-color: var(--accent);
-  color: var(--text-primary);
-  font-weight: 600;
+.pl-ks-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
 }
-
-.checklist {
+.pl-ks-field {
+  flex: 1 1 180px;
+  max-width: 380px;
+}
+.pl-ks-confirm {
+  padding: 10px 12px 12px;
+  border: 1px solid var(--accent);
+  background: var(--accent-wash);
+}
+.pl-ks-confirm p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.pl-ks-note {
   margin: 0;
-  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.pl-ks-note .help {
+  vertical-align: -2px;
+}
+.pl-ks-note code {
+  white-space: nowrap;
+}
+
+/* ---- a spec's page ----------------------------------------------------------------------- */
+.pl-back {
+  display: flex;
+  margin-bottom: -4px;
+}
+.card.pl-dhead {
+  padding: 18px 20px 20px;
+}
+.pl-dhead-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+  margin-bottom: 18px;
+}
+.pl-dhead-title {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+.pl-dhead-title h1 {
+  margin: 4px 0 10px;
+}
+
+/* The tabs are the four stages: a top bar for the stage's state, an ink underline for the tab shown. */
+.pl-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+}
+.pl-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 15px 14px 12px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-step:first-child {
+  border-left: 0;
+}
+.pl-step::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -1px 0;
+  height: 2px;
+  background: transparent;
+}
+.pl-step:hover {
+  background: var(--surface-2);
+}
+.pl-step[aria-selected="true"] {
+  background: var(--surface-2);
+}
+.pl-step[aria-selected="true"]::after {
+  background: var(--text-primary);
+}
+.pl-step:focus-visible {
+  outline-offset: -3px;
+}
+.pl-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-step-name {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text-secondary);
+}
+.pl-step[aria-selected="true"] .pl-step-name {
+  color: var(--text-primary);
+}
+.pl-step .pl-cells {
+  height: 8px;
+}
+.pl-step-fact {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+.pl-tabpanel {
+  min-width: 0;
+}
+
+.pl-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.pl-two.wide-left {
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+}
+
+/* The data periods to scale. */
+.pl-periods {
+  display: flex;
+  gap: 2px;
+  height: 30px;
+}
+.pl-period {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pl-period span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pl-period.train,
+.pl-period-swatch.train {
+  border-color: var(--ink-fill);
+  background: var(--ink-fill);
+  color: var(--ink-fill-text);
+}
+.pl-period.validation,
+.pl-period-swatch.validation {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+.pl-period.test,
+.pl-period-swatch.test {
+  border-style: dashed;
+  border-color: var(--text-muted);
+  background: var(--hatch);
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+}
+.pl-period.test span {
+  padding: 1px 4px;
+  background: var(--surface-1);
+}
+.pl-period.test.opened,
+.pl-period-swatch.test.opened {
+  border-style: solid;
+  background: var(--surface-1);
+}
+.pl-periods-key {
   display: grid;
   gap: 6px;
+  margin: 12px 0 0;
+}
+.pl-period-row {
+  display: grid;
+  grid-template-columns: 124px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+}
+.pl-period-row dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pl-period-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.pl-period-swatch {
+  width: 12px;
+  height: 8px;
+  border: 1px solid var(--border-strong);
+}
+.pl-period-yrs {
+  font-family: var(--mono);
+  color: var(--text-secondary);
+}
+.pl-period-note {
+  color: var(--text-muted);
+}
+
+table.data.pl-params td {
+  font-size: 12px;
+}
+
+/* Report tables (Markdown) keep a readable width and scroll sideways in a narrow panel. */
+.pl-page .prose table.data {
+  min-width: 540px;
+}
+
+/* The checklist and the gate as instrument tables. */
+.pl-checkhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+}
+.pl-checkhead .pl-cells {
+  flex: 1 1 280px;
+  max-width: 520px;
+  height: 16px;
+}
+.pl-checkcounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.pl-checkcounts b {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+table.data.pl-checks {
+  margin-top: 10px;
+}
+table.data.pl-checks td {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  vertical-align: top;
+}
+table.data.pl-checks td.pl-c-res {
+  vertical-align: top;
+}
+.pl-c-n {
+  width: 36px;
+  color: var(--text-muted);
+}
+/* A failed check: its number in orange (the tag says FAIL in words). */
+tr.pl-row-fail td.pl-c-n {
+  color: var(--accent-text);
+}
+.pl-c-name {
+  min-width: 220px;
+}
+.pl-c-title {
+  display: block;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.pl-c-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.pl-c-mobile {
+  display: none;
+}
+.pl-c-val {
+  min-width: 140px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.pl-c-need {
+  min-width: 120px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+table.data th.pl-c-res,
+table.data td.pl-c-res {
+  width: 86px;
+  text-align: right;
+}
+.pl-c-detail-cell {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.pl-gate-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+}
+.pl-gate-src {
+  flex: 1 1 300px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.pl-gate-sum {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 4px 0 6px;
+}
+.pl-gate-sum .pl-cells {
+  max-width: 520px;
+  height: 14px;
+}
+.pl-gate-track {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.table-wrap.pl-orders {
+  max-height: 430px;
+  overflow-y: auto;
+}
+
+/* ---- narrower screens ---------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .pl-two,
+  .pl-two.wide-left {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pl-readouts-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .pl-readouts-6 > .pl-ro:nth-child(3n + 1) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+@media (max-width: 1000px) {
+  .pl-deck,
+  .pl-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pl-queue {
+    max-height: none;
+  }
+  .pl-rail-hint {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .pl-insp-body,
+  .pl-next.wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .pl-readouts,
+  .pl-readouts-4,
+  .pl-readouts-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .pl-ro {
+    padding: 0 12px;
+  }
+  .pl-readouts > .pl-ro:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .pl-readouts > .pl-ro:nth-child(even) {
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
+  }
+  /* Panel heads and figure captions may wrap here, so a long aside never squeezes the title. */
+  .pl-home .panel-head,
+  .pl-page .panel-head,
+  .pl-page .figure .caption {
+    flex-wrap: wrap;
+  }
+  .pl-cmd-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .pl-step-stage {
+    display: none;
+  }
+  .pl-ro .readout .value {
+    font-size: 22px;
+  }
+
+  .card.pl-insp,
+  .card.pl-dhead {
+    padding: 14px 14px 16px;
+  }
+  .pl-insp-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pl-insp-name {
+    font-size: 18px;
+  }
+
+  .pl-hull {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .pl-comp {
+    display: flex;
+    flex-direction: column;
+    grid-row: auto;
+    gap: 9px;
+    border-top: 1px solid var(--border-strong);
+    border-left: 0;
+  }
+  .pl-comp:first-child {
+    border-top: 0;
+  }
+
+  .pl-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pl-step:nth-child(3) {
+    border-left: 0;
+  }
+  .pl-step:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+  .pl-step-name {
+    font-size: 14px;
+  }
+
+  .pl-feed-tz {
+    margin-left: 0;
+  }
+  .pl-ev {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .pl-hide-sm {
+    display: none;
+  }
+  .pl-c-mobile {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-primary);
+  }
+  .pl-c-name {
+    min-width: 0;
+  }
+  .pl-period-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-feed-panel {
+    transition: none;
+  }
 }
