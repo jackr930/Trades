@@ -1,0 +1,879 @@
+/* lab.css: the Strategy Lab (#/lab), prefixed lab-. Shared tokens and components live in ../styles.css;
+   the design language is docs/DESIGN.md.
+
+   The Lab is laid out like an instrument bench: the apparatus (the set-up) in a column on the left that
+   stays in view with its RUN button, the readouts and numbered figures on the right. Below 1100px the
+   apparatus stacks above the results and RUN sticks to the bottom of the screen while you set up. */
+
+/* ---- layout ------------------------------------------------------------------------ */
+.lab {
+  display: grid;
+  grid-template-columns: minmax(300px, 356px) minmax(0, 1fr);
+  grid-template-areas:
+    "app head"
+    "app results";
+  grid-template-rows: auto 1fr;
+  gap: 16px 20px;
+  align-items: start;
+}
+.lab-head {
+  grid-area: head;
+  min-width: 0;
+  padding-top: 1px;
+}
+.lab-head p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+.lab-results {
+  grid-area: results;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  container: lab / inline-size;
+  scroll-margin-top: calc(var(--topbar-h) + 12px);
+}
+
+/* ---- the apparatus ----------------------------------------------------------------- */
+.lab-app-wrap {
+  grid-area: app;
+  position: sticky;
+  top: calc(var(--topbar-h) + 12px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Set from the page's scroll position so RUN is always inside the window (StrategyLab.tsx). */
+  max-height: var(--lab-app-max, calc(100vh - var(--topbar-h) - 28px));
+}
+.card.lab-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0;
+}
+.lab-app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 -16px;
+  padding: 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.lab-app-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface-1);
+}
+.lab-foot-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.lab-foot-sum {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.lab-kbd {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.btn.lab-run {
+  width: 100%;
+  height: 40px;
+  gap: 10px;
+  font-size: 11.5px;
+  letter-spacing: var(--track);
+}
+
+/* Sections: a hairline, a numbered mono-caps head with the current setting on the right. */
+.lab-sec {
+  border-top: 1px solid var(--border);
+  scroll-margin-top: calc(var(--topbar-h) + 12px);
+}
+.lab-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 0 10px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.lab-sec-head::-webkit-details-marker {
+  display: none;
+}
+.lab-sec-head::marker {
+  content: "";
+}
+.lab-sec-fixed .lab-sec-head {
+  cursor: default;
+}
+.lab-sec-n {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.lab-sec-title {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 600;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.lab-sec-sum {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: var(--label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-sec-caret {
+  flex: none;
+  width: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  text-align: right;
+  color: var(--text-muted);
+}
+.lab-sec-caret::before {
+  content: "+";
+}
+.lab-sec[open] > .lab-sec-head .lab-sec-caret::before {
+  content: "−";
+}
+.lab-sec-head:hover .lab-sec-caret {
+  color: var(--text-primary);
+}
+.lab-sec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 0 16px;
+}
+
+/* Full-width segmented controls (experiment, bars, fill, method). Disabled = hatched, as inactive. */
+.lab-seg {
+  display: flex;
+  width: 100%;
+}
+.segmented.lab-seg button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+}
+.segmented.lab-seg button:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  background-image: var(--hatch);
+}
+.segmented.lab-exp button {
+  height: 32px;
+}
+
+.lab-strat-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.lab-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-strat-sum {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.lab-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.lab-note b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+/* Sentences use the secondary ink (4.5:1 or better); the muted grey is kept for labels. */
+.lab-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.lab-more {
+  align-self: flex-start;
+  font-size: 12.5px;
+}
+.lab-reset {
+  align-self: flex-start;
+  margin-left: -8px;
+}
+.lab-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Field hints are sentences: sans, not mono caps (the shared `.field > span` rule also catches them). */
+.lab-app .field > .hint {
+  display: block;
+  font-family: var(--font);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* Number fields as instrument rows: the label on the left, a right-aligned value on the right. */
+.lab-form .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.lab-form .col {
+  gap: 10px;
+}
+.lab-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lab-form .field:has(> input.input),
+.field.lab-f {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 4px 12px;
+}
+.lab-form .field:has(> input.input) > .hint,
+.field.lab-f > .hint {
+  grid-column: 1 / -1;
+}
+.lab-app input.input[type="number"] {
+  text-align: right;
+}
+.lab-app .check {
+  font-size: 13px;
+}
+
+/* The optimiser's search: one row per numeric parameter. */
+.lab-ranges {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px dashed var(--border);
+}
+.lab-range {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.check.lab-range-head {
+  display: flex;
+  width: 100%;
+  font-size: 12.5px;
+}
+.lab-range-name {
+  flex: 1;
+  min-width: 0;
+}
+.lab-range.on .lab-range-name {
+  font-weight: 500;
+}
+.lab-range-count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-range.on .lab-range-count {
+  color: var(--text-primary);
+}
+.lab-range-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 2px 22px;
+}
+.lab-range-inputs .input {
+  height: 28px;
+  text-align: right;
+}
+
+/* ---- results: the readouts panel ---------------------------------------------------- */
+.lab-runmeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lab-runmeta .spinner {
+  width: 11px;
+  height: 11px;
+}
+.lab-runline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: -2px 0 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.lab-runline > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.lab-runline dt {
+  font-size: var(--label);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-runline dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+.lab-stale {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-wash);
+  font-size: 12.5px;
+}
+
+/* A grid of readouts with hairlines between them (the gaps show the border colour). */
+.lab-ro {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 -16px;
+  background: var(--border);
+  border-top: 1px solid var(--border);
+}
+.lab-ro > .readout {
+  padding: 14px 16px 13px;
+  background: var(--surface-1);
+}
+.lab-ro-minor > .readout {
+  padding: 10px 16px 11px;
+}
+.lab-ro .readout .label {
+  margin-top: 6px;
+}
+.lab-ro-label .help {
+  margin-left: 5px;
+  vertical-align: -2px;
+}
+.lab-ro + :not(.lab-ro) {
+  border-top: 1px solid var(--border);
+}
+.lab-ro-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 12px 16px 0;
+}
+.lab-vs {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lab-vs b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.lab-vs-k {
+  margin-right: 4px;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-eq {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.lab-eq b {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.lab-eq sup {
+  font-size: 8.5px;
+  line-height: 0;
+}
+
+/* The "next" strip: replay, race, or stress it. */
+.lab-next {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--text-primary);
+  border-radius: var(--radius);
+}
+.lab-next-k {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-next-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.lab-next-text {
+  flex: 1 1 380px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lab-next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Figures: a sentence under each chart says what it shows and how to read it. On a narrow screen the
+   caption's aside wraps under its title instead of squeezing it. */
+.lab-results .figure > .caption {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.lab-results .figure > .caption > .fig {
+  white-space: nowrap;
+}
+.lab-figcap {
+  margin: 10px 0 0;
+  max-width: 110ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.lab-figcap b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+/* A figure with its numbers beside it (an inspector), which drops below when there is no room. */
+.lab-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px 28px;
+}
+.lab-split-main {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.lab-split-side {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 380px;
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+}
+.lab-split-side h3 {
+  margin: 2px 0 10px;
+}
+.lab-mini {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 14px 16px;
+  margin: 0;
+}
+.lab-mini dt {
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-mini dd {
+  margin: 3px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lab-mini-v {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.lab-mini-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.lab-verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.lab-verdict .label {
+  flex: none;
+}
+
+/* All statistics, in groups that flow into two columns. */
+.lab-stats {
+  column-count: 2;
+  column-gap: 32px;
+}
+.lab-stats-group {
+  break-inside: avoid;
+  margin-bottom: 18px;
+}
+.lab-stats-group h3 {
+  margin: 0 0 2px;
+  padding-bottom: 6px;
+}
+/* These three-column tables never scroll sideways; letting them overflow keeps the (?) tips unclipped. */
+.lab-stats .table-wrap {
+  overflow: visible;
+}
+
+/* The optimiser's results. */
+.lab-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: -2px 0 14px;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.lab-chosen-vals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+.lab-chosen-k {
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.lab-row-act {
+  white-space: nowrap;
+  text-align: right;
+}
+.lab-row-act .tag {
+  margin-right: 6px;
+}
+.lab-after-table {
+  margin: 10px 0 0;
+}
+
+/* Walk-forward windows on one timeline. */
+.lab-wf {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.lab-wf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+}
+.lab-wf-legend-r {
+  margin-left: auto;
+  font-size: var(--label);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-wf-key {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.lab-wf-key.train,
+.lab-wf-train {
+  background-color: var(--surface-2);
+  background-image: var(--hatch);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.lab-wf-key.test,
+.lab-wf-test {
+  background: var(--text-primary);
+}
+.lab-wf-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 10px;
+  height: 19px;
+}
+.lab-wf-n {
+  color: var(--text-muted);
+}
+.lab-wf-track {
+  position: relative;
+  height: 9px;
+}
+.lab-wf-train,
+.lab-wf-test {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.lab-wf-ret {
+  text-align: right;
+}
+.lab-wf-axis {
+  height: 24px;
+  margin-top: 6px;
+  align-items: start;
+}
+.lab-wf-axis .lab-wf-track {
+  height: 20px;
+  border-top: 1px solid var(--axis);
+}
+.lab-wf-tick {
+  position: absolute;
+  top: 0;
+  padding-top: 5px;
+  transform: translateX(-50%);
+  color: var(--axis-text);
+  white-space: nowrap;
+}
+.lab-wf-tick::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  height: 4px;
+  border-left: 1px solid var(--axis);
+}
+
+/* Empty and loading states: a hatched band, one sentence, and what will appear. */
+.lab-empty-lede {
+  margin: 14px 0 0;
+  max-width: 76ch;
+  color: var(--text-secondary);
+}
+.hatch.lab-running {
+  height: 14px;
+}
+.lab-contents {
+  margin-top: 18px;
+}
+.lab-contents h3 {
+  margin: 0 0 8px;
+}
+.lab-contents dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 18px;
+  margin: 0;
+}
+.lab-contents dt {
+  padding-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 500;
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.lab-contents dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lab-contents-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 32px;
+}
+
+/* ---- the results column's own width decides its density ----------------------------- */
+@container lab (max-width: 980px) {
+  .lab-split.lab-split-wide {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lab-split.lab-split-wide > .lab-split-side {
+    max-width: none;
+    padding: 14px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+@container lab (max-width: 760px) {
+  .lab-stats {
+    column-count: 1;
+  }
+  .lab-contents-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container lab (max-width: 620px) {
+  .lab-wf-tick.alt {
+    display: none;
+  }
+  .lab-results .figure > .caption > .aside {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .lab-split {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lab-split > .lab-split-side {
+    max-width: none;
+    padding: 14px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .lab-ro {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lab-ro > .readout:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .lab-next {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .lab-contents dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .lab-contents dd {
+    margin-bottom: 8px;
+  }
+}
+
+/* ---- stacked: the apparatus above the results --------------------------------------- */
+@media (max-width: 1100px) {
+  .lab {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "head"
+      "app"
+      "results";
+    grid-template-rows: auto;
+  }
+  .lab-app-wrap {
+    position: static;
+    max-height: none;
+  }
+  .lab-app-body {
+    overflow: visible;
+  }
+  /* RUN stays at the bottom of the screen while you work through the set-up. */
+  .lab-app-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+  }
+}
+@media (max-width: 1100px) and (min-width: 761px) {
+  /* A tablet: the set-up in two columns, the summary beside RUN. */
+  .lab-app-body {
+    column-count: 2;
+    column-gap: 32px;
+  }
+  .lab-sec {
+    break-inside: avoid;
+  }
+  .lab-app-foot {
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+  }
+  .lab-foot-line {
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+  }
+  .btn.lab-run {
+    flex: none;
+    width: 300px;
+  }
+}
+@media (max-width: 760px) {
+  .lab-head h1 {
+    font-size: 20px;
+  }
+  .lab-kbd {
+    display: none;
+  }
+}

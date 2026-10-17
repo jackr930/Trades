@@ -1,16 +1,63 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { EvidenceLevel, MetricInfo, Metrics, ParamSpec, Reference, Sizing, Trade } from "../types";
 import { evidenceLabel, fmtDate, fmtMetric, fmtMoney, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 
 /** Hover/focus tooltip. Deliberately not a <button>: inside a <label> a button would become
- *  the label's control and steal the input's accessible name. */
+ *  the label's control and steal the input's accessible name. The bubble is drawn in a portal at
+ *  fixed coordinates, so a scrolling table or a clipped panel never cuts it off, and it stays
+ *  inside the screen on a phone. */
 export function Help({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number; width: number; above: boolean } | null>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = Math.min(270, window.innerWidth - 16);
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - width / 2), window.innerWidth - width - 8);
+    const above = r.top > 140; // room above the "?"; otherwise it opens below
+    setAt({ left, width, above, top: above ? r.top - 6 : r.bottom + 6 });
+  };
+  const hide = () => setAt(null);
+  useEffect(() => {
+    if (!at) return;
+    const close = () => setAt(null);
+    window.addEventListener("scroll", close, true); // a moved "?" would leave its bubble behind
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [at]);
   return (
-    <span className="help" tabIndex={0} role="note" aria-label={text}>
+    <span
+      ref={ref}
+      className="help"
+      tabIndex={0}
+      role="note"
+      aria-label={text}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") hide();
+      }}
+    >
       ?
-      <span className="tip" role="tooltip" aria-hidden="true">
-        {text}
-      </span>
+      {at
+        ? createPortal(
+            <span
+              className={`help-tip${at.above ? " above" : ""}`}
+              role="tooltip"
+              aria-hidden="true"
+              style={{ left: at.left, top: at.top, width: at.width }}
+            >
+              {text}
+            </span>,
+            document.body,
+          )
+        : null}
     </span>
   );
 }
@@ -384,6 +431,8 @@ const SIZING_HELP: Record<string, string> = {
 
 export function SizingForm({ value, onChange }: { value: Partial<Sizing>; onChange: (v: Partial<Sizing>) => void }) {
   const method = (value.method ?? "fixed") as Sizing["method"];
+  // Shown at 12 significant digits: 0.07 x 100 is 7, not 7.000000000000001.
+  const shown = (x: unknown, scale: number) => String(+(Number(x) * scale).toPrecision(12));
   const num = (k: keyof Sizing, label: string, step: number, help?: string, scale = 1) => (
     <label className="field" title={help}>
       <span>{label}</span>
@@ -391,7 +440,7 @@ export function SizingForm({ value, onChange }: { value: Partial<Sizing>; onChan
         className="input num"
         type="number"
         step={step}
-        value={value[k] === undefined ? "" : String(Number(value[k]) * scale)}
+        value={value[k] === undefined ? "" : shown(value[k], scale)}
         onChange={(e) => onChange({ ...value, [k]: e.target.value === "" ? undefined : Number(e.target.value) / scale })}
       />
     </label>

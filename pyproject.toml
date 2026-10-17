@@ -17,19 +17,24 @@ dependencies = [
     "websockets>=12",
     "pydantic>=2.5",
     "yfinance>=0.2.40",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+# The parquet cache of downloaded bars (trades.data.cache); without it every request downloads.
+cache = ["pyarrow>=15"]
 dev = [
     "pytest>=8",
     "ruff>=0.5",
     "statsmodels>=0.14",
+    "pyarrow>=15",
 ]
 
 [project.scripts]
 trades = "trades.cli:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["trades*"]
 
 [tool.pytest.ini_options]

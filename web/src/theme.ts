@@ -82,7 +82,7 @@ export function readChartColors(): ChartColors {
     accent: v("--accent"),
     good: v("--good"),
     critical: v("--critical"),
-    dark: cs.colorScheme.includes("dark") || v("--page").toLowerCase() === "#0d0d0d",
+    dark: cs.colorScheme.includes("dark") || v("--page").toLowerCase() === "#0b0c0d",
   };
 }
 

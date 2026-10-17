@@ -1,0 +1,10 @@
+# Commits and pushes the day's paper records (paper/), so they outlive this machine and the
+# daily review (yours, or a Claude routine reading the repository) sees them. Needs a deploy key
+# with write access to the repository; skip this unit if you copy the records another way.
+[Unit]
+Description=Trades: commit the paper records
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trades
+ExecStart=/bin/sh -c 'git add paper && (git diff --cached --quiet || git commit -m "Paper records: $(date -u +%%Y-%%m-%%d)") && git pull --rebase && git push'

@@ -1,0 +1,40 @@
+# Run from the repository root:  docker compose -f deploy/docker-compose.yml up --build
+#
+#   trades   the web app (default)
+#   trader   the intraday paper runner, one session per run (profile "trader"; see deploy/README.md)
+services:
+  trades:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000" # local machine only: the API stores your settings and keys
+    volumes:
+      - trades-data:/data # settings, CSV data folder and simulator history
+    environment:
+      # Optional: Alpaca market-data keys (can also be entered in the Settings page)
+      - APCA_API_KEY_ID=${APCA_API_KEY_ID:-}
+      - APCA_API_SECRET_KEY=${APCA_API_SECRET_KEY:-}
+
+  trader:
+    # Trades config/paper.yaml's spec on the Alpaca PAPER account for one session, then exits.
+    # systemd starts it each weekday morning (deploy/systemd); after a crash Docker restarts it and
+    # it picks up where it stopped (paper/<spec>/state.json). Without --submit it is a dry run.
+    profiles: ["trader"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["trades", "paper", "--submit"]
+    working_dir: /repo
+    environment:
+      - TRADES_REPO=/repo # the checkout: specs, config, risk limits, research runs, paper records
+      - PYTHONPATH=/repo/src # run the checkout's code, so each record's code version is the code that ran
+      - TRADES_HOME=/data
+    env_file: /etc/trades/paper.env # outside the repository, chmod 600: paper keys, Telegram, heartbeat URL
+    volumes:
+      - ..:/repo
+      - trades-data:/data
+    restart: on-failure:5 # a crash restarts it; a clean finish after the close does not
+
+volumes:
+  trades-data:

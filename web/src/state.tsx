@@ -8,9 +8,9 @@ export interface Route {
 }
 
 function parseHash(): Route {
-  const raw = window.location.hash.replace(/^#/, "") || "/live";
+  const raw = window.location.hash.replace(/^#/, "") || "/pipeline";
   const [path, query = ""] = raw.split("?");
-  return { path: path || "/live", params: new URLSearchParams(query) };
+  return { path: path || "/pipeline", params: new URLSearchParams(query) };
 }
 
 export function useRoute(): [Route, (path: string, params?: Record<string, string>) => void] {
@@ -120,4 +120,46 @@ export function useAction<A extends unknown[], R>(fn: (...args: A) => Promise<R>
     [fn],
   );
   return { run, loading, error, setError };
+}
+
+// ---- the status line ---------------------------------------------------------------------
+// One sentence under the top bar that says what is true on this screen and what to do next
+// (docs/DESIGN.md). Views set it with useStatusLine; the shell shows it.
+const StatusSetCtx = createContext<(text: string | null) => void>(() => undefined);
+const StatusTextCtx = createContext<string | null>(null);
+
+export function StatusLineProvider({ children }: { children: ReactNode }) {
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <StatusSetCtx.Provider value={setText}>
+      <StatusTextCtx.Provider value={text}>{children}</StatusTextCtx.Provider>
+    </StatusSetCtx.Provider>
+  );
+}
+
+/** Narrate this view in the status line while it is shown. `code` and **bold** spans are rendered. */
+export function useStatusLine(text: string | null) {
+  const set = useContext(StatusSetCtx);
+  useEffect(() => {
+    set(text);
+  }, [text, set]);
+  useEffect(() => () => set(null), [set]);
+}
+
+export function useStatusText(): string | null {
+  return useContext(StatusTextCtx);
+}
+
+// ---- the top bar's signals -----------------------------------------------------------------
+// The kill switch and the alert count in the top bar poll every 30 seconds. Whatever changes
+// one of them (turning the kill switch on or off) says so, and the top bar reloads at once.
+const SIGNALS_EVENT = "trades:signals";
+
+export function signalsChanged() {
+  window.dispatchEvent(new Event(SIGNALS_EVENT));
+}
+
+export function onSignalsChanged(listener: () => void): () => void {
+  window.addEventListener(SIGNALS_EVENT, listener);
+  return () => window.removeEventListener(SIGNALS_EVENT, listener);
 }

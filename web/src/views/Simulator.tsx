@@ -1,23 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type OrderRequest } from "../api";
-import { useApp, type Route } from "../state";
-import StrategySim from "./StrategySim";
+import { useApp, useStatusLine, type Route } from "../state";
+import StrategySim, {
+  GroupLabel,
+  Kbd,
+  OptionTile,
+  ReadoutGrid,
+  Segmented,
+  Timeline,
+  Transport,
+  TransportIcon,
+  UnitInput,
+  pctParts,
+  toneOf,
+  type TimelineMark,
+  type TimelineSegment,
+} from "./StrategySim";
 import type { Bars, Meta, Settings, SimHistoryRow, SimState } from "../types";
 import PriceChart, { type PriceLineSpec, type PriceMarker } from "../components/PriceChart";
 import LineChart, { type LineSpec } from "../components/LineChart";
-import {
-  DirectionBadge,
-  ErrorBox,
-  Help,
-  ReferenceList,
-  Spinner,
-  StatusDot,
-  Tabs,
-  TradesTable,
-  VoteGlyph,
-} from "../components/ui";
+import { DirectionBadge, ErrorBox, Help, ReferenceList, Spinner, Tabs, TradesTable, VoteGlyph } from "../components/ui";
+import { Figure, Hatch, Panel, Readout, Tag, type TagKind } from "../components/instrument";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtPrice, isNum, pnlClass } from "../format";
 import { useChartColors } from "../theme";
+import "../styles/simulator.css";
 
 export default function Simulator({ route }: { route: Route }) {
   const { navigate } = useApp();
@@ -25,14 +31,16 @@ export default function Simulator({ route }: { route: Route }) {
   const runId = route.params.get("run");
   return (
     <div className="stack">
-      <Tabs
-        tabs={[
-          ["strategies", "Test strategies"],
-          ["practice", "Practice trading yourself"],
-        ]}
-        value={practice ? "practice" : "strategies"}
-        onChange={(m) => navigate("/sim", m === "practice" ? { mode: "practice" } : {})}
-      />
+      <div className="sim-modes">
+        <Tabs
+          tabs={[
+            ["strategies", "Test strategies"],
+            ["practice", "Practice trading yourself"],
+          ]}
+          value={practice ? "practice" : "strategies"}
+          onChange={(m) => navigate("/sim", m === "practice" ? { mode: "practice" } : {})}
+        />
+      </div>
       {practice ? (
         <PracticeSimulator route={route} />
       ) : (
@@ -123,9 +131,42 @@ function atr(bars: Bars, n = 20): number | null {
   return sum / n;
 }
 
+function firstSentence(text: string): string {
+  const i = text.indexOf(". ");
+  return i > 0 ? text.slice(0, i + 1) : text;
+}
+
+/** Bar number (0 = the session's first decision) of each of your fills, as marks for the timeline. */
+function fillMarks(state: SimState, bars: Bars): TimelineMark[] {
+  const index = new Map(bars.t.map((t, i) => [t, i]));
+  return state.fills.map((f) => {
+    const at = (index.get(f.time) ?? state.cursor) - state.start_index;
+    const tag = f.tag && f.tag !== "entry" && f.tag !== "exit" ? ` (${f.tag.replace("_", "-")})` : "";
+    return {
+      at,
+      kind: f.qty > 0 ? "buy" : "sell",
+      title: `Bar ${at}: ${f.qty > 0 ? "bought" : "sold"} ${Math.abs(f.qty).toLocaleString()} @ ${fmtPrice(f.price)}${tag}`,
+    };
+  });
+}
+
+function lastReturn(curve: { v: (number | null)[] }): number | null {
+  const v = curve.v.filter(isNum);
+  return v.length > 1 && v[0] ? v[v.length - 1] / v[0] - 1 : null;
+}
+
+const ADVICE_LABEL: Record<string, string> = { end: "advice after the end", live: "advice while trading", off: "no advice" };
+
 // ------------------------------------------------------------------------------------
 // Setup
 // ------------------------------------------------------------------------------------
+
+const PRACTICE_LENGTHS: [number, string][] = [
+  [60, "A quarter"],
+  [125, "Six months"],
+  [250, "One year"],
+  [500, "Two years"],
+];
 
 function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Record<string, unknown>) => void; initialSymbol: string | null }) {
   const { meta, settings } = useApp() as { meta: Meta; settings: Settings };
@@ -151,6 +192,28 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
   useEffect(() => {
     api.simHistory().then(setHistory).catch(() => undefined);
   }, []);
+
+  const scenarioMeta = meta.scenarios.find((s) => s.id === scenario);
+  const presetMeta = preset ? meta.presets.find((p) => p.id === preset) : undefined;
+  const market =
+    source === "scenario"
+      ? `the **${scenarioMeta?.label ?? scenario}** scenario`
+      : presetMeta
+        ? blind
+          ? "a hidden period of real history"
+          : `**${presetMeta.label}**`
+        : symbol
+          ? `**${symbol}**${start ? ` from ${start}` : ""}`
+          : "a random large company and year";
+  useStatusLine(
+    loading
+      ? source === "history"
+        ? "Downloading the history for your session..."
+        : "Generating your market..."
+      : error
+        ? "The session did not start; the reason is next to **Start session**. Try another market or data source."
+        : `Practice on ${market}: ${length} trading days with ${fmtMoney(cash)}. Press **Start session**; the future stays hidden while you trade.`,
+  );
 
   const start_ = async () => {
     setLoading(true);
@@ -182,185 +245,279 @@ function SimSetup({ onStart, initialSymbol }: { onStart: (s: SimState, cfg: Reco
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="card-header">
-          <div>
+      <div className="stack">
+        <header className="card marks sim-intro">
+          <div className="sim-intro-text">
+            <div className="sim-kicker">Simulator · practice</div>
             <h1>Practice trading yourself</h1>
-            <p className="secondary" style={{ marginTop: 4 }}>
+            <p>
               Practise decisions one bar at a time with a paper account. The future stays hidden. Race the strategies, then get a
               scorecard that grades your <b>process</b> separately from your <b>outcome</b>.
             </p>
           </div>
-        </div>
-        <Tabs
-          tabs={[
-            ["scenario", "Synthetic scenario"],
-            ["history", "Real history"],
-          ]}
-          value={source}
-          onChange={setSource}
-        />
-        {source === "scenario" ? (
-          <div className="scenario-grid">
-            {meta.scenarios.map((s) => (
-              <button key={s.id} className="option-card" aria-pressed={scenario === s.id} onClick={() => setScenario(s.id)}>
-                <span className="row tight">
-                  <span className="title">{s.label}</span>
-                  <span className="badge neutral">{s.difficulty}</span>
+          <ol className="sim-steps" aria-label="How it works">
+            <li>
+              <b>01</b> Pick a market
+            </li>
+            <li>
+              <b>02</b> Set the session
+            </li>
+            <li>
+              <b>03</b> Pick your rivals
+            </li>
+            <li>
+              <b>
+                <TransportIcon kind="play" />
+              </b>
+              Trade bar by bar
+            </li>
+          </ol>
+        </header>
+
+        <Panel fig="01" title="Market" aside={source === "scenario" ? "synthetic scenario" : "real history"}>
+          <Segmented
+            label="Market source"
+            className="sim-source"
+            value={source}
+            onChange={setSource}
+            options={[
+              ["scenario", "Synthetic scenario"],
+              ["history", "Real history"],
+            ]}
+          />
+          {source === "scenario" ? (
+            <div className="sim-section">
+              <div>
+                <div className="sim-tiles" role="group" aria-label="Scenario">
+                  {meta.scenarios.map((s) => (
+                    <OptionTile
+                      key={s.id}
+                      kicker={s.difficulty}
+                      name={s.label}
+                      desc={firstSentence(s.description)}
+                      title={s.description}
+                      pressed={scenario === s.id}
+                      onClick={() => setScenario(s.id)}
+                    />
+                  ))}
+                </div>
+                {scenarioMeta ? (
+                  <p className="sim-note">
+                    <span className="sim-note-mark" aria-hidden="true">
+                      ◆
+                    </span>
+                    <span>
+                      <b>{scenarioMeta.label}.</b> {scenarioMeta.description}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="sim-section">
+              {!realProviders.length ? (
+                <div className="callout warn">Real history needs a data provider. Yahoo Finance works without a key.</div>
+              ) : null}
+              <div className="sim-tiles" role="group" aria-label="Period">
+                {meta.presets.map((p) => (
+                  <OptionTile
+                    key={p.id}
+                    kicker={blind ? "Hidden until the end" : `${p.symbol} from ${p.start}`}
+                    name={p.label}
+                    desc={blind ? undefined : p.description}
+                    pressed={preset === p.id}
+                    onClick={() => setPreset(p.id)}
+                  />
+                ))}
+                <OptionTile
+                  kicker="Your pick"
+                  name="Custom or random"
+                  desc="Pick a ticker and start date, or leave them blank for a random large company and year."
+                  pressed={preset === null}
+                  onClick={() => setPreset(null)}
+                />
+              </div>
+              {preset === null ? (
+                <div className="sim-fields">
+                  <label className="field">
+                    <span>Symbol (blank = random)</span>
+                    <input className="input num" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="e.g. AAPL" />
+                  </label>
+                  <label className="field">
+                    <span>Session start (blank = random)</span>
+                    <input className="input num" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+                  </label>
+                </div>
+              ) : null}
+              <div className="sim-split">
+                <label className="field sim-provider">
+                  <span>Data</span>
+                  <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                    {meta.providers
+                      .filter((p) => p.id !== "synthetic")
+                      .map((p) => (
+                        <option key={p.id} value={p.id} disabled={!p.configured}>
+                          {p.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <span className="sim-blind">
+                  <label className="check" title="Hides the ticker and dates and rescales prices to 100, so you can't rely on remembering what happened.">
+                    <input type="checkbox" checked={blind} onChange={(e) => setBlind(e.target.checked)} />
+                    Blind mode (recommended: prevents hindsight bias)
+                  </label>
+                  <Help text="Hides the ticker and dates and rescales prices to 100, so you can't rely on remembering what happened." />
                 </span>
-                <span className="desc">{s.description}</span>
-              </button>
+              </div>
+            </div>
+          )}
+        </Panel>
+
+        <Panel fig="02" title="Session" aside="your paper account">
+          <div className="sim-fields">
+            <label className="field">
+              <span>Starting cash</span>
+              <UnitInput prefix="$" type="number" value={cash} min={100} onChange={(e) => setCash(Number(e.target.value))} />
+            </label>
+            <label className="field" title="Adverse price impact per fill.">
+              <span>
+                Slippage <Help text="Adverse price impact per fill, in basis points: 1 bp is 0.01% of the trade." />
+              </span>
+              <UnitInput unit="bps" type="number" step={0.5} value={slippage} onChange={(e) => setSlippage(Number(e.target.value))} />
+            </label>
+          </div>
+          <div className="sim-section">
+            <div>
+              <GroupLabel>
+                Length <span className="sim-group-count">trading days</span>
+              </GroupLabel>
+              <div className="sim-tiles sim-tiles-lens" role="group" aria-label="Length">
+                {PRACTICE_LENGTHS.map(([v, k]) => (
+                  <OptionTile key={v} size="sm" kicker={k} name={String(v)} desc="trading days" pressed={length === v} onClick={() => setLength(v)} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <GroupLabel>Show strategy advice</GroupLabel>
+              <div className="sim-tiles sim-tiles-advice" role="group" aria-label="Show strategy advice">
+                <OptionTile
+                  kicker="Recommended"
+                  name="After the session"
+                  desc="Decide for yourself first; see how the strategies traded in the scorecard."
+                  pressed={reveal === "end"}
+                  onClick={() => setReveal("end")}
+                />
+                <OptionTile
+                  kicker="Coached"
+                  name="While trading"
+                  desc="Each strategy's current view sits beside your order ticket."
+                  pressed={reveal === "live"}
+                  onClick={() => setReveal("live")}
+                />
+                <OptionTile kicker="Solo" name="Never" desc="No strategy advice in this session." pressed={reveal === "off"} onClick={() => setReveal("off")} />
+              </div>
+            </div>
+          </div>
+          <label className="check sim-check">
+            <input type="checkbox" checked={allowShort} onChange={(e) => setAllowShort(e.target.checked)} />
+            Allow short selling
+          </label>
+        </Panel>
+
+        <Panel fig="03" title="Strategies to race against" aside={`${advisors.length} of ${singles.length} picked, plus buy-and-hold`}>
+          <div className="sim-rivals">
+            {singles.map((s) => (
+              <label key={s.id} className="sim-rival" data-checked={advisors.includes(s.id)} title={s.summary}>
+                <input
+                  type="checkbox"
+                  checked={advisors.includes(s.id)}
+                  onChange={(e) => setAdvisors(e.target.checked ? [...advisors, s.id] : advisors.filter((x) => x !== s.id))}
+                />
+                <span className="sim-rival-name">{s.name}</span>
+                <span className="sim-rival-cat">{s.category}</span>
+              </label>
             ))}
           </div>
-        ) : (
-          <div className="col">
-            {!realProviders.length ? (
-              <div className="callout warn">Real history needs a data provider. Yahoo Finance works without a key.</div>
-            ) : null}
-            <div className="scenario-grid">
-              {meta.presets.map((p) => (
-                <button key={p.id} className="option-card" aria-pressed={preset === p.id} onClick={() => setPreset(p.id)}>
-                  <span className="title">{p.label}</span>
-                  <span className="desc">
-                    {blind ? "Hidden until the end" : `${p.symbol} from ${p.start}`}. {blind ? "" : p.description}
-                  </span>
-                </button>
-              ))}
-              <button className="option-card" aria-pressed={preset === null} onClick={() => setPreset(null)}>
-                <span className="title">Custom or random</span>
-                <span className="desc">Pick a ticker and start date, or leave them blank for a random large company and year.</span>
-              </button>
-            </div>
-            {preset === null ? (
-              <div className="row">
-                <label className="field">
-                  <span>Symbol (blank = random)</span>
-                  <input className="input" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="e.g. AAPL" />
-                </label>
-                <label className="field">
-                  <span>Session start (blank = random)</span>
-                  <input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-                </label>
-              </div>
-            ) : null}
-            <div className="row">
-              <label className="field">
-                <span>Data</span>
-                <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
-                  {meta.providers
-                    .filter((p) => p.id !== "synthetic")
-                    .map((p) => (
-                      <option key={p.id} value={p.id} disabled={!p.configured}>
-                        {p.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="check" title="Hides the ticker and dates and rescales prices to 100, so you can't rely on remembering what happened.">
-                <input type="checkbox" checked={blind} onChange={(e) => setBlind(e.target.checked)} />
-                Blind mode (recommended: prevents hindsight bias)
-              </label>
-            </div>
-          </div>
-        )}
-      </div>
+        </Panel>
 
-      <div className="card">
-        <h3 className="section-title">Session options</h3>
-        <div className="form-grid">
-          <label className="field">
-            <span>Starting cash ($)</span>
-            <input className="input num" type="number" value={cash} min={100} onChange={(e) => setCash(Number(e.target.value))} />
-          </label>
-          <label className="field">
-            <span>Length (trading days)</span>
-            <select className="input" value={length} onChange={(e) => setLength(Number(e.target.value))}>
-              <option value={60}>60 (a quarter)</option>
-              <option value={125}>125 (six months)</option>
-              <option value={250}>250 (one year)</option>
-              <option value={500}>500 (two years)</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Show strategy advice</span>
-            <select className="input" value={reveal} onChange={(e) => setReveal(e.target.value as "live" | "end" | "off")}>
-              <option value="end">After the session (decide for yourself first)</option>
-              <option value="live">While trading</option>
-              <option value="off">Never</option>
-            </select>
-          </label>
-          <label className="field" title="Adverse price impact per fill.">
-            <span>Slippage (bps)</span>
-            <input className="input num" type="number" step={0.5} value={slippage} onChange={(e) => setSlippage(Number(e.target.value))} />
-          </label>
+        <div className="sim-launch" role="region" aria-label="Start the session">
+          {error ? (
+            <div className="sim-launch-error">
+              <ErrorBox error={error} />
+            </div>
+          ) : null}
+          <dl className="sim-launch-sum">
+            <div className="sim-launch-key">
+              <dt>Market</dt>
+              <dd>{source === "scenario" ? (scenarioMeta?.label ?? scenario) : presetMeta ? presetMeta.label : symbol || "Random"}</dd>
+            </div>
+            <div className="sim-launch-key">
+              <dt>Length</dt>
+              <dd>{length} days</dd>
+            </div>
+            <div>
+              <dt>Cash</dt>
+              <dd>{fmtMoney(cash)}</dd>
+            </div>
+            <div>
+              <dt>Advice</dt>
+              <dd>{{ end: "After", live: "Live", off: "Never" }[reveal]}</dd>
+            </div>
+            <div>
+              <dt>Rivals</dt>
+              <dd>{advisors.length} + B&amp;H</dd>
+            </div>
+            <div>
+              <dt>Shorts</dt>
+              <dd>{allowShort ? "Allowed" : "Off"}</dd>
+            </div>
+          </dl>
+          <div className="sim-launch-go">
+            {loading ? <Spinner label={source === "history" ? "Downloading history..." : "Generating market..."} /> : null}
+            <button className="btn primary sim-go" onClick={() => void start_()} disabled={loading}>
+              <TransportIcon kind="play" />
+              {loading ? "Preparing..." : "Start session"}
+            </button>
+          </div>
         </div>
-        <label className="check" style={{ marginTop: 10 }}>
-          <input type="checkbox" checked={allowShort} onChange={(e) => setAllowShort(e.target.checked)} />
-          Allow short selling
-        </label>
-        <h3 className="section-title" style={{ marginTop: 14 }}>
-          Strategies to race against
-        </h3>
-        <div className="chips">
-          {singles.map((s) => (
-            <label key={s.id} className="check" style={{ marginRight: 12 }}>
-              <input
-                type="checkbox"
-                checked={advisors.includes(s.id)}
-                onChange={(e) => setAdvisors(e.target.checked ? [...advisors, s.id] : advisors.filter((x) => x !== s.id))}
-              />
-              {s.name}
-            </label>
-          ))}
-        </div>
-        <div className="row" style={{ marginTop: 14 }}>
-          <button className="btn primary" onClick={() => void start_()} disabled={loading}>
-            {loading ? "Preparing..." : "Start session"}
-          </button>
-          {loading ? <Spinner label={source === "history" ? "Downloading history..." : "Generating market..."} /> : null}
-        </div>
-        <ErrorBox error={error} />
       </div>
 
       {history.length ? (
-        <div className="card">
-          <div className="card-header">
-            <h2>Your progress</h2>
-            <span className="sub">Completed sessions (stored locally)</span>
-          </div>
+        <Panel title="Your progress" aside="completed sessions (stored locally)">
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Session</th>
-                  <th className="num">Bars</th>
+                  <th className="num hide-sm">Bars</th>
                   <th className="num">Your return</th>
                   <th className="num">Buy &amp; hold</th>
-                  <th className="num">Max DD</th>
-                  <th className="num">Trades</th>
+                  <th className="num hide-sm">Max DD</th>
+                  <th className="num hide-sm">Trades</th>
                   <th className="num">Process score</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((h) => (
                   <tr key={h.id}>
-                    <td className="nowrap">{new Date(h.finished_at * 1000).toLocaleDateString()}</td>
+                    <td className="nowrap mono">{new Date(h.finished_at * 1000).toLocaleDateString()}</td>
                     <td>
-                      {h.title} <span className="muted small">{h.symbol}</span>
+                      {h.title} <span className="sim-dim">{h.symbol}</span>
                     </td>
-                    <td className="num">{h.bars}</td>
+                    <td className="num hide-sm">{h.bars}</td>
                     <td className={`num ${pnlClass(h.return)}`}>{fmtPct(h.return)}</td>
                     <td className="num">{fmtPct(h.benchmark_return)}</td>
-                    <td className="num">{fmtPct(h.max_drawdown)}</td>
-                    <td className="num">{fmtNum(h.trades, 0)}</td>
+                    <td className="num hide-sm">{fmtPct(h.max_drawdown)}</td>
+                    <td className="num hide-sm">{fmtNum(h.trades, 0)}</td>
                     <td className="num">{h.process_score ?? "–"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </Panel>
       ) : null}
     </div>
   );
@@ -464,32 +621,46 @@ function SessionView({ state, bars, accept }: { state: SimState; bars: Bars; acc
       });
     return lines;
   }, [state.orders, pos.qty, pos.avg_price, colors]);
+  const marks = useMemo(() => fillMarks(state, bars), [state, bars]);
 
-  const pct = state.progress.total ? state.progress.done / state.progress.total : 0;
   const lastClose = bars.c[bars.c.length - 1] as number;
   const a = atr(bars);
+  const { done, total } = state.progress;
+  const segments: TimelineSegment[] = done > 0 ? [{ label: "", n: done, tone: "plain", title: `${done} bars played` }] : [];
+  const bench = lastReturn(state.benchmark_curve);
+  const posText = pos.qty
+    ? `**${pos.qty > 0 ? "long" : "short"} ${Math.abs(pos.qty).toLocaleString()} shares** (unrealised ${fmtMoney(pos.unrealized_pnl, 0, true)})`
+    : `flat with **${fmtMoney(state.account.cash)}** in cash`;
+  useStatusLine(
+    playing
+      ? `Playing at ${speed} bar${speed === 1 ? "" : "s"}/s. You are ${posText}. Press \`P\` to pause and trade.`
+      : `Bar ${done} of ${total}, ${fmtDate(state.time)}. You are ${posText}; your return **${fmtPct(state.account.return_pct, 2)}**${isNum(bench) ? ` vs buy-and-hold ${fmtPct(bench, 2)}` : ""}. Place an order, or press \`N\` for the next bar.`,
+  );
+  const source = String(state.config.source ?? "");
+  const kicker = [
+    "Practice",
+    source === "history" ? "real history" : source === "scenario" ? "synthetic scenario" : "",
+    ADVICE_LABEL[state.config.reveal] ?? "",
+    state.config.allow_short ? "shorts allowed" : "long only",
+    `${fmtMoney(state.config.initial_cash)} to start`,
+  ].filter(Boolean);
 
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div>
-            <h1>
-              {state.title} <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>{state.symbol}</span>
-            </h1>
-            <div className="small secondary">{state.description}</div>
-          </div>
-          <div className="row">
-            <div className="col" style={{ gap: 4, minWidth: 180 }}>
-              <span className="small muted">
-                Bar {state.progress.done} of {state.progress.total} · {fmtDate(state.time)}
-              </span>
-              <div className="progress" role="progressbar" aria-valuenow={state.progress.done} aria-valuemax={state.progress.total}>
-                <div style={{ width: `${pct * 100}%` }} />
-              </div>
-            </div>
+    <div className="stack sim-session">
+      <section className="card marks sim-session-head">
+        <div className="sim-kicker">{kicker.join(" · ")}</div>
+        <h1>
+          {state.title} <span className="sim-sym">{state.symbol}</span>
+        </h1>
+        <p>{state.description}</p>
+      </section>
+      <Transport
+        label="Playback"
+        controls={
+          <>
             <button className="btn primary" onClick={() => void step(1)} disabled={busy || playing}>
-              Next bar <span className="kbd">N</span>
+              <TransportIcon kind="step" />
+              Next bar <Kbd>N</Kbd>
             </button>
             <button className="btn" onClick={() => void step(5)} disabled={busy || playing}>
               +5
@@ -497,46 +668,77 @@ function SessionView({ state, bars, accept }: { state: SimState; bars: Bars; acc
             <button className="btn" onClick={() => void step(20)} disabled={busy || playing}>
               +20
             </button>
-            <button className="btn" onClick={() => setPlaying(!playing)} aria-pressed={playing}>
-              {playing ? "Pause" : "Play"} <span className="kbd">P</span>
+            <button className="btn sim-play" onClick={() => setPlaying(!playing)} aria-pressed={playing}>
+              <TransportIcon kind={playing ? "pause" : "play"} />
+              {playing ? "Pause" : "Play"} <Kbd>P</Kbd>
             </button>
-            <select className="input" style={{ width: 110 }} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Playback speed">
+            <select className="input sim-speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Playback speed">
               <option value={1}>1 bar/s</option>
               <option value={2}>2 bars/s</option>
               <option value={4}>4 bars/s</option>
             </select>
-            <button className="btn ghost" onClick={() => void finish()}>
-              Finish
-            </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+        timeline={
+          <Timeline
+            total={total}
+            done={done}
+            segments={segments}
+            marks={marks}
+            label="Progress"
+            valueText={`Bar ${done} of ${total}`}
+            futureLabel="Not played yet · hidden"
+          />
+        }
+        position={
+          <>
+            <span className="sim-tp-bar">
+              <span className="label">Bar</span> <b>{done}</b>
+              <span className="sim-dim"> / {total}</span>
+            </span>
+            <span className="sim-tp-date">{fmtDate(state.time)}</span>
+          </>
+        }
+        end={
+          <button className="btn ghost" onClick={() => void finish()}>
+            <TransportIcon kind="stop" />
+            Finish
+          </button>
+        }
+      />
       <ErrorBox error={error} />
-      {lastFills ? <div className="callout info">Filled: {lastFills}</div> : null}
+      {lastFills ? (
+        <div className="sim-notice" role="status">
+          <Tag kind="ink">Filled</Tag>
+          <span>{lastFills}</span>
+        </div>
+      ) : null}
 
-      <div className="split side-right">
+      <div className="sim-grid">
         <div className="stack">
-          <div className="card">
+          <Figure fig="FIG. 1" title={<>Price · {state.symbol}</>} aside="your fills as arrows · entry, stop and target as lines" className="sim-price">
             <PriceChart bars={bars} markers={markers} priceLines={priceLines} height={380} follow initialBars={180} label="Simulator price chart" />
-          </div>
-          <RaceCard state={state} />
-          <div className="card">
-            <div className="card-header">
-              <h2>Your trades</h2>
-            </div>
+          </Figure>
+          <RaceCard fig="FIG. 2" state={state} />
+          <Panel title="Your trades" aside={state.trades.length ? `${state.trades.length} · newest first` : undefined}>
             <TradesTable trades={state.trades} showSymbol={false} />
-          </div>
+          </Panel>
         </div>
         <div className="stack">
           <AccountCard state={state} />
           <OrderTicket state={state} lastClose={lastClose} atrValue={a} accept={accept} />
           <OrdersCard state={state} accept={accept} />
-          {state.config.reveal === "live" ? <AdvisorsCard state={state} /> : (
-            <div className="card small secondary">
-              {state.config.reveal === "end"
-                ? "The strategies' opinions are hidden until the end, so your decisions are your own. You'll see how they traded in the scorecard."
-                : "Strategy advice is turned off for this session."}
-            </div>
+          {state.config.reveal === "live" ? (
+            <AdvisorsCard state={state} />
+          ) : (
+            <Panel title="Strategy advice" aside={state.config.reveal === "end" ? "after the session" : "off"}>
+              <Hatch />
+              <p className="sim-empty-line">
+                {state.config.reveal === "end"
+                  ? "The strategies' opinions are hidden until the end, so your decisions are your own. You'll see how they traded in the scorecard."
+                  : "Strategy advice is turned off for this session."}
+              </p>
+            </Panel>
           )}
           <JournalCard state={state} />
         </div>
@@ -549,22 +751,23 @@ function AccountCard({ state }: { state: SimState }) {
   const a = state.account;
   const p = a.position;
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Account</h2>
-        <span className={`${pnlClass(a.return_pct)}`} style={{ fontWeight: 600 }}>
-          {fmtPct(a.return_pct, 2)}
-        </span>
-      </div>
-      <dl className="kv">
-        <dt>Equity</dt>
-        <dd>{fmtMoney(a.equity)}</dd>
+    <Panel title="Account" aside="paper money" className="sim-account">
+      <ReadoutGrid>
+        <Readout size="sm" label="Equity" value={fmtMoney(a.equity)} />
+        <Readout size="sm" label="Return" {...pctParts(a.return_pct, 2)} tone={toneOf(a.return_pct)} />
+        <Readout
+          size="sm"
+          label="Position"
+          value={p.qty ? Math.abs(p.qty).toLocaleString() : "Flat"}
+          unit={p.qty ? "sh" : undefined}
+          note={p.qty ? (p.qty > 0 ? "long" : "short") : "no shares held"}
+        />
+      </ReadoutGrid>
+      <dl className="kv sim-kv">
         <dt>Cash</dt>
         <dd>{fmtMoney(a.cash)}</dd>
         <dt>Buying power</dt>
         <dd>{fmtMoney(a.buying_power)}</dd>
-        <dt>Position</dt>
-        <dd>{p.qty ? `${p.qty > 0 ? "Long" : "Short"} ${Math.abs(p.qty).toLocaleString()}` : "Flat"}</dd>
         {p.qty ? (
           <>
             <dt>Avg price</dt>
@@ -578,7 +781,7 @@ function AccountCard({ state }: { state: SimState }) {
         <dt>Costs paid</dt>
         <dd>{fmtMoney(a.costs)}</dd>
       </dl>
-    </div>
+    </Panel>
   );
 }
 
@@ -644,15 +847,18 @@ function OrderTicket({ state, lastClose, atrValue, accept }: {
 
   const est = qty * entryRef;
   const risk = !exiting && useStop && stopLoss ? qty * Math.abs(entryRef - Number(stopLoss)) : null;
+  /** How far a protective level sits from the entry: signed per cent, and in ATRs. */
+  const distance = (level: string) => {
+    const v = Number(level);
+    if (!level || !isNum(v) || !entryRef) return null;
+    const pct = v / entryRef - 1;
+    return `${fmtPct(pct, 1)}${atrValue ? ` · ${fmtNum(Math.abs(v - entryRef) / atrValue, 1)} ATR` : ""}`;
+  };
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Order ticket</h2>
-        <span className="sub">fills at the next bar</span>
-      </div>
-      <div className="col">
-        <div className="segmented buy-sell" role="group" aria-label="Side">
+    <Panel title="Order ticket" aside="fills at the next bar" className={`sim-ticket sim-ticket-${side}`}>
+      <div className="sim-ticket-body">
+        <div className="segmented buy-sell sim-ticket-side" role="group" aria-label="Side">
           <button data-side="buy" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>
             Buy
           </button>
@@ -660,88 +866,145 @@ function OrderTicket({ state, lastClose, atrValue, accept }: {
             Sell{pos > 0 ? "" : state.config.allow_short ? " short" : ""}
           </button>
         </div>
-        <label className="field">
-          <span>Shares</span>
-          <input className="input num" type="number" min={0} value={qty || ""} onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value))))} />
-        </label>
-        <div className="row tight">
-          {exiting ? (
-            <button className="btn small" onClick={() => setQty(Math.abs(pos))}>
-              Whole position
-            </button>
+        <div className="sim-ticket-row">
+          <label className="field sim-ticket-qty">
+            <span>Shares</span>
+            <UnitInput unit="sh" type="number" min={0} value={qty || ""} onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value))))} />
+          </label>
+          <div className="sim-ticket-quick" role="group" aria-label="Quick size">
+            {exiting ? (
+              <button className="btn small" onClick={() => setQty(Math.abs(pos))}>
+                Whole position
+              </button>
+            ) : (
+              <>
+                <button className="btn small" onClick={riskSize} disabled={!atrValue} title="Size so that hitting the stop loses 1% of equity">
+                  Risk 1%
+                </button>
+                <button className="btn small" onClick={() => fraction(0.25)}>
+                  25%
+                </button>
+                <button className="btn small" onClick={() => fraction(0.5)}>
+                  50%
+                </button>
+                <button className="btn small" onClick={() => fraction(0.99)}>
+                  All
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="sim-ticket-row">
+          <div className="field">
+            <span>
+              Type{" "}
+              <Help text="Market: fills at the next bar's open. Limit: fills only at your price or better. Stop: becomes a market order once the price touches your stop price." />
+            </span>
+            <Segmented
+              label="Order type"
+              className="sim-ticket-type"
+              value={type}
+              onChange={setType}
+              options={[
+                ["market", "Market"],
+                ["limit", "Limit"],
+                ["stop", "Stop"],
+              ]}
+            />
+          </div>
+          {type !== "market" ? (
+            <label className="field sim-ticket-price">
+              <span>{type === "limit" ? "Limit price" : "Stop price"}</span>
+              <UnitInput prefix="$" type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={lastClose.toFixed(2)} />
+            </label>
           ) : (
-            <>
-              <button className="btn small" onClick={riskSize} disabled={!atrValue} title="Size so that hitting the stop loses 1% of equity">
-                Risk 1%
-              </button>
-              <button className="btn small" onClick={() => fraction(0.25)}>
-                25%
-              </button>
-              <button className="btn small" onClick={() => fraction(0.5)}>
-                50%
-              </button>
-              <button className="btn small" onClick={() => fraction(0.99)}>
-                All
-              </button>
-            </>
+            <div className="sim-ticket-mkt">
+              <span className="label">Next open, near</span>
+              <b className="num">{fmtPrice(lastClose)}</b>
+            </div>
           )}
         </div>
-        <div className="row tight">
-          <label className="field grow">
-            <span>Type</span>
-            <select className="input" value={type} onChange={(e) => setType(e.target.value as "market" | "limit" | "stop")}>
-              <option value="market">Market (next open)</option>
-              <option value="limit">Limit</option>
-              <option value="stop">Stop</option>
-            </select>
-          </label>
-          {type !== "market" ? (
-            <label className="field grow">
-              <span>{type === "limit" ? "Limit price" : "Stop price"}</span>
-              <input className="input num" type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={lastClose.toFixed(2)} />
-            </label>
-          ) : null}
-        </div>
         {!exiting ? (
-          <>
-            <div className="row tight">
+          <fieldset className="sim-protect">
+            <legend className="label">Protective orders</legend>
+            <div className="sim-protect-row">
               <label className="check">
                 <input type="checkbox" checked={useStop} onChange={(e) => setUseStop(e.target.checked)} />
                 Stop-loss
               </label>
-              <input className="input num" style={{ width: 110 }} type="number" step="0.01" value={stopLoss} disabled={!useStop} onChange={(e) => setStopLoss(e.target.value)} aria-label="Stop-loss price" />
-              <Help text="Default: 2 x ATR(20) from the last close, a common volatility-based stop. It becomes an order that closes the position if hit." />
+              <Help text="Default: 2 x ATR(20) from the last close, a common volatility-based stop. It becomes an order that closes the position if hit. ATR, the average true range, is the typical size of one bar's move." />
+              <UnitInput
+                prefix="$"
+                type="number"
+                step="0.01"
+                value={stopLoss}
+                disabled={!useStop}
+                onChange={(e) => setStopLoss(e.target.value)}
+                aria-label="Stop-loss price"
+              />
+              <span className="sim-protect-dist">{useStop ? distance(stopLoss) : "off"}</span>
             </div>
-            <div className="row tight">
+            <div className="sim-protect-row">
               <label className="check">
                 <input type="checkbox" checked={useTarget} onChange={(e) => setUseTarget(e.target.checked)} />
                 Take-profit
               </label>
-              <input className="input num" style={{ width: 110 }} type="number" step="0.01" value={target} disabled={!useTarget} onChange={(e) => setTarget(e.target.value)} aria-label="Take-profit price" />
+              <Help text="Default: 3 x ATR(20) from the last close. A limit order that closes the position at this price to lock in the gain; it is cancelled if the stop-loss fills first." />
+              <UnitInput
+                prefix="$"
+                type="number"
+                step="0.01"
+                value={target}
+                disabled={!useTarget}
+                onChange={(e) => setTarget(e.target.value)}
+                aria-label="Take-profit price"
+              />
+              <span className="sim-protect-dist">{useTarget ? distance(target) : "off"}</span>
             </div>
-          </>
+          </fieldset>
         ) : null}
         <label className="field">
           <span>Why are you making this trade?</span>
-          <textarea className="input" rows={2} value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="Your reasoning, written before you know the outcome" />
+          <textarea
+            className="input"
+            rows={2}
+            value={note}
+            maxLength={500}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Your reasoning, written before you know the outcome"
+          />
         </label>
-        <div className="small muted">
-          ≈ {fmtMoney(est)} at {fmtPrice(entryRef)}
-          {risk !== null ? ` · loses ≈ ${fmtMoney(risk)} (${fmtPct(risk / state.account.equity, 1, false)} of equity) if the stop is hit` : ""}
-        </div>
-        <button className={`btn ${side === "buy" ? "buy" : "sell"}`} onClick={() => void submit()} disabled={busy || qty <= 0}>
+        <dl className="sim-ticket-est">
+          <dt>Notional</dt>
+          <dd>
+            ≈ {fmtMoney(est)} <span className="sim-dim">at {fmtPrice(entryRef)}</span>
+          </dd>
+          {risk !== null ? (
+            <>
+              <dt>At risk</dt>
+              <dd>
+                loses ≈ {fmtMoney(risk)} <span className="sim-dim">({fmtPct(risk / state.account.equity, 1, false)} of equity) if the stop is hit</span>
+              </dd>
+            </>
+          ) : null}
+        </dl>
+        <button className={`btn ${side === "buy" ? "buy" : "sell"} sim-ticket-go`} onClick={() => void submit()} disabled={busy || qty <= 0}>
           {side === "buy" ? "Place buy order" : "Place sell order"}
+          {qty > 0 ? <span className="sim-ticket-go-qty">{qty.toLocaleString()} sh</span> : null}
         </button>
         <ErrorBox error={error} />
       </div>
-    </div>
+    </Panel>
   );
 }
+
+const FILL_TAG: Record<string, string> = { stop_loss: "Stop", take_profit: "Take-profit", entry: "Entry", exit: "Exit" };
 
 function OrdersCard({ state, accept }: { state: SimState; accept: (s: SimState) => void }) {
   const [error, setError] = useState<string | null>(null);
   const open = state.orders.filter((o) => o.status === "open" || o.status === "pending");
   const recent = state.orders.filter((o) => !(o.status === "open" || o.status === "pending")).slice(-6).reverse();
+  const fills = state.fills.slice(-8).reverse();
   const cancel = async (id: string) => {
     try {
       accept((await api.simCancel(state.id, id)).state);
@@ -757,66 +1020,127 @@ function OrdersCard({ state, accept }: { state: SimState; accept: (s: SimState) 
     }
   };
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Orders</h2>
-        {state.account.position.qty ? (
+    <Panel
+      title="Orders"
+      aside={open.length ? `${open.length} working` : undefined}
+      actions={
+        state.account.position.qty ? (
           <button className="btn small" onClick={() => void close()}>
             Close position
           </button>
-        ) : null}
-      </div>
+        ) : null
+      }
+      className="sim-orders"
+    >
       <ErrorBox error={error} />
-      {!open.length && !recent.length ? <div className="muted small">No orders yet.</div> : null}
-      {open.map((o) => (
-        <div key={o.id} className="row" style={{ justifyContent: "space-between", padding: "4px 0" }}>
-          <span className="small">
-            <b>{o.side === "buy" ? "Buy" : "Sell"}</b> {o.qty} {o.type}
-            {o.limit_price ? ` @ ${fmtPrice(o.limit_price)}` : ""}
-            {o.stop_price ? ` stop ${fmtPrice(o.stop_price)}` : ""}
-            <span className="muted"> · {o.tag.replace("_", "-")}{o.status === "pending" ? " (waits for entry)" : ""}</span>
-          </span>
-          <button className="btn small ghost" onClick={() => void cancel(o.id)}>
-            Cancel
-          </button>
-        </div>
-      ))}
+      {!open.length && !recent.length ? <p className="sim-empty-line">No orders yet. Use the ticket above; an order fills at the next bar.</p> : null}
+      {open.length ? (
+        <table className="data sim-mini">
+          <thead>
+            <tr>
+              <th>Side</th>
+              <th className="num">Qty</th>
+              <th>Order</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {open.map((o) => (
+              <tr key={o.id}>
+                <td>
+                  <b className={o.side === "buy" ? "upc" : "downc"}>{o.side === "buy" ? "Buy" : "Sell"}</b>
+                </td>
+                <td className="num">{o.qty}</td>
+                <td>
+                  <span className="mono">
+                    {o.type}
+                    {o.limit_price ? ` @ ${fmtPrice(o.limit_price)}` : ""}
+                    {o.stop_price ? (o.type === "stop" ? ` @ ${fmtPrice(o.stop_price)}` : ` stop ${fmtPrice(o.stop_price)}`) : ""}
+                  </span>
+                  <span className="sim-dim">
+                    {" "}
+                    · {o.tag.replace("_", "-")}
+                    {o.status === "pending" ? " (waits for entry)" : ""}
+                  </span>
+                </td>
+                <td className="right">
+                  <button className="btn small ghost" onClick={() => void cancel(o.id)}>
+                    Cancel
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
       {recent.length ? (
-        <details className="more">
-          <summary>Recent</summary>
-          {recent.map((o) => (
-            <div key={o.id} className="small secondary" style={{ padding: "2px 0" }}>
-              {o.side} {o.filled_qty || o.qty} {o.type} · {o.status}
-              {o.fill_price ? ` @ ${fmtPrice(o.fill_price)}` : ""}
-              {o.reason ? ` · ${o.reason}` : ""}
-            </div>
-          ))}
+        <details className="sim-more">
+          <summary>
+            Recent <span className="sim-dim">{recent.length}</span>
+          </summary>
+          <table className="data sim-mini">
+            <tbody>
+              {recent.map((o) => (
+                <tr key={o.id}>
+                  <td>{o.side}</td>
+                  <td className="num">{o.filled_qty || o.qty}</td>
+                  <td>
+                    {o.type} · {o.status}
+                    {o.fill_price ? ` @ ${fmtPrice(o.fill_price)}` : ""}
+                    {o.reason ? <span className="sim-dim"> · {o.reason}</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </details>
       ) : null}
-    </div>
+      {fills.length ? (
+        <>
+          <h3 className="section-title sim-sub">
+            Fills <span className="sim-dim">newest first</span>
+          </h3>
+          <table className="data sim-mini">
+            <tbody>
+              {fills.map((f, i) => (
+                <tr key={`${f.order_id}-${f.time}-${i}`}>
+                  <td className="mono nowrap">{fmtDate(f.time)}</td>
+                  <td>
+                    <b className={f.qty > 0 ? "upc" : "downc"}>{f.qty > 0 ? "Buy" : "Sell"}</b>
+                  </td>
+                  <td className="num">{Math.abs(f.qty).toLocaleString()}</td>
+                  <td className="num">{fmtPrice(f.price)}</td>
+                  <td className="right">{f.tag ? <Tag>{FILL_TAG[f.tag] ?? f.tag.replace("_", "-")}</Tag> : null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+    </Panel>
   );
 }
 
 function AdvisorsCard({ state }: { state: SimState }) {
   const c = state.consensus;
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Strategy advice</h2>
-        {isNum(c) ? <DirectionBadge score={c} label={c >= 0.2 ? "Lean long" : c <= -0.2 ? "Lean short" : "Mixed"} /> : null}
-      </div>
-      {state.advisors.map((a) => (
-        <div key={a.id} className="vote-card">
-          <div className="vote-head">
-            <span className="title small">{a.name}</span>
-            <VoteGlyph vote={Math.sign(a.explanation.signal)} state={a.explanation.state} />
-          </div>
-          <div className="small secondary" style={{ marginTop: 4 }}>
-            {a.explanation.headline}
-          </div>
-        </div>
-      ))}
-    </div>
+    <Panel
+      title="Strategy advice"
+      actions={isNum(c) ? <DirectionBadge score={c} label={c >= 0.2 ? "Lean long" : c <= -0.2 ? "Lean short" : "Mixed"} /> : null}
+      className="sim-advice"
+    >
+      <ul className="sim-advice-list">
+        {state.advisors.map((a) => (
+          <li key={a.id}>
+            <div className="sim-advice-head">
+              <span className="sim-advice-name">{a.name}</span>
+              <VoteGlyph vote={Math.sign(a.explanation.signal)} state={a.explanation.state} />
+            </div>
+            <div className="sim-advice-why">{a.explanation.headline}</div>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
@@ -831,30 +1155,48 @@ function JournalCard({ state }: { state: SimState }) {
     setText("");
   };
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Journal</h2>
-        <Help text="Write down what you see and plan before the next bar. Reviewing it later is how you learn whether you were skilled or lucky." />
-      </div>
-      <div className="row tight">
-        <input className="input grow" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void add()} placeholder="Observation or plan" />
+    <Panel
+      title="Journal"
+      actions={<Help text="Write down what you see and plan before the next bar. Reviewing it later is how you learn whether you were skilled or lucky." />}
+      className="sim-journal"
+    >
+      <div className="sim-journal-add">
+        <input
+          className="input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void add()}
+          placeholder="Observation or plan"
+          aria-label="Journal entry"
+        />
         <button className="btn small" onClick={() => void add()}>
           Add
         </button>
       </div>
       {journal.length ? (
-        <ul className="small secondary" style={{ paddingLeft: 18, marginBottom: 0 }}>
+        <ol className="sim-feed sim-feed-compact">
           {journal
             .slice(-5)
             .reverse()
             .map((j, i) => (
-              <li key={i}>
-                <span className="muted">{fmtDate(j.time)}:</span> {j.text}
+              <li key={i} className="sim-feed-row">
+                <span className="sim-feed-when">
+                  <b>
+                    <i>Bar</i> {j.index - state.start_index}
+                  </b>
+                  {fmtDate(j.time)}
+                </span>
+                <span className="sim-feed-body">
+                  <span className="sim-feed-msg">{j.text}</span>
+                </span>
+                <Tag>Note</Tag>
               </li>
             ))}
-        </ul>
-      ) : null}
-    </div>
+        </ol>
+      ) : (
+        <p className="sim-empty-line">Nothing written yet. A line before each decision makes the review worth reading.</p>
+      )}
+    </Panel>
   );
 }
 
@@ -862,7 +1204,7 @@ function raceLines(state: SimState, colors: ReturnType<typeof useChartColors>): 
   const t = state.equity_curve.t;
   const lines: LineSpec[] = [
     { id: "you", label: "You", data: state.equity_curve, color: colors.series[0] },
-    { id: "bh", label: "Buy & hold", data: state.benchmark_curve, color: colors.deemph },
+    { id: "bh", label: "Buy & hold", data: state.benchmark_curve, color: colors.deemph, style: "dashed" },
   ];
   state.advisors.slice(0, 5).forEach((a, i) => {
     lines.push({ id: a.id, label: a.name, data: { t, v: a.equity }, color: colors.series[i + 1] });
@@ -870,19 +1212,15 @@ function raceLines(state: SimState, colors: ReturnType<typeof useChartColors>): 
   return lines;
 }
 
-function RaceCard({ state }: { state: SimState }) {
+function RaceCard({ fig, state }: { fig: string; state: SimState }) {
   const colors = useChartColors();
   const lines = useMemo(() => raceLines(state, colors), [state, colors]);
   const showGhosts = state.config.reveal === "live";
   const shown = showGhosts ? lines : lines.slice(0, 2);
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>Equity race</h2>
-        <span className="sub">{showGhosts ? "You vs buy-and-hold vs the strategies" : "You vs buy-and-hold"}</span>
-      </div>
+    <Figure fig={fig} title="Equity race" aside={showGhosts ? "you vs buy-and-hold vs the strategies" : "you vs buy-and-hold"}>
       <LineChart lines={shown} format={(v) => fmtMoney(v)} height={200} toggleable />
-    </div>
+    </Figure>
   );
 }
 
@@ -912,39 +1250,60 @@ function ScorecardView({ state, bars, onNew, onReplay }: {
       })),
     [state.fills, colors],
   );
+  const marks = useMemo(() => fillMarks(state, bars), [state, bars]);
+  useStatusLine(
+    sc
+      ? `Session complete: you made **${fmtPct(sc.you.total_return, 1)}**, buy-and-hold ${fmtPct(sc.benchmark.total_return, 1)}; you finished **#${sc.rank} of ${sc.of}**. Process score ${sc.process_score ?? "–"}/100. Read the process review, then play again.`
+      : "Scoring your session...",
+  );
   if (!sc) return <Spinner />;
   const rv = state.reveal;
   const statusLabel = { good: "Good", warn: "Needs work", bad: "Problem", info: "Note" } as const;
-  const total = Math.max(1, state.progress.total);
+  const statusTag: Record<string, TagKind> = { good: "ok", warn: "warn", bad: "crit", info: "info" };
+  const segments: TimelineSegment[] = (rv?.regimes ?? []).map((r) => {
+    const up = REGIME_UP.includes(r.regime);
+    const down = REGIME_DOWN.includes(r.regime);
+    return { label: r.regime, n: Math.max(1, r.end - r.start + 1), tone: up ? "up" : down ? "down" : "flat", title: `${r.regime}: bars ${r.start}-${r.end}` };
+  });
+  const bandTotal = segments.reduce((n, s) => n + s.n, 0);
+  const figReveal = rv ? 1 : 0;
+  const score = sc.process_score ?? 0;
   return (
-    <div className="stack">
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+    <div className="stack sim-debrief">
+      <section className="card marks sim-debrief-head">
+        <div className="sim-debrief-top">
           <div>
-            <div className="small muted">Session complete · {state.title}</div>
-            <div className={`hero ${pnlClass(sc.you.total_return)}`} style={{ marginTop: 6 }}>
-              {fmtPct(sc.you.total_return, 1)}
-            </div>
-            <div className="secondary" style={{ marginTop: 6 }}>
-              Buy &amp; hold: {fmtPct(sc.benchmark.total_return, 1)} · you finished <b>#{sc.rank}</b> of {sc.of}
-            </div>
-          </div>
-          <div style={{ minWidth: 260, maxWidth: 420 }}>
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <b>Process score</b>
-              <span style={{ fontSize: 22, fontWeight: 700 }}>{sc.process_score ?? "–"}/100</span>
-            </div>
-            <div className="meter" style={{ marginTop: 6 }} role="meter" aria-valuenow={sc.process_score ?? 0} aria-valuemin={0} aria-valuemax={100}>
-              <div style={{ width: `${sc.process_score ?? 0}%` }} />
-            </div>
-            <p className="secondary small" style={{ marginTop: 8 }}>
-              {sc.verdict}
+            <div className="sim-kicker">Session complete · {state.title}</div>
+            <div className={`hero ${pnlClass(sc.you.total_return)}`}>{fmtPct(sc.you.total_return, 1)}</div>
+            <p className="sim-debrief-sub">
+              Your return. Buy &amp; hold: {fmtPct(sc.benchmark.total_return, 1)} · you finished <b>#{sc.rank}</b> of {sc.of}
             </p>
           </div>
+          <div className="sim-score">
+            <div className="sim-score-head">
+              <span className="label">Process score</span>
+              <span className="sim-score-val">
+                {sc.process_score ?? "–"}
+                <small>/100</small>
+              </span>
+            </div>
+            <div className="meter" role="meter" aria-label="Process score" aria-valuenow={score} aria-valuemin={0} aria-valuemax={100}>
+              <div style={{ width: `${score}%` }} />
+            </div>
+            <p className="sim-score-verdict">{sc.verdict}</p>
+          </div>
         </div>
-        <div className="row" style={{ marginTop: 12 }}>
+        <ReadoutGrid>
+          <Readout size="sm" label="Buy & hold" {...pctParts(sc.benchmark.total_return)} tone={toneOf(sc.benchmark.total_return)} />
+          <Readout size="sm" label="Vs buy & hold" {...pctParts(sc.excess_return)} tone={toneOf(sc.excess_return)} note="your return minus the benchmark's" />
+          <Readout size="sm" label="Rank" value={sc.rank} unit={`of ${sc.of}`} note="you, the strategies and buy-and-hold" />
+          <Readout size="sm" label="Max drawdown" {...pctParts(sc.you.max_drawdown, 1, false)} note="your deepest fall from a peak" />
+          <Readout size="sm" label="Trades" value={fmtNum(sc.you.n_trades, 0)} note={`over ${sc.bars} bars`} />
+        </ReadoutGrid>
+        <div className="row sim-debrief-actions">
           {onReplay ? (
             <button className="btn primary" onClick={() => void onReplay()}>
+              <TransportIcon kind="play" />
               Play again (new market, same settings)
             </button>
           ) : null}
@@ -952,63 +1311,47 @@ function ScorecardView({ state, bars, onNew, onReplay }: {
             Set up a new session
           </button>
         </div>
-      </div>
+      </section>
 
       {rv ? (
-        <div className="card">
-          <div className="card-header">
-            <h2>The reveal</h2>
-          </div>
+        <Figure fig="FIG. 1" title="The reveal" aside={rv.kind === "history" ? "what you were trading" : "the regimes you could not see"}>
           {rv.kind === "history" ? (
-            <p>
+            <p className="sim-reveal">
               It was <b>{rv.symbol}</b> from <b>{rv.first_date}</b> to <b>{rv.last_date}</b>
-              {rv.preset ? ` (${rv.preset})` : ""}. Data: {rv.provider}.
-              {rv.blind ? " Prices were rescaled so the session started at 100." : ""}
+              {rv.preset ? ` (${rv.preset})` : ""}. Data: {rv.provider}.{rv.blind ? " Prices were rescaled so the session started at 100." : ""}
             </p>
           ) : (
             <>
-              <p className="secondary">
-                The hidden market regimes during your session (synthetic scenario "{rv.label}", seed {rv.seed}):
+              <p className="sim-reveal">
+                The hidden market regimes during your session (synthetic scenario "{rv.label}", seed {rv.seed}). Your fills are marked above
+                the band.
               </p>
-              <div className="regimes" role="img" aria-label="Regime timeline">
-                {(rv.regimes ?? []).map((r, i) => {
-                  const up = REGIME_UP.includes(r.regime);
-                  const down = REGIME_DOWN.includes(r.regime);
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        flex: Math.max(1, r.end - r.start + 1) / total,
-                        background: up ? colors.upWash : down ? colors.downWash : undefined,
-                      }}
-                      title={`${r.regime}: bars ${r.start}-${r.end}`}
-                    >
-                      {r.end - r.start > total * 0.08 ? `${up ? "▲ " : down ? "▼ " : ""}${r.regime}` : ""}
-                    </div>
-                  );
-                })}
-              </div>
+              {bandTotal ? (
+                <Timeline
+                  band
+                  total={bandTotal}
+                  done={bandTotal}
+                  segments={segments}
+                  marks={marks}
+                  label="Regime timeline"
+                  valueText={segments.map((s) => `${s.label} for ${s.n} bars`).join(", ")}
+                />
+              ) : null}
             </>
           )}
-        </div>
+        </Figure>
       ) : null}
 
       <div className="grid-2">
-        <div className="card">
-          <div className="card-header">
-            <h2>Equity race</h2>
-          </div>
+        <Figure fig={`FIG. ${figReveal + 1}`} title="Equity race" aside="you, buy-and-hold and the strategies">
           <LineChart lines={lines} format={(v) => fmtMoney(v)} height={240} toggleable />
-        </div>
-        <div className="card">
-          <div className="card-header">
-            <h2>Leaderboard</h2>
-          </div>
+        </Figure>
+        <Figure fig={`FIG. ${figReveal + 2}`} title="Leaderboard" aside="by total return">
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th className="num">#</th>
                   <th>Trader</th>
                   <th className="num">Return</th>
                   <th className="num">Max DD</th>
@@ -1019,8 +1362,13 @@ function ScorecardView({ state, bars, onNew, onReplay }: {
               <tbody>
                 {sc.leaderboard.map((r, i) => (
                   <tr key={r.name} className={r.kind === "you" ? "selected" : ""}>
-                    <td className="num">{i + 1}</td>
-                    <td>{r.kind === "you" ? <b>You</b> : r.name}</td>
+                    <td className="num">{String(i + 1).padStart(2, "0")}</td>
+                    <td>
+                      <span className="sim-trader">
+                        {r.kind === "you" ? <b>You</b> : r.name}
+                        {r.kind === "benchmark" ? <Tag>Bench</Tag> : null}
+                      </span>
+                    </td>
                     <td className={`num ${pnlClass(r.total_return)}`}>{fmtPct(r.total_return)}</td>
                     <td className="num">{fmtPct(r.max_drawdown)}</td>
                     <td className="num">{fmtNum(r.sharpe)}</td>
@@ -1030,48 +1378,68 @@ function ScorecardView({ state, bars, onNew, onReplay }: {
               </tbody>
             </table>
           </div>
-        </div>
+        </Figure>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Process review</h2>
-          <span className="sub">How you traded, independent of how the market happened to move</span>
-        </div>
-        <div className="diag-grid">
-          {sc.diagnostics.map((d) => (
-            <div key={d.id} className="diag">
-              <div className="head">
-                <span className="title">{d.title}</span>
-                <StatusDot status={d.status}>{statusLabel[d.status]}</StatusDot>
-              </div>
-              <div style={{ fontWeight: 600, marginTop: 4 }}>{d.value}</div>
-              <div className="small secondary" style={{ marginTop: 4 }}>
-                {d.detail}
-              </div>
-              {d.lesson ? <div className="lesson">{d.lesson}</div> : null}
+      <Figure
+        fig={`FIG. ${figReveal + 3}`}
+        title="Process review"
+        aside="how you traded, independent of how the market happened to move"
+        className="sim-review"
+      >
+        <div className="sim-diags">
+          {sc.diagnostics.map((d, i) => (
+            <article key={d.id} className={`sim-diag sim-diag-${d.status}`}>
+              <header className="sim-diag-head">
+                <span className="sim-diag-n">
+                  {figReveal + 3}.{i + 1}
+                </span>
+                <span className="sim-diag-title">{d.title}</span>
+                <Tag kind={statusTag[d.status]}>{statusLabel[d.status]}</Tag>
+              </header>
+              <div className="sim-diag-value">{d.value}</div>
+              <p className="sim-diag-detail">{d.detail}</p>
+              {d.lesson ? (
+                <p className="sim-diag-lesson">
+                  <span aria-hidden="true">◆</span> {d.lesson}
+                </p>
+              ) : null}
               {d.reference ? (
-                <div className="ref">
+                <div className="sim-diag-ref">
                   <ReferenceList refs={[d.reference]} />
                 </div>
               ) : null}
-            </div>
+            </article>
           ))}
         </div>
-      </div>
+      </Figure>
 
-      <div className="card">
-        <div className="card-header">
-          <h2>Your fills on the full chart</h2>
-        </div>
+      <Figure fig={`FIG. ${figReveal + 4}`} title="Your fills on the full chart" aside="buys below the bar, sells above">
         <PriceChart bars={bars} markers={markers} height={320} label="Session chart with your fills" />
-      </div>
-      <div className="card">
-        <div className="card-header">
-          <h2>Trades and notes</h2>
-        </div>
+      </Figure>
+      <Figure fig={`FIG. ${figReveal + 5}`} title="Trades and notes" aside={`${state.trades.length} round trips`}>
         <TradesTable trades={state.trades} showSymbol={false} />
-      </div>
+      </Figure>
+      {state.journal.length ? (
+        <Panel title="Your journal" aside="what you wrote while trading">
+          <ol className="sim-feed sim-feed-compact">
+            {[...state.journal].reverse().map((j, i) => (
+              <li key={i} className="sim-feed-row">
+                <span className="sim-feed-when">
+                  <b>
+                    <i>Bar</i> {j.index - state.start_index}
+                  </b>
+                  {fmtDate(j.time)}
+                </span>
+                <span className="sim-feed-body">
+                  <span className="sim-feed-msg">{j.text}</span>
+                </span>
+                <Tag>Note</Tag>
+              </li>
+            ))}
+          </ol>
+        </Panel>
+      ) : null}
     </div>
   );
 }

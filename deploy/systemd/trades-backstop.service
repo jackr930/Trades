@@ -1,0 +1,9 @@
+# If the runner's heartbeat has stopped while the account holds positions, flatten and halt.
+[Unit]
+Description=Trades: backstop flatten if the paper runner has stopped
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trades
+ExecStart=/usr/bin/docker compose -f deploy/docker-compose.yml --profile trader run --rm trader trades paper backstop

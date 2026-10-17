@@ -1,0 +1,28 @@
+# Shared trading configuration: read by research runs, the paper trader and the gate.
+# config/backtest.yaml, config/paper.yaml and config/live.yaml add to or override these keys.
+# Safe to edit (a spec's own `costs:` override the cost model for that spec).
+
+timezone: America/New_York # trading sessions; everything is stored in UTC internally
+calendar: NYSE # holidays and early closes: src/trades/data/calendar.py
+
+data:
+  provider: synthetic # synthetic | yahoo | alpaca | csv | massive (a spec's data.provider wins)
+  cache_dir: data/cache # downloaded bars are cached here as parquet (gitignored)
+
+# The default cost model, in the units the engine uses. Spreads and slippage are paid on every
+# fill; stop orders also pay stop_slippage_bps, because stops fill in fast markets. Regulatory
+# fees apply to sells only. Calibrate these against your paper fills (`trades track`).
+costs:
+  half_spread_bps: 2.0 # half the bid-ask spread (liquid ETFs ~1-2 bps; Stocks in Play at the open 10-30)
+  slippage_bps: 3.0 # price impact and adverse selection beyond the spread
+  stop_slippage_bps: 10.0 # extra on stop fills (the playbook: 5-20 bps)
+  commission_bps: 0.0
+  commission_per_share: 0.0 # Alpaca charges no commission on US equities
+  min_commission: 0.0
+  sec_fee_per_million: 20.60 # SEC Section 31 fee on sales, $ per $1M sold (from 4 Apr 2026; check sec.gov)
+  taf_per_share: 0.000195 # FINRA trading activity fee on shares sold (from 1 Jan 2026; check finra.org)
+  taf_max_per_trade: 9.79
+
+runs_dir: runs # every research run writes runs/<id>/ (summaries committed, bulky artifacts ignored)
+paper_dir: paper # paper/<spec key>/: the paper trader's orders, decisions, equity, events, state and
+# daily reports, committed so the record outlives the machine it ran on

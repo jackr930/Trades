@@ -1,0 +1,34 @@
+# How strategies are researched and judged.
+#
+# HUMAN-ONLY. Claude Code is blocked from editing this file: lowering a bar so that a strategy
+# passes is exactly what it must never do. Change it yourself, in a commit that says why.
+#
+# The thresholds below are the playbook's deliberately conservative judgment calls for a small
+# account, not industry standards. They are applied by `trades research` (src/trades/validation).
+
+research:
+  initial_cash: 25000 # a realistic small account (the ORB papers also start at $25,000)
+  cost_stress: 2.0 # checks 5 and 13 rerun every backtest at this multiple of all costs
+  monte_carlo_resamples: 10000
+  seed: 7 # every random step is seeded, and the seed is recorded in the run
+  walk_forward:
+    train_days: 504 # about two years in-sample ...
+    test_days: 126 # ... then six months out-of-sample, rolled forward
+  neighborhood: 0.2 # parameter stability: every numeric parameter is moved by +/- 20%
+  pbo_splits: 10 # combinatorially symmetric cross-validation blocks for the PBO
+
+# The Backtest Acceptance Checklist: a spec must pass ALL of these before paper trading.
+acceptance:
+  min_oos_trades: 200 # 3. out-of-sample trades ...
+  min_oos_trades_one_per_day: 100 # ... or this many for one-trade-per-day systems
+  min_expectancy_tstat: 2.0 # 4. net expectancy at base costs: positive, t-statistic at least this
+  min_stressed_expectancy: 0.0 # 5. net expectancy per trade at 2x costs is at least this (in R)
+  min_walk_forward_sharpe: 0.75 # 6. stitched walk-forward Sharpe ratio, net of costs
+  min_deflated_sharpe: 0.95 # 7. deflated Sharpe probability, counting every variant ever tested
+  max_pbo: 0.2 # 8. probability of backtest overfitting (when a parameter grid was searched)
+  locked_test_min_fraction: 0.5 # 9. locked-test Sharpe: same sign and at least this share of validation's
+  neighborhood_min_retained: 0.7 # 10. parameters moved +/-20% keep at least this share of performance
+  max_drawdown_budget: 0.15 # 11. Monte Carlo 95th-percentile drawdown must stay within your accepted loss
+  min_profitable_year_share: 0.6 # 12. profitable in at least this share of years ...
+  max_single_year_profit_share: 0.5 # ... and no single year earns more than this share of the profit
+  max_participation: 0.01 # 13. trade size below this share of the average 1-minute volume at entry

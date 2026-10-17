@@ -1,0 +1,25 @@
+# LIVE (REAL-MONEY) TRADING.
+#
+# HUMAN-ONLY. Claude Code is blocked from editing this file.
+#
+# There is deliberately no live order path in this code. The playbook's Phase 4 adds one only
+# after a spec has passed the paper-to-live gate below (`trades gate STRAT-xxx`), and you add it
+# yourself, with the risk-reviewer agent checking the diff, live keys kept on the trading machine
+# only, and every line of this file and risk/limits.yaml reviewed by you. Until then `enabled` is
+# ignored and this file only states what the gate requires.
+
+enabled: false
+spec: null # the spec to trade live, once it has passed the gate
+capital: null # the tuition money for this account, e.g. 3000
+loss_budget: null # the total you are prepared to lose before stopping for good: write it down first
+
+# The Paper-to-Live Gate: every line must hold before real money (see `trades gate`).
+gate:
+  min_paper_weeks: 8 # 2. paper duration ...
+  min_paper_weeks_one_per_day: 12 # ... 12 weeks for one-trade-per-day systems
+  min_paper_trades: 50
+  min_signal_match: 0.95 # 3. paper decisions that match a backtest replay of the same bars
+  min_expectancy_fraction: 0.5 # 4. paper expectancy positive and at least this share of the backtest's
+  max_fill_cost_vs_model: 1.5 # 5. measured fill costs within this multiple of the cost model
+  min_daily_pnl_correlation: 0.8 # paper vs replay daily P&L correlation (tracking)
+  incident_free_weeks: 4 # 6. no unhandled crash in the last four weeks

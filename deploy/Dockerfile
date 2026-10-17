@@ -1,0 +1,32 @@
+# Build from the repository root:  docker build -f deploy/Dockerfile .
+# (or: docker compose -f deploy/docker-compose.yml up --build)
+
+# --- build the web UI --------------------------------------------------------------
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# --- runtime -----------------------------------------------------------------------
+FROM python:3.12-slim
+WORKDIR /app
+# git: the paper trader stamps every order with the code version (`git rev-parse`) of the checkout it
+# runs from (mounted at /repo by the "trader" service).
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory /repo
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TRADES_HOME=/data \
+    TRADES_WEB_DIST=/app/web/dist
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-cache-dir .
+COPY --from=web /web/dist ./web/dist
+VOLUME ["/data"]
+EXPOSE 8000
+# Inside the container the server must listen on all interfaces; docker-compose publishes
+# the port on 127.0.0.1 only, so the app is still reachable from this machine alone. The port
+# is $PORT when a host sets it (Render does), else 8000.
+CMD ["trades", "serve", "--host", "0.0.0.0"]

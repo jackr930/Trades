@@ -1,0 +1,10 @@
+# 9:00am New York time on weekdays (needs systemd 235 or later for the time zone).
+[Unit]
+Description=Trades: start the intraday paper session before the open
+
+[Timer]
+OnCalendar=Mon..Fri 09:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

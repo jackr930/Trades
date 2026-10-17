@@ -52,8 +52,9 @@ export interface StrategyMeta {
   min_symbols: number;
   max_symbols: number | null;
   uses_short: boolean;
-  /** "classic": a published rule. "modern": a method from quant desks (filters, factor models, ML). */
-  family: "classic" | "modern";
+  /** "classic": a published rule. "modern": a method from quant desks (filters, factor models, ML).
+   * "intraday": a rule that trades within the session on 1- to 30-minute bars and is flat by the close. */
+  family: "classic" | "modern" | "intraday";
   /** What the strategy needs to work well, in plain words ("" if nothing special). */
   needs: string;
   /** For a modern method: the id of the classic rule it refines, to compare against. */
@@ -435,6 +436,8 @@ export interface Settings {
   alpaca_key_id: string;
   alpaca_secret_key: string;
   alpaca_feed: string;
+  massive_api_key: string;
+  massive_base_url: string;
   csv_dir: string;
   csv_dir_resolved: string;
   synthetic_seed: number;
@@ -451,12 +454,10 @@ export interface Settings {
   allow_short: boolean;
   commission_bps: number;
   slippage_bps: number;
-  paper_halted: boolean;
-  paper_max_daily_loss: number;
-  paper_max_orders: number;
   poll_seconds: number;
   demo_speed: number;
   has_alpaca_credentials: boolean;
+  has_massive_credentials: boolean;
 }
 
 // ---- simulator -------------------------------------------------------------------
@@ -634,6 +635,7 @@ export interface ArenaAgentSnap {
   signals: Record<string, string>;
   pending: Record<string, number>;
   trades: number;
+  costs: number; // slippage and commissions paid so far
   unrealized: number;
   stopped: boolean;
 }
@@ -786,4 +788,125 @@ export interface ArenaAgentDetail extends ArenaAgent {
   events: ArenaEvent[];
   financing: number;
   costs: number;
+}
+
+// ---- the pipeline: specs, research runs, paper trading, the gate ----------------------------
+
+export interface RunBrief {
+  id: string;
+  created: string | null;
+  verdict: "pass" | "ready_for_locked_test" | "fail" | null;
+  provider: string | null;
+  passed: number;
+  failed: number;
+  pending: number;
+  locked_test_opened: boolean;
+}
+
+export interface PaperBrief {
+  started: boolean;
+  sessions?: number;
+  first?: string | null;
+  last?: string | null;
+  equity?: number | null;
+  orders?: number;
+  fills?: number;
+}
+
+export interface PipelineSpec {
+  id: string;
+  key: string;
+  name: string;
+  version: number;
+  status: string;
+  frozen: string | null;
+  drift: string | null;
+  strategy: string;
+  timeframe: string;
+  symbols: string[];
+  n_symbols: number;
+  provider: string;
+  latest_run: RunBrief | null;
+  paper: PaperBrief;
+  paper_target: boolean;
+}
+
+export interface KillSwitch {
+  on: boolean;
+  reason: string;
+}
+
+export interface PipelineOverview {
+  specs: PipelineSpec[];
+  problems: Record<string, string>; // file name -> why it could not be read
+  kill_switch: KillSwitch;
+  paper_spec: string | null;
+}
+
+export interface ChecklistItem {
+  n: number;
+  name: string;
+  status: "pass" | "fail" | "pending" | "n/a";
+  value: string;
+  threshold: string;
+  detail?: string;
+}
+
+export interface SpecDetail {
+  spec: Record<string, unknown> & { key: string; name: string; periods: Record<string, [string, string]> };
+  body: string;
+  runs: RunBrief[];
+  checklist: ChecklistItem[] | null;
+  report: string | null;
+  variants_tested: number;
+}
+
+export interface PaperDetail {
+  key: string;
+  equity: { date: string; equity: number }[];
+  orders: Record<string, string>[];
+  fills: Record<string, string>[];
+  events: { time: string; kind: string; message: string }[];
+  decisions: number;
+  latest_report: string | null;
+  tracking: string | null;
+  gate: string | null;
+}
+
+export interface GateCheck {
+  n: number;
+  name: string;
+  status: "pass" | "fail" | "pending";
+  detail: string;
+}
+
+export interface GateResult {
+  tracking: Record<string, unknown>;
+  checks: GateCheck[];
+  verdict: "pass" | "not_yet" | "fail";
+}
+
+// ---- the shell: market clock and alerts -----------------------------------------------------
+
+export interface MarketClock {
+  is_open: boolean;
+  phase: "regular" | "pre" | "post" | "closed";
+  now: string;
+  session_date: string;
+  next_open: string;
+  next_close: string;
+}
+
+export interface AlertEvent {
+  time: string;
+  spec: string;
+  kind: string;
+  severity: "crit" | "warn" | "info";
+  message: string;
+  symbol?: string | null;
+}
+
+export interface AlertFeed {
+  alerts: AlertEvent[];
+  counts_24h: { crit: number; warn: number; info: number };
 }

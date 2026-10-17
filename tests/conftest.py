@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
-
-import numpy as np
 import pandas as pd
 import pytest
 
+from tests.helpers import END, INTRADAY_START, INTRADAY_SYMBOLS, UNIVERSE
 from trades.data.synthetic import SyntheticProvider
-
-END = date(2026, 9, 25)
-UNIVERSE = ["SIMIDX", "SIMTEC", "SIMBNK", "SIMNRG", "SIMUTL", "SIMHLC", "SIMBND", "SIMGLD"]
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +14,9 @@ def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
     monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
     monkeypatch.delenv("TRADES_PROVIDER", raising=False)
+    monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+    monkeypatch.delenv("MASSIVE_BASE_URL", raising=False)
+    monkeypatch.setenv("TRADES_DATA_CACHE", "off")  # tests that use the bar cache give it a tmp folder
     for var in (
         "TRADES_PASSWORD",
         "TRADES_SECRET_KEY",
@@ -40,13 +38,7 @@ def daily(provider) -> dict[str, pd.DataFrame]:
     return {s: provider.history(s).iloc[-1500:] for s in [*UNIVERSE, "SIMPRA", "SIMPRB"]}
 
 
-def make_bars(closes, *, start="2024-01-02", spread=0.01, volume=1_000_000.0) -> pd.DataFrame:
-    """Deterministic OHLCV frame from a close series (open = previous close)."""
-    closes = np.asarray(closes, dtype=float)
-    opens = np.concatenate([[closes[0]], closes[:-1]])
-    highs = np.maximum(opens, closes) * (1 + spread)
-    lows = np.minimum(opens, closes) * (1 - spread)
-    idx = pd.bdate_range(start, periods=len(closes), tz="UTC")
-    return pd.DataFrame(
-        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volume}, index=idx
-    )
+@pytest.fixture(scope="session")
+def intraday(provider) -> dict[str, pd.DataFrame]:
+    """About seven months of synthetic 5-minute bars (145 sessions) for five demo symbols."""
+    return {s: provider.history(s, "5m", start=INTRADAY_START) for s in INTRADAY_SYMBOLS}
