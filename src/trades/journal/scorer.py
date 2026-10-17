@@ -29,6 +29,21 @@ HORIZONS = (5, 21)
 MIN_OBSERVATIONS = 60
 
 
+def read_journal(path) -> pd.DataFrame:
+    """The journal CSV with ids, versions and symbols kept as text: read naively, an id such as
+    "123456789012" would become a number and a symbol such as "NA" would become missing."""
+    from pathlib import Path
+
+    if not Path(path).exists():
+        return pd.DataFrame()
+    return pd.read_csv(
+        path,
+        dtype={"session_date": str, "symbol": str, "experiment_id": str, "code_version": str, "label": str, "votes": str},
+        keep_default_na=False,
+        na_values={c: [""] for c in ("close", "score", "weight", "stop", "bullish", "bearish", "neutral")},
+    )
+
+
 def sessions_after(d: date, n: int) -> date:
     for _ in range(n):
         d = next_trading_day(d)
@@ -56,13 +71,16 @@ def outcomes(
     last_session: date,
     horizons: Iterable[int] = HORIZONS,
 ) -> pd.DataFrame:
-    """``rows`` plus an ``excess_{h}`` column per horizon (NaN until the window has passed)."""
+    """``rows`` plus an ``excess_{h}`` column per horizon (NaN until the window has passed).
+
+    The benchmark's own rows stay NaN: against itself its excess is always exactly zero, which
+    would only dilute every average it joined."""
     out = rows.copy()
     sessions = pd.to_datetime(out["session_date"]).dt.date
     for h in horizons:
         values = []
         for sym, d in zip(out["symbol"], sessions, strict=True):
-            if sessions_after(d, h) > last_session:
+            if sym == benchmark or sessions_after(d, h) > last_session:
                 values.append(math.nan)
                 continue
             values.append(window_return(bars.get(sym), d, h) - window_return(bars.get(benchmark), d, h))
@@ -179,7 +197,8 @@ def render_report(
         f"Outcome of a recommendation: the symbol's return from the next session's open to the close 5 or 21 "
         f"sessions later, minus {benchmark}'s return over the same window. Outcomes are averaged within each day "
         "first (symbols move together), and only days at least one horizon apart are used, so every observation "
-        "is independent. Each experiment is scored on its own.",
+        "is independent. Each experiment is scored on its own. Outcomes are before trading costs and taxes, "
+        f"and {benchmark}'s own rows are left out (against itself its excess is always zero).",
     ]
     paper = paper_slippage(paper_orders, assumed_bps) if paper_orders is not None else []
     if journal.empty:

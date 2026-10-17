@@ -42,11 +42,11 @@ def cmd_journal_score(args) -> int:
 
     from trades.data.calendar import last_completed_session
     from trades.journal.experiment import Experiment
-    from trades.journal.scorer import render_report
+    from trades.journal.scorer import read_journal, render_report
 
     exp = Experiment.load(args.experiment)
     path = Path(args.journal)
-    journal = pd.read_csv(path, dtype={"session_date": str}) if path.exists() else pd.DataFrame()
+    journal = read_journal(path)  # ids, versions and symbols such as NA stay text
     bars: dict = {}
     if not journal.empty:
         symbols = sorted({*journal["symbol"], exp.benchmark})

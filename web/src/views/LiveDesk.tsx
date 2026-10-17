@@ -1074,7 +1074,18 @@ function Inspector({ rec, snap, equity, index, onSettings, onPractice }: {
                 note={`conviction ${fmtPct(s.conviction, 0, false)}`}
               />
               <Readout size="sm" label="Shares" value={s.shares.toLocaleString()} note={fmtMoney(s.notional)} />
-              <Readout size="sm" label="Weight" value={fmtNum(Math.abs(s.weight) * 100, 1)} unit="%" note="of equity" />
+              <Readout
+                size="sm"
+                label="Weight"
+                value={fmtNum(Math.abs(s.held_weight ?? s.weight) * 100, 1)}
+                unit="%"
+                note={
+                  // What the whole shares hold; the consensus's target when rounding moved it.
+                  s.held_weight !== undefined && Math.abs(s.held_weight - s.weight) > 0.0005
+                    ? `of equity; target ${fmtPct(Math.abs(s.weight), 1, false)}`
+                    : "of equity"
+                }
+              />
               <Readout size="sm" label="Stop" value={fmtPrice(s.stop)} note={`${fmtPrice(s.stop_distance)} away`} />
               <Readout
                 size="sm"

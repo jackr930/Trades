@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from trades.data.base import align_bars
+from trades.execution import costs
 from trades.execution.ledger import Fill, Ledger, Trade
 from trades.execution.sim_broker import BacktestConfig, ExecutionEngine
 from trades.features.intraday import infer_bar_minutes, session_info
@@ -344,28 +345,33 @@ SENSITIVITY_KEYS = ("cagr", "after_tax_cagr_if_sold", "sharpe", "max_drawdown", 
 
 
 def cost_sensitivity(bt: StrategyBacktest, tax: TaxProfile | None = None, multipliers=(2, 4)) -> dict[str, Any]:
-    """Rerun ``bt`` with its slippage multiplied, and say whether it still beats buy-and-hold at
+    """Rerun ``bt`` with every trading cost multiplied (spread, slippage, commissions and fees, as
+    research's cost stress does: ``costs.stressed``), and say whether it still beats buy-and-hold at
     double costs. Compared after tax with both sold at the end (CAGR in a tax-advantaged account)."""
     cfg = bt.result.config
     rows = [{"multiplier": 1, "slippage_bps": cfg.slippage_bps, **{k: bt.metrics.get(k) for k in SENSITIVITY_KEYS}}]
+    wiped: dict[int, bool] = {}
     for m in multipliers:
-        more = replace(cfg, slippage_bps=cfg.slippage_bps * m)
+        more = costs.stressed(cfg, m)
         rerun = backtest_strategy(bt.strategy, bt.data, bt.sizing, more, bt.start, with_benchmark=False, tax=tax)
+        wiped[m] = float(rerun.result.equity.iloc[-1]) <= 0
         rows.append({"multiplier": m, "slippage_bps": more.slippage_bps, **{k: rerun.metrics.get(k) for k in SENSITIVITY_KEYS}})
     key = "after_tax_cagr_if_sold" if tax is not None else "cagr"
     basis = "after costs and taxes, if sold at the end" if tax is not None and tax.taxable else "after costs"
     bench = (bt.benchmark_metrics or {}).get(key)
     double = next((r for r in rows if r["multiplier"] == 2), None)
-    if cfg.slippage_bps == 0:
-        verdict = "Slippage is set to 0 bps, so doubling it changes nothing: set a realistic slippage first."
+    if all(getattr(cfg, k) == 0 for k in costs.STRESSED):
+        verdict = "Every trading cost is set to 0, so doubling them changes nothing: set realistic costs first."
+    elif wiped.get(2):
+        verdict = "At double costs the strategy loses the whole account: it does not beat buy-and-hold."
     elif double is None or double.get(key) is None or bench is None:
         verdict = "Not enough data to compare with buy-and-hold at double costs."
     else:
         beats = double[key] > bench
         verdict = (
-            f"At double slippage ({double['slippage_bps']:g} bps per fill) the strategy compounds at "
-            f"{double[key]:.1%} a year {basis}, versus {bench:.1%} for buy-and-hold: it "
-            f"{'still beats' if beats else 'does not beat'} buy-and-hold at double costs."
+            f"At double costs ({double['slippage_bps']:g} bps of slippage per fill, commissions and fees doubled "
+            f"too) the strategy compounds at {double[key]:.1%} a year {basis}, versus {bench:.1%} for "
+            f"buy-and-hold: it {'still beats' if beats else 'does not beat'} buy-and-hold at double costs."
         )
     return {"rows": rows, "benchmark": {k: (bt.benchmark_metrics or {}).get(k) for k in SENSITIVITY_KEYS}, "verdict": verdict}
 

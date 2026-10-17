@@ -5939,7 +5939,7 @@
     "sharpe": -1.3135201447,
     "skew": 0.7554580903,
     "sortino": -1.8296229941,
-    "total_costs": 7770.5107714731,
+    "total_costs": 7770.510771473,
     "total_return": -0.2925347618,
     "turnover": 26.764817248,
     "volatility": 0.045351435,
@@ -9864,7 +9864,7 @@
     "turnover": 1.9493234586
    }
   ],
-  "verdict": "At double slippage (10 bps per fill) the strategy compounds at 4.3% a year after costs and taxes, if sold at the end, versus 27.6% for buy-and-hold: it does not beat buy-and-hold at double costs."
+  "verdict": "At double costs (10 bps of slippage per fill, commissions and fees doubled too) the strategy compounds at 4.3% a year after costs and taxes, if sold at the end, versus 27.6% for buy-and-hold: it does not beat buy-and-hold at double costs."
  },
  "grid_search": {
   "best": {

@@ -624,52 +624,56 @@ def run(
         return 1
 
     run_time = _stamp(now)
-    sent = 0
-    for o in orders:
-        if halt_check is not None and halt_check():  # the kill switch, checked before every order
-            log("Kill switch turned on during the run: stopping.")
-            records.log_event(now, "halt", "The kill switch was turned on during the run; the rest was not sent.")
-            break
-        cid = client_order_id(session, o.symbol, target.key)
-        existing = client.order_by_client_id(cid)
-        if existing is None:
-            try:
-                existing = client.submit(
-                    OrderRequest(o.symbol, o.side, o.qty, cid, time_in_force=o.time_in_force, purpose="rebalance")
-                )
-                sent += 1
-            except PaperAPIError as exc:
-                log(f"  {o.symbol}: Alpaca refused the order ({exc}).")
-                records.log_event(now, "rejection", f"Alpaca refused {o.side} {o.qty:g} {o.symbol}: {exc}", symbol=o.symbol)
-                continue
-        if any(r["client_order_id"] == cid for r in rows):
-            continue  # already logged by an earlier run
-        rows.append(
-            {
-                **dict.fromkeys(ORDER_COLUMNS, ""),
-                "run_time_utc": run_time,
-                "session_date": session.isoformat(),
-                "trade_date": trade_date.isoformat(),
-                "symbol": o.symbol,
-                "side": o.side,
-                "qty": f"{o.qty:g}",
-                "type": "market",
-                "time_in_force": o.time_in_force,
-                "purpose": "rebalance",
-                "client_order_id": cid,
-                "alpaca_order_id": existing.get("id", ""),
-                "status": existing.get("status", ""),
-                "decision_close": round(o.price, 4),
-                "spec": target.key,
-                "code_version": version,
-            }
-        )
-    records.write_orders(rows)
+    sent, refused, stopped = 0, 0, False
+    try:
+        for o in orders:
+            if halt_check is not None and halt_check():  # the kill switch, checked before every order
+                log("Kill switch turned on during the run: stopping.")
+                records.log_event(now, "halt", "The kill switch was turned on during the run; the rest was not sent.")
+                stopped = True
+                break
+            cid = client_order_id(session, o.symbol, target.key)
+            existing = client.order_by_client_id(cid)
+            if existing is None:
+                try:
+                    existing = client.submit(
+                        OrderRequest(o.symbol, o.side, o.qty, cid, time_in_force=o.time_in_force, purpose="rebalance")
+                    )
+                    sent += 1
+                except PaperAPIError as exc:
+                    log(f"  {o.symbol}: Alpaca refused the order ({exc}).")
+                    records.log_event(now, "rejection", f"Alpaca refused {o.side} {o.qty:g} {o.symbol}: {exc}", symbol=o.symbol)
+                    refused += 1
+                    continue
+            if any(r["client_order_id"] == cid for r in rows):
+                continue  # already logged by an earlier run
+            rows.append(
+                {
+                    **dict.fromkeys(ORDER_COLUMNS, ""),
+                    "run_time_utc": run_time,
+                    "session_date": session.isoformat(),
+                    "trade_date": trade_date.isoformat(),
+                    "symbol": o.symbol,
+                    "side": o.side,
+                    "qty": f"{o.qty:g}",
+                    "type": "market",
+                    "time_in_force": o.time_in_force,
+                    "purpose": "rebalance",
+                    "client_order_id": cid,
+                    "alpaca_order_id": existing.get("id", ""),
+                    "status": existing.get("status", ""),
+                    "decision_close": round(o.price, 4),
+                    "spec": target.key,
+                    "code_version": version,
+                }
+            )
+    finally:
+        records.write_orders(rows)  # orders already sent stay on record even if the run fails partway
     records.log_decision(decision, session=session.isoformat(), provider=provider, run_time_utc=run_time)
     for e in risk.events:
         records.log_event(e.time, e.kind, e.message, symbol=e.symbol)
     records.record_equity(session, equity, last_equity, sum(1 for q in positions.values() if abs(q) > EPS), now)
     aimed = {s: positions.get(s, 0.0) for s in target.symbols} | {o.symbol: o.target for o in orders}
     records.save_state({"updated": run_time, "risk": risk.state(), "last_targets": remembered, "planned": aimed})
-    log(f"Sent {sent} order(s) to the Alpaca paper account.")
-    return 0
+    log(f"Sent {sent} order(s) to the Alpaca paper account" + (f"; {refused} refused." if refused else "."))
+    return 1 if refused or stopped else 0  # a refused order or a mid-run halt is a failure the job reports

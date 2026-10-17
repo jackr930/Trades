@@ -14,7 +14,7 @@ class StrategyBody(BaseModel):
 
 
 class DataBody(BaseModel):
-    symbols: list[str] = Field(min_length=1, max_length=30)
+    symbols: list[str] = Field(min_length=1, max_length=50)  # a watchlist holds up to 50
     timeframe: str = "1d"
     start: str | None = None
     end: str | None = None

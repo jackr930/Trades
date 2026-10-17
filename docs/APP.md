@@ -58,8 +58,12 @@ and both the Live Desk and the strategy call it:
 4. **Portfolio cap.** If the suggestions add up to more than the cap (100% of equity by default),
    each one shrinks in proportion.
 
-A test runs the Live Desk on data cut off at several bars and checks it gives the same action
-and weight as the strategy at those bars. Rules re-checked on a schedule (every 21 bars, a
+Every strategy runs on the dates all watchlist symbols share, as in a backtest (so a recently
+listed symbol moves everyone's first bar, and the Live Desk says so). Tests run the Live Desk on
+data cut off at several bars, including a symbol that starts later and one missing a day, and
+check it gives the same action and weight as the strategy. The suggested position shows the
+weight its whole shares hold next to the target, and says when the target is less than one
+share. Rules re-checked on a schedule (every 21 bars, a
 monthly rebalance) count from the first bar of history, so daily history always starts on
 2 January 2008: the Live Desk, `trades recommend`, the journal and backtests check on the same days.
 
@@ -68,7 +72,8 @@ monthly rebalance) count from the first bar of history, so daily history always 
 A backtest tests rules chosen after seeing the history. The journal records the Live Desk's calls
 *before* their outcome exists and scores them later. `journal/experiment.json` fixes the
 watchlist, strategies, weighting, risk settings, benchmark and providers; every row carries the
-experiment id and the code version, and changing a rule starts a new experiment.
+experiment id and the code version (marked `+dirty` when the code has uncommitted changes), and
+changing a rule starts a new experiment.
 
 ```bash
 trades journal record     # after the close; does nothing on weekends and holidays, never logs stale data
@@ -77,9 +82,11 @@ trades journal score      # rewrites journal/REPORT.md: excess return over SPY a
 
 Outcomes run from the next session's open (when a backtest would fill) to the close 5 and 21
 sessions later, minus SPY. Days, not rows, are the unit (symbols on one day move together), and
-only non-overlapping days count. Below about 60 independent days the report says it is too early
-to conclude anything; at 21 sessions that takes about five years. GitHub Actions runs both after
-every weekday close (`.github/workflows/journal.yml`).
+only non-overlapping days count. Outcomes are before costs and taxes, and SPY's own rows are left
+out (against itself its excess is always zero). Below about 60 independent days the report says it
+is too early to conclude anything; at 21 sessions that takes about five years. GitHub Actions runs
+both after every weekday close (`.github/workflows/journal.yml`) and commits the new rows even if
+scoring fails; its paper job skips itself when the repository has no Alpaca paper keys.
 
 ## Lab
 
@@ -89,7 +96,8 @@ Backtests any strategy on any symbols and dates, with next-bar fills, slippage, 
 short-borrow fees. It shows readouts first (return, Sharpe and the probability it is really above
 zero, drawdown, trades, costs), then the equity and drawdown figures against buy-and-hold, monthly
 returns, the trade list and **after-tax** results for your account. A **cost sensitivity** card
-reruns the test at 2x and 4x slippage. Parameter optimisation reports the **deflated Sharpe
+reruns the test at 2x and 4x every trading cost (spread, slippage, commissions and fees) and says
+when double costs would wipe the account out. Parameter optimisation reports the **deflated Sharpe
 ratio** (how likely the "best" result is luck), and **walk-forward** testing scores parameters
 only on data the optimiser never saw. **Replay bar by bar** sends any backtest to the simulator.
 
@@ -178,8 +186,9 @@ spec's cost section first.
 * **Your account**: starting equity, fractional shares, account type (taxable or tax-advantaged)
   and short- and long-term tax rates (estimates: use your own bracket). These are the defaults for
   the Lab, the simulators and the Live Desk. After-tax results split each year's gains into short-
-  and long-term, net them and carry losses forward; simplifications: average cost, no wash-sale
-  rule, federal tax only.
+  and long-term, net them and carry losses forward. Gains on short sales are always short-term,
+  and commissions reduce taxable gains in the year they are paid. Simplifications: average cost,
+  no wash-sale rule, federal tax only.
 * **What protects you**: the kill switch, and the risk limits from `risk/limits.yaml`, read-only
   (only Jack edits that file).
 

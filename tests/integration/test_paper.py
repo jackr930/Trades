@@ -243,6 +243,43 @@ def test_alpaca_rejecting_a_duplicate_is_not_a_crash(tmp_path):
     assert {e["kind"] for e in records.events()} == {"rejection"}
 
 
+def test_a_refused_order_fails_the_run_and_the_others_still_go(tmp_path):
+    """A refusal is a failure the scheduled job must report, but it stops nothing else."""
+    target, fake = synthetic_target(), FakeAlpaca()
+    real, refused = fake.handler, []
+
+    def refuse_the_first_order(request):
+        if request.url.path == "/v2/orders" and request.method == "POST" and not refused:
+            refused.append(json.loads(request.content)["symbol"])
+            return httpx.Response(403, json={"message": "insufficient buying power"})
+        return real(request)
+
+    fake.handler = refuse_the_first_order
+    code, lines = _run(target, fake, tmp_path)
+    records = PaperRecords(target.key, root=tmp_path / "paper")
+    assert code == 1 and refused and lines[-1].endswith("; 1 refused.")
+    assert fake.posts > 0 and len(records.read_orders()) == fake.posts  # the rest were sent and logged
+    assert "rejection" in {e["kind"] for e in records.events()}
+
+
+def test_orders_already_sent_stay_on_record_when_a_run_fails_partway(tmp_path):
+    target, fake = synthetic_target(), FakeAlpaca()
+    real, lookups = fake.handler, []
+
+    def alpaca_fails_on_the_second_lookup(request):
+        if request.url.path == "/v2/orders:by_client_order_id":
+            lookups.append(1)
+            if len(lookups) == 2:
+                return httpx.Response(503, json={"message": "service unavailable"})
+        return real(request)
+
+    fake.handler = alpaca_fails_on_the_second_lookup
+    with pytest.raises(PaperAPIError):
+        _run(target, fake, tmp_path)
+    rows = PaperRecords(target.key, root=tmp_path / "paper").read_orders()
+    assert fake.posts == 1 and [r["alpaca_order_id"] for r in rows] == ["o1"]
+
+
 def test_reconciliation_uses_actual_fills_and_positions(tmp_path):
     target, fake = synthetic_target(), FakeAlpaca()
     _run(target, fake, tmp_path)
@@ -296,7 +333,7 @@ def test_kill_switch_stops_a_run_before_any_order(tmp_path):
         return len(calls) > 1
 
     code, lines = _run(target, fake, tmp_path, halt_check=flips_after_the_decision)
-    assert fake.posts == 0 and "Kill switch turned on during the run: stopping." in lines
+    assert code == 1 and fake.posts == 0 and "Kill switch turned on during the run: stopping." in lines
     assert [e["kind"] for e in PaperRecords(target.key, root=tmp_path / "paper").events()] == ["halt"]
 
 

@@ -326,7 +326,8 @@ class Consensus(Strategy):
         over each configured pair. Returns symbol -> [(label, category, votes per bar)]."""
         symbols = list(data)
         ballots: dict[str, list[tuple[str, str, np.ndarray]]] = {s: [] for s in symbols}
-        for m in self.members:
+        names = [m.name for m in self.members]
+        for i, m in enumerate(self.members):
             if m.kind is Kind.SINGLE:
                 groups = [[s] for s in symbols]
             elif m.kind is Kind.CROSS_SECTIONAL:
@@ -338,7 +339,8 @@ class Consensus(Strategy):
                     out = m.run({s: data[s] for s in group})
                 except ValueError:
                     continue  # the Live Desk shows an error vote, which does not count either
-                label = m.name + (f" ({group[0]}/{group[1]})" if m.kind is Kind.PAIR else "")
+                label = m.name if names.count(m.name) == 1 else f"{m.name} #{names[: i + 1].count(m.name)}"
+                label += f" ({group[0]}/{group[1]})" if m.kind is Kind.PAIR else ""  # one column per member
                 for s in group:
                     ballots[s].append((label, m.category, member_votes(m, out, s)))
         return ballots
