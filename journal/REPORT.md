@@ -1,16 +1,16 @@
 # Forward journal report
 
-Scored from `journal/recommendations.csv` with prices through 2026-11-09.
+Scored from `journal/recommendations.csv` with prices through 2026-11-10.
 
 Outcome of a recommendation: the symbol's return from the next session's open to the close 5 or 21 sessions later, minus SPY's return over the same window. Outcomes are averaged within each day first (symbols move together), and only days at least one horizon apart are used, so every observation is independent. Each experiment is scored on its own. Outcomes are before trading costs and taxes, and SPY's own rows are left out (against itself its excess is always zero).
 
 ## Experiment `c19ae262d0b0`
 
-17 sessions recorded (2026-10-05 to 2026-11-09), 136 rows; code version(s) `b49dc0a0f680`, `1f0b53c4f97d`, `d5ff50f30504`.
+18 sessions recorded (2026-10-05 to 2026-11-10), 144 rows; code version(s) `b49dc0a0f680`, `1f0b53c4f97d`, `d5ff50f30504`.
 
 ### 5-session horizon
 
-84 of 136 rows have a finished window.
+91 of 144 rows have a finished window.
 
 | Label | Independent days | Mean excess vs SPY | Hit rate vs SPY | t-stat |
 | --- | --- | --- | --- | --- |
@@ -32,7 +32,7 @@ Outcome of a recommendation: the symbol's return from the next session's open to
 
 ### 21-session horizon
 
-35 of 136 rows have a finished window.
+42 of 144 rows have a finished window.
 
 | Label | Independent days | Mean excess vs SPY | Hit rate vs SPY | t-stat |
 | --- | --- | --- | --- | --- |
