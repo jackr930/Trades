@@ -1,16 +1,16 @@
 # Forward journal report
 
-Scored from `journal/recommendations.csv` with prices through 2026-11-12.
+Scored from `journal/recommendations.csv` with prices through 2026-11-13.
 
 Outcome of a recommendation: the symbol's return from the next session's open to the close 5 or 21 sessions later, minus SPY's return over the same window. Outcomes are averaged within each day first (symbols move together), and only days at least one horizon apart are used, so every observation is independent. Each experiment is scored on its own. Outcomes are before trading costs and taxes, and SPY's own rows are left out (against itself its excess is always zero).
 
 ## Experiment `c19ae262d0b0`
 
-19 sessions recorded (2026-10-05 to 2026-11-12), 152 rows; code version(s) `b49dc0a0f680`, `1f0b53c4f97d`, `d5ff50f30504`.
+20 sessions recorded (2026-10-05 to 2026-11-13), 160 rows; code version(s) `b49dc0a0f680`, `1f0b53c4f97d`, `d5ff50f30504`.
 
 ### 5-session horizon
 
-105 of 152 rows have a finished window.
+112 of 160 rows have a finished window.
 
 | Label | Independent days | Mean excess vs SPY | Hit rate vs SPY | t-stat |
 | --- | --- | --- | --- | --- |
@@ -24,7 +24,7 @@ Outcome of a recommendation: the symbol's return from the next session's open to
 | donchian_breakout | 4 | +0.02% | 4 | -0.26% |
 | faber_trend | 4 | +0.16% | 4 | -0.13% |
 | ma_crossover | 4 | -0.49% | 4 | +1.71% |
-| rsi2_reversion | 3 | -1.00% | 4 | +0.24% |
+| rsi2_reversion | 4 | -1.10% | 4 | +0.24% |
 | tsmom | 4 | -0.52% | 4 | +1.39% |
 | xs_momentum | 4 | +1.74% | 4 | -0.94% |
 
@@ -32,7 +32,7 @@ Outcome of a recommendation: the symbol's return from the next session's open to
 
 ### 21-session horizon
 
-42 of 152 rows have a finished window.
+49 of 160 rows have a finished window.
 
 | Label | Independent days | Mean excess vs SPY | Hit rate vs SPY | t-stat |
 | --- | --- | --- | --- | --- |
